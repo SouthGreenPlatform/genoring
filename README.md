@@ -1,92 +1,185 @@
 # GenoRing
 
-
-
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.cirad.fr/agap/genoring.git
-git branch -M master
-git push -uf origin master
-```
-
-## Integrate with your tools
-
-- [ ] [Set up project integrations](https://gitlab.cirad.fr/agap/genoring/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing(SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thank you to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
+GenoRing is a platform for genomic components that fulfills GenoRing framework.
 
 ## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+GenoRing is a platform for genomic components that fulfills GenoRing framework.
+The core of GenoRing is the GenoRing Drupal distribution that articulates other
+components all together using Docker features. GenoRing can operate on a
+variety of genomic data
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### Features
+
+* Install and start in one command line
+* Easy to maintain (auto-update by command line arguments)
+* Modular (components)
+* Flexible (enable/disable components, local versions)
+* Highly customizable (config, data sources, CMS features with themes)
+* Persistent (local data can be backuped)
+* Preconfigured profiles
+* Automated backups
+* Data file format standardization
+* Data import/export and mapping
+* BrAPI compliant
+* User management interface (with access restrictions)
+* Integrated CMS (Drupal)
+* Easy to integrate to existing systems
+
+
+### Architecture
+
+Drupal is an open source content management system (CMS) for building amazing
+digital experiences. It's free and made by a dedicated community. The GenoRing
+Drupal distribution is a fully packaged Drupal distribution focused on
+genomic-dedicated extensions that also includes other useful more generic
+extensions. It is partially pre-configured to simplify its deployment and
+administration.
+
+To offer a ready-to-use genomic platform, GenoRing relies on Docker container
+system. Docker is a set of platform as a service (PaaS) products that use
+OS-level virtualization to deliver software in packages called containers.
+With the Docker Container system, it is possible to run the GenoRing platform
+with only the required components but also to add or remove other components on
+demand afterward, easily manage and update each component separately and take
+profit for all the other nice features docker system offers like component
+segregation, security, scalability and versioning just to name a few.
+
+### Framework
+
+The GenoRing framework defines the design of GenoRing components. A GenoRing
+component can be a Drupal module, a docker container service or a combination of
+both that is related to genomics. While some components may require others to
+work properly, each component could be added or removed as needed: in case a
+component has missing dependencies, it should not crash the system but rather
+display a message explaining the problem(s).
+
+GenoRing components packaged as docker containers can be replaced by
+corresponding local services easily by using generated configuration files. Each
+component provides a documentation on how to perform the service migration from
+its docker form to a local instance.
+
+### Data mapping
+
+One common pitfalls in genomic tools is to support any variation of a given
+input file format or a wide variety of data sources. It can become a quite
+complex task to handle every special use case. To provide generic components
+that will be able to work with many file format variations or data sources,
+GenoRing relies on data mapping and convertion tools as well as custom data
+loader, in order to insure each tool will use an expected input format to behave
+properly.
+
+### components
+
+ * Core: Drupal CMS, PostgreSQL database, Nginx server
+
+...
 
 ## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+
+GenoRing requires Docker with Docker Compose V2.
+
+**Download** the GenoRing repository and **edit the configuration** file
+"genoring.env" to change what is needed (read the file comments for help).
+
+Depending on your server architecture, you may also have to configure HTTP
+server ports.
+
+**This is it**: GenoRing is ready to be started!
+
+See "Management" section for more details.
+
 
 ## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+
+Start GenoRing (from installation directory):
+```
+  # docker compose up -d
+```
+
+Stop GenoRing:
+```
+  # docker compose down -d
+```
+
+Start GenoRing with Gigwa and JBrowse components:
+```
+  # docker compose --profile gigwa --profile jbrowse up -d
+```
+
+Start GenoRing using Apache HTTPd instead of Nginx:
+```
+  # cp ./overrides/docker-compose.override.apache-httpd.yml docker-compose.override.yml
+  # docker compose --env-file ./env/httpd.env up -d
+```
+
+
+## Management
+
+The first time GenoRing is run, it will install the required components
+automatically which may takes several minutes before the system is ready. The
+next times, it will just start the required dockers and will be faster ready.
+The update process will require GenoRing to be turned off and restarted; the
+update process may also take more time than a regular start to get GenoRing
+online.
+
+### Update
+
+To update Drupal use the command:
+```
+  # docker compose -e DRUPAL_UPDATE=1 up -d
+```
+Note: you may add other parameters to the command line as needed.
+
+### Reinstall
+
+...
+
+### Switching to local components
+
+...
+
+### Trouble shooting
+
+...
 
 ## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+
+Report issues or support request on GenoRing Git issue queue at:
+
+https://gitlab.cirad.fr/agap/genoring/-/issues
+
 
 ## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+
+Alpha release:
+1) Basic Drupal site with a couple of modules and minor pre-configuration
+2) Integration of a Drupal GenoRing distribution
+3) Integration of Gigwa component
+4) HTTP server alternative with Apache HTTPd
+5) New plans toward a beta release
+
 
 ## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+SouthGreen Platform
+  * CIRAD
+  * IRD
+  * The Alliance Bioversity - CIAT
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
 
 ## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+
+* Valentin GUIGNON, The Alliance Bioveristy - CIAT (CGIAR), v.guignon@cgiar.org
+
+* ...
+
 
 ## License
-For open source projects, say how it is licensed.
+
+This project is licensed under the MIT License.
+
 
 ## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+
+Under active development.
