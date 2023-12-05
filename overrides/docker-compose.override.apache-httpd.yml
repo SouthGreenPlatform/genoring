@@ -1,0 +1,24 @@
+# GenoRing HTTPd docker compose file
+#
+# Usage: rename this file into docker-compose.override.yml and place it next to
+# the original docker-compose.yml.
+#
+# Then run with "docker compose up -d"
+# Stop with "docker compose down"
+#
+
+version: '3.4'
+
+services:
+
+  proxy:
+    image: httpd:2.4
+    env_file:
+      - './env/httpd.env'
+    ports:
+      - 8080:80
+    volumes:
+      - genoring-drupal-volume:/opt/drupal
+    depends_on:
+      - genoring
+    restart: always

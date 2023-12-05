@@ -15,9 +15,11 @@ if [ ! -e ./web/modules/contrib/external_entities ]; then
     && composer -n require drupal/brapi \
     && composer -n require drupal/token \
     && composer -n require drupal/geofield \
+    && composer -n require drupal/leaflet \
+    # && composer -n require drupal/rdf_entity \
     && composer -n require drupal/dbxschema \
-    && composer -n require drupal/external_entities \
     && composer -n require drupal/imagecache_external \
+    && composer -n require drupal/external_entities \
     && composer -n require drupal/xnttdb \
     && composer -n require drupal/xnttbrapi \
     && composer -n require drupal/xnttfiles \
@@ -31,9 +33,9 @@ if [ ! -e ./web/modules/contrib/external_entities ]; then
     && composer -n require drupal/xnttyaml \
     && composer -n require drupal/chadol \
     && composer -n require drupal/gbif2 \
-    && composer -n require drupal/xnttviews
-  # @todo: add other modules...
-  #   && composer -n require drupal/chadol
+    && composer -n require drupal/xnttviews \
+    && composer -n require drupal/bibcite \
+    && composer -n require drupal/gigwa
   echo "...Drupal extensions download done."
 else
   echo "Drupal extensions already downloaded."
@@ -94,11 +96,11 @@ else
   # Install Drupal.
   ./vendor/drush/drush/drush -y site-install standard \
     --db-url=pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DRUPAL_DB \
-    --account-mail="genoring@localhost" \
-    --account-name=genoring \
+    --account-mail="$DRUPAL_USER_MAIL" \
+    --account-name="$DRUPAL_USER" \
     --account-pass="$DRUPAL_PASSWORD" \
-    --site-mail="genoring@localhost" \
-    --site-name="GenoRing Alpha 1"
+    --site-mail="$DRUPAL_SITE_MAIL" \
+    --site-name="$DRUPAL_SITE_NAME"
 
   # Other config stuff.
   chmod -R uog+w ./private ./config ./web/sites/default/files
@@ -142,13 +144,13 @@ for cfile in composer.json composer.lock ; do
 done
 echo "... done synchronizing host."
 
-# TODO: Auto-update Drupal and modules.
-if [ $DRUPAL_AUTO_UPDATE -gt 0 ]; then
-  echo "Auto-updating Drupal..."
+# Update Drupal and modules.
+if [ $DRUPAL_UPDATE -gt 0 ]; then
+  echo "Updating Drupal..."
   # @todo: backup DB and restore if errors.
   composer update --with-all-dependencies
   ./vendor/drush/drush/drush -y updb
-  echo "...Drupal Auto-update done."
+  echo "...Drupal update done."
 fi
 
 # Launch PHP-fpm

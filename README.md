@@ -110,7 +110,7 @@ Start GenoRing with Gigwa and JBrowse components:
 Start GenoRing using Apache HTTPd instead of Nginx:
 ```
   # cp ./overrides/docker-compose.override.apache-httpd.yml docker-compose.override.yml
-  # docker compose --env-file ./env/httpd.env up -d
+  # docker compose up -d
 ```
 
 
