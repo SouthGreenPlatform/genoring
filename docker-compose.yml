@@ -34,7 +34,7 @@ services:
     env_file:
       - './env/nginx.env'
     ports:
-      - 8080:${NGINX_PORT}
+      - 8080:80
     volumes:
       - type: bind
         source: ./proxy/genoring-fpm.conf
