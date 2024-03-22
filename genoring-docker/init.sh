@@ -16,7 +16,6 @@ if [ ! -e ./web/modules/contrib/external_entities ]; then
     && composer -n require drupal/token \
     && composer -n require drupal/geofield \
     && composer -n require drupal/leaflet \
-    # && composer -n require drupal/rdf_entity \
     && composer -n require drupal/dbxschema \
     && composer -n require drupal/imagecache_external \
     && composer -n require drupal/external_entities \
@@ -36,6 +35,7 @@ if [ ! -e ./web/modules/contrib/external_entities ]; then
     && composer -n require drupal/xnttviews \
     && composer -n require drupal/bibcite \
     && composer -n require drupal/gigwa
+    # && composer -n require drupal/rdf_entity \  
   echo "...Drupal extensions download done."
 else
   echo "Drupal extensions already downloaded."

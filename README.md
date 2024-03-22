@@ -99,7 +99,7 @@ Start GenoRing (from installation directory):
 
 Stop GenoRing:
 ```
-  # docker compose down -d
+  # docker compose down
 ```
 
 Start GenoRing with Gigwa and JBrowse components:
