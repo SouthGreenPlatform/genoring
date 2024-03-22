@@ -11,7 +11,7 @@ version: '3.4'
 services:
 
   genoring:
-    image: guignon/genoring:alpha1
+    image: guignon/genoring:alpha2
     env_file:
       - './env/genoring.env'
     volumes:
