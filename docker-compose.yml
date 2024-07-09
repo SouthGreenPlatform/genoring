@@ -18,12 +18,6 @@ services:
       - './env/genoring.env'
     volumes:
       - genoring-drupal-volume:/opt/drupal
-      # We can not mount './volumes/drupal' directly as it is a named volume.
-      # - ./volumes/drupal/web:/opt/drupal/web
-      # - ./volumes/drupal/vendor:/opt/drupal/vendor
-      # - ./volumes/drupal/config:/opt/drupal/config
-      # - ./volumes/drupal/private:/opt/drupal/private
-      # - ./volumes/php:/opt/drupal/php
     depends_on:
       - db
     restart: unless-stopped

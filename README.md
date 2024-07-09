@@ -172,15 +172,23 @@ described here.
 ### Trouble shooting
 
 * If Drupal pages load but without style and images (many 404 in logs), it
-might be because of a Docker volume mounting issue. The proxy server can not
-access static files. You will have to investigate if the volumes are properly
-mounted and were correctly initialized.
+  might be because of a Docker volume mounting issue. The proxy server can not
+  access static files. You will have to investigate if the volumes are properly
+  mounted and were correctly initialized.
 
 * When installing Drupal (the first time), the database docker logs a couple of
-errors like "ERROR:  relation "..." does not exist ... STATEMENT:  SELECT ...".
-These errors, as long as they occure before Drupal installation is completed,
-can be ignored as they are due to the way Drupal checks if tables exist.
+  errors like "ERROR:  relation "..." does not exist ... STATEMENT:  SELECT...".
+  These errors, as long as they occure before Drupal installation is completed,
+  can be ignored as they are due to the way Drupal checks if tables exist.
 
+* "The provided host name is not valid for this server." error message means you
+  did not setup the environment variable "DRUPAL_TRUSTED_HOST" in
+  "env/genoring.env" when installing.
+  You will have to edit "./volumes/drupal/web/sites/default/settings.php" and
+  update the setting "$settings['trusted_host_patterns']".
+
+* Mails are not sent: the "DRUPAL_SITE_MAIL" environment variable as not been
+  set properly.
 
 ## Support
 
