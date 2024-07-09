@@ -2,6 +2,7 @@
 
 GenoRing is a platform for genomic components that fulfills GenoRing framework.
 
+
 ## Description
 
 GenoRing is a platform for genomic components that fulfills GenoRing framework.
@@ -25,7 +26,6 @@ variety of genomic data
 * User management interface (with access restrictions)
 * Integrated CMS (Drupal)
 * Easy to integrate to existing systems
-
 
 ### Architecture
 
@@ -72,8 +72,9 @@ properly.
 ### components
 
  * Core: Drupal CMS, PostgreSQL database, Nginx server
+ * Gigwa: Gigwa, MongoDB
+ * JBrowse: JBrowse
 
-...
 
 ## Installation
 
@@ -82,19 +83,36 @@ GenoRing requires Docker with Docker Compose V2.
 **Download** the GenoRing repository and **edit the configuration** file
 "genoring.env" to change what is needed (read the file comments for help).
 
+You will need to create an empty directory "volumes/drupal" because empty
+directories can not be added to git repositories while it is requiered for
+docker compose mapping.
+
 Depending on your server architecture, you may also have to configure HTTP
 server ports.
 
-**This is it**: GenoRing is ready to be started!
+**This is it**: GenoRing is ready to be started! See "Usage" section.
 
 See "Management" section for more details.
 
 
 ## Usage
 
+Install and start GenoRing for the *first time* (from installation directory):
+```
+  # sudo mkdir -p volumes/drupal
+  # docker compose up -d && docker compose logs -f
+```
+You will see the installation process and can stop watching the logs using
+Ctrl+C.
+
 Start GenoRing (from installation directory):
 ```
   # docker compose up -d
+```
+
+See what is going on (logs):
+```
+  # docker compose logs -f
 ```
 
 Stop GenoRing:
@@ -127,21 +145,42 @@ online.
 
 To update Drupal use the command:
 ```
-  # docker compose -e DRUPAL_UPDATE=1 up -d
+  # docker compose run -e DRUPAL_UPDATE=1 genoring
 ```
 Note: you may add other parameters to the command line as needed.
 
 ### Reinstall
 
-...
+To clear all previous trials and get a clean install:
+```
+  # docker compose down
+  # docker container prune -f
+  # docker image rm genoring
+  # docker image prune -f
+  # docker volume rm genoring-drupal
+  # sudo rm -rf volumes/
+  # sudo mkdir -p volumes/drupal
+```
 
 ### Switching to local components
 
-...
+TODO.
+Idea: each module will provide a doc to follow to replace the docker module by
+a local version. The core case (Drupal, database, http proxy/server) will be
+described here.
 
 ### Trouble shooting
 
-...
+* If Drupal pages load but without style and images (many 404 in logs), it
+might be because of a Docker volume mounting issue. The proxy server can not
+access static files. You will have to investigate if the volumes are properly
+mounted and were correctly initialized.
+
+* When installing Drupal (the first time), the database docker logs a couple of
+errors like "ERROR:  relation "..." does not exist ... STATEMENT:  SELECT ...".
+These errors, as long as they occure before Drupal installation is completed,
+can be ignored as they are due to the way Drupal checks if tables exist.
+
 
 ## Support
 
@@ -156,8 +195,9 @@ Alpha release:
 1) Basic Drupal site with a couple of modules and minor pre-configuration
 2) Integration of a Drupal GenoRing distribution
 3) Integration of Gigwa component
-4) HTTP server alternative with Apache HTTPd
-5) New plans toward a beta release
+4) Integration of JBrowse component
+5) HTTP server alternative with Apache HTTPd
+6) New plans toward a beta release
 
 
 ## Contributing
@@ -172,7 +212,7 @@ SouthGreen Platform
 
 * Valentin GUIGNON, The Alliance Bioveristy - CIAT (CGIAR), v.guignon@cgiar.org
 
-* ...
+* SouthGreen platform.
 
 
 ## License

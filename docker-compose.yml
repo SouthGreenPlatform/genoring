@@ -3,34 +3,34 @@
 # Run with "docker compose up" or "docker compose up -d"
 # Stop with "docker compose down"
 #
+# Requires Docker compose version >= 3.4
+#
 # Access through "http://localhost:8080"
 #
-
-version: '3.4'
 
 services:
 
   genoring:
-    image: guignon/genoring:alpha2
+    # image: guignon/genoring:alpha2
+    image: genoring
+    container_name: genoring
     env_file:
       - './env/genoring.env'
     volumes:
       - genoring-drupal-volume:/opt/drupal
-      - ./volumes/drupal/modules:/opt/drupal/web/modules
-      - ./volumes/drupal/profiles:/opt/drupal/web/profiles
-      - ./volumes/drupal/themes:/opt/drupal/web/themes
-      - ./volumes/drupal/vendor:/opt/drupal/vendor
-      - ./volumes/drupal/config:/opt/drupal/config
-      - ./volumes/drupal/private:/opt/drupal/private
-      - ./volumes/drupal/sites/default:/opt/drupal/web/sites/default
-      - ./volumes/drupal/drupal:/opt/drupal/exposed
-      - ./volumes/php:/opt/drupal/php
+      # We can not mount './volumes/drupal' directly as it is a named volume.
+      # - ./volumes/drupal/web:/opt/drupal/web
+      # - ./volumes/drupal/vendor:/opt/drupal/vendor
+      # - ./volumes/drupal/config:/opt/drupal/config
+      # - ./volumes/drupal/private:/opt/drupal/private
+      # - ./volumes/php:/opt/drupal/php
     depends_on:
       - db
-    restart: always
+    restart: unless-stopped
 
   proxy:
     image: nginx
+    container_name: genoring-http
     env_file:
       - './env/nginx.env'
     ports:
@@ -39,6 +39,9 @@ services:
       - type: bind
         source: ./proxy/genoring-fpm.conf
         target: /etc/nginx/templates/default.conf.template
+      - type: bind
+        source: ./proxy/init.html
+        target: /var/www/html/init.html
       - genoring-drupal-volume:/opt/drupal
     depends_on:
       - genoring
@@ -46,6 +49,7 @@ services:
 
   db:
     image: postgres:15
+    container_name: genoring-db
     env_file:
       - './env/genoring.env'
     volumes:
@@ -55,6 +59,7 @@ services:
   gigwa_service:
     profiles: ["gigwa"]
     image: guilhemsempere/gigwa:2.6.2-beta
+    container_name: genoring-gigwa
     env_file:
       - './env/gigwa.env'
     ports:
@@ -68,6 +73,7 @@ services:
   mongo:
     profiles: ["gigwa"]
     image: mongo:4.2.24
+    container_name: genoring-mongodb
     env_file:
       - './env/gigwa.env'
     command: --profile 0 --slowms 60000 --storageEngine wiredTiger --wiredTigerCollectionBlockCompressor=zstd --directoryperdb --quiet
@@ -77,5 +83,20 @@ services:
       - ./volumes/mongo:/data/db
     restart: always
 
+  jbrowse:
+    profiles: ["jbrowse"]
+    image: jbrowse/gmod-jbrowse
+    container_name: genoring-jbrowse
+    env_file:
+      - './env/jbrowse.env'
+    ports:
+      - 8124:80
+    restart: always
+
 volumes:
   genoring-drupal-volume:
+    name: "genoring-drupal"
+    driver_opts:
+      type: none
+      device: ${PWD}/volumes/drupal
+      o: bind
