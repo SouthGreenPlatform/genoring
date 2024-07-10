@@ -177,10 +177,16 @@ echo "... done synchronizing host."
 # Update Drupal and modules.
 if [ $DRUPAL_UPDATE -gt 0 ]; then
   echo "Updating Drupal..."
+  # @todo Set Drupal offline.
   # @todo Backup DB and restore if errors.
   composer update --with-all-dependencies
   ./vendor/drush/drush/drush -y updb
+  # @todo Set Drupal online.
   echo "...Drupal update done."
+  if [ $DRUPAL_UPDATE -eq 2 ]; then
+    # Update and stop.
+    exit 0;
+  fi
 fi
 
 echo "Running PHP-fpm..."

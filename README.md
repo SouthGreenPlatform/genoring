@@ -143,10 +143,13 @@ online.
 
 ### Update
 
-To update Drupal use the command:
+To manually update Drupal use this command (while GenoRing is running):
 ```
-  # docker compose run -e DRUPAL_UPDATE=1 genoring
+  # docker compose run -e DRUPAL_UPDATE=2 genoring
 ```
+DRUPAL_UPDATE=1 is used in environment settings to auto-update Drupal each time
+GenoRing starts while DRUPAL_UPDATE=2 is used to manually update Drupal without
+starting GenoRing (which should be already running in another docker instance).
 Note: you may add other parameters to the command line as needed.
 
 ### Reinstall
@@ -177,7 +180,7 @@ described here.
   mounted and were correctly initialized.
 
 * When installing Drupal (the first time), the database docker logs a couple of
-  errors like "ERROR:  relation "..." does not exist ... STATEMENT:  SELECT...".
+  errors like "ERROR:  relation "..." does not exist ... STATEMENT: ...".
   These errors, as long as they occure before Drupal installation is completed,
   can be ignored as they are due to the way Drupal checks if tables exist.
 
