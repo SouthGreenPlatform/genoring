@@ -18,6 +18,7 @@ services:
       - './env/genoring.env'
     volumes:
       - genoring-drupal-volume:/opt/drupal
+      - genoring-data-volume:/data
     depends_on:
       - db
     restart: unless-stopped
@@ -31,12 +32,14 @@ services:
       - 8080:80
     volumes:
       - type: bind
-        source: ./proxy/genoring-fpm.conf
+        source: ${PWD}/proxy/genoring-fpm.conf
         target: /etc/nginx/templates/default.conf.template
       - type: bind
-        source: ./proxy/init.html
+        source: ${PWD}/proxy/init.html
         target: /var/www/html/init.html
+      - ${PWD}/proxy/extensions:/etc/nginx/genoring
       - genoring-drupal-volume:/opt/drupal
+      - genoring-data-volume:/data
     depends_on:
       - genoring
     restart: always
@@ -47,22 +50,24 @@ services:
     env_file:
       - './env/genoring.env'
     volumes:
-      - ./volumes/db/pgdata:/var/lib/postgresql/data
+      - ${PWD}/volumes/db/pgdata:/var/lib/postgresql/data
+      - genoring-data-volume:/data
     restart: always
 
-  gigwa_service:
+  gigwa:
     profiles: ["gigwa"]
-    image: guilhemsempere/gigwa:2.6.2-beta
+    image: guilhemsempere/gigwa:2.8-RELEASE
     container_name: genoring-gigwa
     env_file:
       - './env/gigwa.env'
     ports:
       - 8123:8080
     volumes:
-      - ./volumes/gigwa:/usr/local/tomcat/config
+      - genoring-data-volume:/data
+      # - ${PWD}/volumes/gigwa:/usr/local/tomcat/config
     depends_on:
       - mongo
-    restart: always
+    restart: unless-stopped
 
   mongo:
     profiles: ["gigwa"]
@@ -74,18 +79,21 @@ services:
     ports:
       - 59393:27017 # You may amend the external port only (left hand side), which must match the above MONGO_PORT
     volumes:
-      - ./volumes/mongo:/data/db
+      - genoring-data-volume:/data
+      # - ${PWD}/volumes/mongo:/data/db
     restart: always
 
-  jbrowse:
-    profiles: ["jbrowse"]
-    image: jbrowse/gmod-jbrowse
-    container_name: genoring-jbrowse
+  jbrowse2:
+    profiles: ["jbrowse2"]
+    image: genoring-jbrowse2
+    container_name: genoring-jbrowse2
     env_file:
-      - './env/jbrowse.env'
+      - './env/jbrowse2.env'
     ports:
-      - 8124:80
-    restart: always
+      - 8124:8080
+    restart: unless-stopped
+    volumes:
+      - genoring-data-volume:/data
 
 volumes:
   genoring-drupal-volume:
@@ -93,4 +101,10 @@ volumes:
     driver_opts:
       type: none
       device: ${PWD}/volumes/drupal
+      o: bind
+  genoring-data-volume:
+    name: "genoring-data"
+    driver_opts:
+      type: none
+      device: ${PWD}/volumes/data
       o: bind

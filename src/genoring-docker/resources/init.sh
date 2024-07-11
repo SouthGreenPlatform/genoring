@@ -162,6 +162,12 @@ else
 
 fi
 
+echo "Process extensions scrips..."
+if [ -z "$( find /opt/genoring/init/ -maxdepth 0 -type f -not -empty -name '*.sh' )" ]; then
+  /opt/genoring/init/*.sh
+fi
+echo "..processing extensions scrips done."
+
 echo "Synchronizing host config..."
 # Synchronize PHP config.
 if [[ ! -e ./php ]] || [[ ! -e ./php/php.ini ]]; then

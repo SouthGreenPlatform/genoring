@@ -73,7 +73,7 @@ properly.
 
  * Core: Drupal CMS, PostgreSQL database, Nginx server
  * Gigwa: Gigwa, MongoDB
- * JBrowse: JBrowse
+ * JBrowse2: JBrowse2
 
 
 ## Installation
@@ -120,10 +120,19 @@ Stop GenoRing:
   # docker compose down
 ```
 
-Start GenoRing with Gigwa and JBrowse components:
+Start GenoRing with Gigwa and JBrowse2 components:
 ```
-  # docker compose --profile gigwa --profile jbrowse up -d
+  # export COMPOSE_PROFILES=gigwa,jbrowse2
+  # docker compose up -d
 ```
+Note: using docker compose commande line parameter "--profile" is not
+recommended because it prevents GenoRing elements from knowing wich components
+have been enabled. However, the environment variable COMPOSE_PROFILES allows
+GenoRing extension to know  other extension enabled using the environement
+variable in their environement file (ie.: COMPOSE_PROFILES=${COMPOSE_PROFILES})
+and ensure next docker compose commands will also operate on the enabled
+extensions.
+
 
 Start GenoRing using Apache HTTPd instead of Nginx:
 ```
