@@ -1,192 +1,288 @@
 # GenoRing
 
-GenoRing is a platform for genomic components that fulfills GenoRing framework.
+GenoRing is a platform for genomic tools that fulfills GenoRing framework.
+
+
+## Table of contents
+
+- Description
+- Installation
+- Management
+- Support
+- Authors and acknowledgment
+- License
 
 
 ## Description
 
-GenoRing is a platform for genomic components that fulfills GenoRing framework.
+GenoRing is a platform for genomic tools that fulfills GenoRing framework.
 The core of GenoRing is the GenoRing Drupal distribution that articulates other
-components all together using Docker features. GenoRing can operate on a
-variety of genomic data
+tools all together using Docker features. GenoRing can operate on a variety of
+genomic data as well as other type of scientific data through modules.
 
 ### Features
 
 * Install and start in one command line
+* Limited dependencies: Docker, Perl and Linux.
 * Easy to maintain (auto-update by command line arguments)
-* Modular (components)
-* Flexible (enable/disable components, local versions)
+* Modular (modules)
+* Flexible (enable/disable modules, switch to local versions)
+* Integrated CMS (Drupal)
 * Highly customizable (config, data sources, CMS features with themes)
-* Persistent (local data can be backuped)
-* Preconfigured profiles
+* Persistent (data can be backuped)
 * Automated backups
 * Data file format standardization
 * Data import/export and mapping
-* BrAPI compliant
+* BrAPI compliant and customizable JSON REST services
 * User management interface (with access restrictions)
-* Integrated CMS (Drupal)
-* Easy to integrate to existing systems
+* Easy to integrate to existing systems (through external data mapping UI)
 
 ### Architecture
 
 Drupal is an open source content management system (CMS) for building amazing
 digital experiences. It's free and made by a dedicated community. The GenoRing
 Drupal distribution is a fully packaged Drupal distribution focused on
-genomic-dedicated extensions that also includes other useful more generic
-extensions. It is partially pre-configured to simplify its deployment and
+genomic-dedicated modules that also includes other useful more generic
+modules. It is partially pre-configured to simplify its deployment and
 administration.
 
 To offer a ready-to-use genomic platform, GenoRing relies on Docker container
 system. Docker is a set of platform as a service (PaaS) products that use
 OS-level virtualization to deliver software in packages called containers.
 With the Docker Container system, it is possible to run the GenoRing platform
-with only the required components but also to add or remove other components on
-demand afterward, easily manage and update each component separately and take
-profit for all the other nice features docker system offers like component
+with only the required modules but also to add or remove other modules on
+demand afterward, easily manage and update each module separately and take
+profit for all the other nice features docker system offers like container
 segregation, security, scalability and versioning just to name a few.
+
+GenoRing is started and managed through a single PERL script that provides many
+operations on the framework. The choice of a script rather than just using
+docker commands and config files was driven by the necessity to reliably manage
+GenoRing modules as well as afford some other complex tasks. The PERL
+language was selected because it is included in almost every Linux distribution
+or available as a package for other systems, avoids to setup a specific
+version of another language such as Python for instance and is more flexible,
+robust and powerfull than a shell script.
 
 ### Framework
 
-The GenoRing framework defines the design of GenoRing components. A GenoRing
-component can be a Drupal module, a docker container service or a combination of
-both that is related to genomics. While some components may require others to
-work properly, each component could be added or removed as needed: in case a
-component has missing dependencies, it should not crash the system but rather
-display a message explaining the problem(s).
+The GenoRing framework defines the design of GenoRing modules. A GenoRing
+module can be a Drupal module, a docker container or a combination of both that
+is generally related to genomics. While some modules may require others to work
+properly, each module could be added or removed as needed: in case a module has
+missing dependencies, it should not crash the system but rather log a message
+explaining the problem(s). GenoRing modules must be located in the GenoRing
+installation "modules" directory as subdirectories (one directory per module).
 
-GenoRing components packaged as docker containers can be replaced by
-corresponding local services easily by using generated configuration files. Each
-component provides a documentation on how to perform the service migration from
-its docker form to a local instance.
+GenoRing modules based on docker containers can be replaced by equivalent local
+services without too much efforts by using generated configuration files and
+following the related instructions.
+
+In some cases, GenoRing modules may provide alternative dockers to suite
+specific needs. For instance, the core GenoRing module provides an Apache HTTPd
+server as an alternative to the default NGINX proxy server for people more
+confortable with Apache HTTPd config files. A documentation explaining how to
+switch from a component to another is provided in such cases.
+
+GenoRing modules use "hook scripts" that are automatically triggered by the
+GenoRing PERL script to manage changes such as modules installation,
+uninstallation and update.
+
+#### Structure of a GenoRing module
+
+A GenoRing module is a directory with the following structure:
+- "README.md": a README file explaining the puprose of the module and how it
+  works.
+- "env": a directory containing environment files used by the module that may be
+  edited by the site administrator to adjust configuration elements.
+  Each environment file can hold multiple environment variables, one by line,
+  following the format "VARIABLE_NAME=variable value" preceded by comments
+  documenting the variable usage. Some @tags should also be present to explain
+  how the variable is used:
+  - "SET": means it is recommended to customize the variable
+  - "OPT": means the variable can be customize or left as is
+  - "INS": means the variable is used at installation
+  - "RUN": means the variable is used at runtime
+  Ex.:
+    # - Drupal admin account name
+    #   @tags: OPT INS
+    DRUPAL_USER=genoring
+  See modules/genoring/env/genoring.env for more examples.
+- "services": a set of YAML files containing the docker definition of each
+  service provided by the module. See
+  https://docs.docker.com/compose/compose-file/05-services/ for details.
+  The definition should not include the "services:" element nor an element name
+  for the service and should not include a "container_name" parameter as it will
+  be automatically set by GenoRing using the YAML file name. The indentation
+  must not include extra-spaces for lisibility as they will be automatically
+  managed by the GenoRing script. To avoid conflicts between modules, service
+  names should be prefixed by their module name followed by a dash.
+- "volumes": a set of YAML files corresponding to named volumes shared accross
+  dockers. These are not to be confused with volumes that can be defined in the
+  services above. A module service can mount a shared volume in its "volumes"
+  section but the point is that this shared volume can also be mounted by
+  services in other modules for data sharing. See
+  https://docs.docker.com/compose/compose-file/07-volumes/ for details.
+  Since a same shared volume may be defined in multiple modules, the GenoRing
+  script will ensure they use the same definition using the volume's version
+  number provided as comment in the volume's YAML file header (ie. "# v1.0").
+  The GenoRing script will only keep the latest sub-version definition (ie. if
+  there is a 1.0 and a 1.1 definition, it will use the 1.1 definition) or the
+  last definition met and will raise an error in case of different major
+  versions and abort module activation (ie. 1.0 vs 2.0).
+- "hooks": a directory holding hook scripts. Hook scripts may be available or
+  not for a given action and can be PERL scripts for local system actions or
+  shell scripts that should be run in module containers.
+  Those scripts use special names to by triggered on specific events.
+  - "init.pl" will be called on the local system when the module is installed
+    and enabled.
+  - "uninstall.pl" will be called on the local system when the module is
+    disabled and uninstalled.
+  - "update.pl" will be called on the local system when the module is updated.
+  - "init_<container_name>.sh" will be called on the corresponding container to
+    alter other containers when needed (eg. adding menu items for the module
+    features, pre-configuring Drupal modules, etc.).
+  - "uninstall_<container_name>.sh" will be called on the corresponding
+    container to remove the modifications made by the "init_<container_name>.sh"
+    script.
+  - "update_<container_name>.sh" will be called on the corresponding container
+    to perform updates.
+  Note: When running shell scripts inside containers, the GenoRing "modules"
+  directory is mounted in the container as "/genoring/modules" and allow access
+  to module's files if needed.
+- "src": if the module uses custom containers, their sources will be provided
+  there in sub-directories corresponding to service names (ie. YAML file names
+  without the ".yml" extensions).
 
 ### Data mapping
 
 One common pitfalls in genomic tools is to support any variation of a given
 input file format or a wide variety of data sources. It can become a quite
-complex task to handle every special use case. To provide generic components
+complex task to handle every special use case. To provide generic modules
 that will be able to work with many file format variations or data sources,
 GenoRing relies on data mapping and convertion tools as well as custom data
 loader, in order to insure each tool will use an expected input format to behave
 properly.
 
-### components
+### Modules
 
- * Core: Drupal CMS, PostgreSQL database, Nginx server
- * Gigwa: Gigwa, MongoDB
- * JBrowse2: JBrowse2
+* genoring: core GenoRing system.
+  Services:
+  * genoring: Drupal CMS and PHP processor (FPM)
+  * genoring-db: PostgreSQL database
+  * genoring-proxy: Nginx server
+* gigwa: Genotype Investigator for Genome-Wide Analyses application.
+  Services:
+  * genoring-gigwa: Apache Tomcat server serving GIGWA
+  * genoring-mongodb: MongoDB database
+* jbrowse2: JBrowse2 genome web browser.
+  Services:
+  * jbrowse2: npx serving JBrowse2
 
 
 ## Installation
 
-GenoRing requires Docker with Docker Compose V2.
+GenoRing requires Docker with Docker Compose V2+ and PERL 5.
 
-**Download** the GenoRing repository and **edit the configuration** file
-"genoring.env" to change what is needed (read the file comments for help).
+**Download** the GenoRing repository on your system.
 
-You will need to create an empty directory "volumes/drupal" because empty
-directories can not be added to git repositories while it is requiered for
-docker compose mapping.
+Depending on your server architecture, you may have to configure HTTP server
+ports to allow external access to the GenoRing platform.
 
-Depending on your server architecture, you may also have to configure HTTP
-server ports.
-
-**This is it**: GenoRing is ready to be started! See "Usage" section.
+**This is it**: GenoRing is ready to be started!
 
 See "Management" section for more details.
 
 
-## Usage
-
-Install and start GenoRing for the *first time* (from installation directory):
-```
-  # sudo mkdir -p volumes/drupal
-  # docker compose up -d && docker compose logs -f
-```
-You will see the installation process and can stop watching the logs using
-Ctrl+C.
-
-Start GenoRing (from installation directory):
-```
-  # docker compose up -d
-```
-
-See what is going on (logs):
-```
-  # docker compose logs -f
-```
-
-Stop GenoRing:
-```
-  # docker compose down
-```
-
-Start GenoRing with Gigwa and JBrowse2 components:
-```
-  # export COMPOSE_PROFILES=gigwa,jbrowse2
-  # docker compose up -d
-```
-Note: using docker compose commande line parameter "--profile" is not
-recommended because it prevents GenoRing elements from knowing wich components
-have been enabled. However, the environment variable COMPOSE_PROFILES allows
-GenoRing extension to know  other extension enabled using the environement
-variable in their environement file (ie.: COMPOSE_PROFILES=${COMPOSE_PROFILES})
-and ensure next docker compose commands will also operate on the enabled
-extensions.
-
-
-Start GenoRing using Apache HTTPd instead of Nginx:
-```
-  # cp ./overrides/docker-compose.override.apache-httpd.yml docker-compose.override.yml
-  # docker compose up -d
-```
-
-
 ## Management
 
-The first time GenoRing is run, it will install the required components
+Configure and start GenoRing for the *first time* (from installation directory):
+```
+  # perl genoring.pl start
+```
+Follow the installation process.
+
+Note: The first time GenoRing is run, it will install the required modules
 automatically which may takes several minutes before the system is ready. The
-next times, it will just start the required dockers and will be faster ready.
+next times, it will just start the required containers and will be faster ready.
 The update process will require GenoRing to be turned off and restarted; the
 update process may also take more time than a regular start to get GenoRing
 online.
 
-### Update
-
-To manually update Drupal use this command (while GenoRing is running):
+Start GenoRing (from installation directory):
 ```
-  # docker compose run -e DRUPAL_UPDATE=2 genoring
+  # perl genoring.pl start
 ```
-DRUPAL_UPDATE=1 is used in environment settings to auto-update Drupal each time
-GenoRing starts while DRUPAL_UPDATE=2 is used to manually update Drupal without
-starting GenoRing (which should be already running in another docker instance).
-Note: you may add other parameters to the command line as needed.
 
-### Reinstall
+See what is going on (logs):
+```
+  # perl genoring.pl logs -f
+```
+
+Stop GenoRing:
+```
+  # perl genoring.pl stop
+```
+
+Start GenoRing with Gigwa and JBrowse2 modules:
+```
+  # perl genoring.pl install gigwa jbrowse2
+  # perl genoring.pl start
+```
+
+Remove JBrowse2 module:
+```
+  # perl genoring.pl uninstall jbrowse2
+```
+
+Start GenoRing using Apache HTTPd instead of Nginx:
+```
+  # perl genoring.pl mod genoring httpd
+  # perl genoring.pl start
+```
+
+Put back Nginx:
+```
+  # perl genoring.pl mod genoring nginx
+```
+
+Update all modules:
+```
+  # perl genoring.pl update
+```
+
+Just update the core (Drupal):
+```
+  # perl genoring.pl update genoring
+```
+
+Just update the Gigwa module:
+```
+  # perl genoring.pl update gigwa
+```
+
+If you run into problems, the GenoRing system appears to be crashed, can't be
+restarted and you don't have backups, you may need to completly reinitialize the
+GenoRing platform.
 
 To clear all previous trials and get a clean install:
 ```
-  # docker compose down
-  # docker container prune -f
-  # docker image rm genoring
-  # docker image prune -f
-  # docker volume rm genoring-drupal
-  # sudo rm -rf volumes/
-  # sudo mkdir -p volumes/drupal
+  # perl genoring.pl reinitialize
 ```
 
 ### Switching to local components
 
-TODO.
-Idea: each module will provide a doc to follow to replace the docker module by
-a local version. The core case (Drupal, database, http proxy/server) will be
-described here.
+When it is possible, the process to switch from a module container to a
+corresponding local service is explained in the module's README file in a
+"Switching" section.
+
+## Support
+
+Report issues or support request on GenoRing Git issue queue at:
+
+https://gitlab.cirad.fr/agap/genoring/-/issues
 
 ### Trouble shooting
-
-* If Drupal pages load but without style and images (many 404 in logs), it
-  might be because of a Docker volume mounting issue. The proxy server can not
-  access static files. You will have to investigate if the volumes are properly
-  mounted and were correctly initialized.
 
 * When installing Drupal (the first time), the database docker logs a couple of
   errors like "ERROR:  relation "..." does not exist ... STATEMENT: ...".
@@ -202,30 +298,10 @@ described here.
 * Mails are not sent: the "DRUPAL_SITE_MAIL" environment variable as not been
   set properly.
 
-## Support
-
-Report issues or support request on GenoRing Git issue queue at:
-
-https://gitlab.cirad.fr/agap/genoring/-/issues
-
-
-## Roadmap
-
-Alpha release:
-1) Basic Drupal site with a couple of modules and minor pre-configuration
-2) Integration of a Drupal GenoRing distribution
-3) Integration of Gigwa component
-4) Integration of JBrowse component
-5) HTTP server alternative with Apache HTTPd
-6) New plans toward a beta release
-
-
-## Contributing
-
-SouthGreen Platform
-  * CIRAD
-  * IRD
-  * The Alliance Bioversity - CIAT
+* If Drupal pages load but without style and images (many 404 in logs), it
+  might be because of a Docker volume mounting issue. The proxy server can not
+  access static files. You will have to investigate if the volumes are properly
+  mounted and were correctly initialized.
 
 
 ## Authors and acknowledgment
@@ -234,12 +310,15 @@ SouthGreen Platform
 
 * SouthGreen platform.
 
+### Contributing
+
+SouthGreen Platform
+  * CIRAD
+  * IRD
+  * INRAE
+  * The Alliance Bioversity - CIAT
+
 
 ## License
 
 This project is licensed under the MIT License.
-
-
-## Project status
-
-Under active development.

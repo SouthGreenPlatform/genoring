@@ -1,0 +1,10 @@
+# v1.0
+image: genoring
+env_file:
+  - ${PWD}/extensions/genoring/env/genoring.env
+volumes:
+  - genoring-drupal-volume:/opt/drupal
+  - genoring-data-volume:/data
+depends_on:
+  - genoring-db
+restart: unless-stopped

@@ -1,0 +1,12 @@
+# v1.0
+image: guilhemsempere/gigwa:2.8-RELEASE
+env_file:
+  - ${PWD}/extensions/gigwa/env/gigwa.env
+ports:
+  - 8123:8080
+volumes:
+  - ${PWD}/volumes/gigwa:/usr/local/tomcat/config
+  - genoring-data-volume:/data
+depends_on:
+  - genoring-mongodb
+restart: unless-stopped

@@ -163,7 +163,7 @@ else
 fi
 
 echo "Process extensions scrips..."
-if [ -z "$( find /opt/genoring/init/ -maxdepth 0 -type f -not -empty -name '*.sh' )" ]; then
+if [ -d /opt/genoring/init/ && -z "$( find /opt/genoring/init/ -maxdepth 0 -type f -not -empty -name '*.sh' )" ]; then
   /opt/genoring/init/*.sh
 fi
 echo "..processing extensions scrips done."

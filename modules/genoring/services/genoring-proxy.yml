@@ -1,0 +1,19 @@
+# v1.0
+image: nginx
+env_file:
+  - ${PWD}/extensions/genoring/env/nginx.env
+ports:
+  - 8080:80
+volumes:
+  - type: bind
+    source: ${PWD}/volumes/proxy/genoring-fpm.conf
+    target: /etc/nginx/templates/default.conf.template
+  - type: bind
+    source: ${PWD}/volumes/proxy/init.html
+    target: /var/www/html/init.html
+  - ${PWD}/volumes/proxy/extensions:/etc/nginx/genoring
+  - genoring-drupal-volume:/opt/drupal
+  - genoring-data-volume:/data
+depends_on:
+  - genoring
+restart: always

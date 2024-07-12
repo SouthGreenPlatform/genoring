@@ -1,0 +1,6 @@
+# v1.0
+name: "genoring-drupal"
+driver_opts:
+  type: none
+  device: ${PWD}/volumes/drupal
+  o: bind
