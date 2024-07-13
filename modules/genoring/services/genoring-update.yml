@@ -1,10 +1,8 @@
 # v1.0
 image: nginx
-profiles: ["prod","staging","dev"]
+profiles: ["backend"]
 env_file:
   - ${PWD}/modules/genoring/env/nginx.env
-ports:
-  - 8080:80
 volumes:
   - type: bind
     source: ${PWD}/volumes/proxy/genoring-fpm.conf
@@ -15,7 +13,6 @@ volumes:
   - ${PWD}/volumes/proxy/modules:/etc/nginx/genoring
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
+depends_on:
+  - genoring
 restart: always
-# Depencies will be added automatically for the proxy.
-# depends_on:
-#   - genoring

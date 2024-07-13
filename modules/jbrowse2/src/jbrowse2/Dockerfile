@@ -1,21 +1,23 @@
 # Compile with:
 # docker build -t genoring-jbrowse2 .
 
-FROM node:lts-alpine3.13
+FROM node:22-bookworm
 
-LABEL org.opencontainers.image.authors="v.guignon@cgiar.org"
+LABEL net.genoring.image.authors="v.guignon@cgiar.org"
 
 USER root
 
 WORKDIR /
 
+# Install dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends samtools tabix
+
+# Install JBrowse 2.
 RUN mkdir jbrowse2 \
   && cd jbrowse2 \
   && wget https://github.com/GMOD/jbrowse-components/releases/download/v2.12.3/jbrowse-web-v2.12.3.zip \
   && unzip jbrowse-web-v2.12.3.zip \
   && rm jbrowse-web-v2.12.3.zip
-
-COPY ./nginx/jbrowse.conf /etc/nginx/genoring/jbrowse.conf
 
 WORKDIR /jbrowse2
 

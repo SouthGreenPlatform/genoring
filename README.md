@@ -108,6 +108,9 @@ A GenoRing module is a directory with the following structure:
     #   @tags: OPT INS
     DRUPAL_USER=genoring
   See modules/genoring/env/genoring.env for more examples.
+  Note: enabled Docker Compose profiles can be provided to a container through
+  an environment variable defined as "COMPOSE_PROFILES=${COMPOSE_PROFILES}".
+  See "services" note for details on Docker Compose profiles.
 - "services": a set of YAML files containing the docker definition of each
   service provided by the module. See
   https://docs.docker.com/compose/compose-file/05-services/ for details.
@@ -117,6 +120,17 @@ A GenoRing module is a directory with the following structure:
   must not include extra-spaces for lisibility as they will be automatically
   managed by the GenoRing script. To avoid conflicts between modules, service
   names should be prefixed by their module name followed by a dash.
+  Note: 5 profiles are managed by GenoRing and can be used in the service
+  definitions (ie. "profiles: [...]") to limit the use of a service to a given
+  context:
+  - "prod": set for production site.
+  - "staging": set for staging site.
+  - "dev": set for developement site.
+  - "backend": only enabled for backend operations like module installation,
+    update and uninstallation.
+  - "offline": only enabled when the site is offline.
+  Without specific profiles, the service is always loaded (if the module is
+  enabled).
 - "volumes": a set of YAML files corresponding to named volumes shared accross
   dockers. These are not to be confused with volumes that can be defined in the
   services above. A module service can mount a shared volume in its "volumes"
@@ -130,19 +144,35 @@ A GenoRing module is a directory with the following structure:
   there is a 1.0 and a 1.1 definition, it will use the 1.1 definition) or the
   last definition met and will raise an error in case of different major
   versions and abort module activation (ie. 1.0 vs 2.0).
+  Note: while YAML files do not need a 'genoring-' prefix, this prefix will be
+  automatically added to avoid collisions with other volumes managed by docker.
+  Therefore, this prefix must be used in service definitions where a shared
+  volume names are used.
 - "hooks": a directory holding hook scripts. Hook scripts may be available or
   not for a given action and can be PERL scripts for local system actions or
   shell scripts that should be run in module containers.
   Those scripts use special names to by triggered on specific events.
   - "init.pl" will be called on the local system when the module is installed
     and enabled.
+  - "disable.pl" will be called on the local system when the module is
+    disabled.
   - "uninstall.pl" will be called on the local system when the module is
-    disabled and uninstalled.
+    disabled and uninstalled. The module will be disabled first and "disable.pl"
+    will be called by the system before "uninstall.pl".
   - "update.pl" will be called on the local system when the module is updated.
-  - "init_<container_name>.sh" will be called on the corresponding container to
+  - "backup.pl" will be called on the local system before a backup will be
+    created.
+  - "state.pl" will be called on the local system when the status of the module
+    is needed. When this script is not provided, the system will rely on Docker
+    container state. However, in some cases like for the genoring service, the
+    container might be running but may not be fully initialized. Therefore, such
+    a script is needed to get the real container state. The script will just
+    output a line with the container state. The ready state string to use is
+    'running'.
+  - "enable_<container_name>.sh" will be called on the corresponding container to
     alter other containers when needed (eg. adding menu items for the module
     features, pre-configuring Drupal modules, etc.).
-  - "uninstall_<container_name>.sh" will be called on the corresponding
+  - "disable_<container_name>.sh" will be called on the corresponding
     container to remove the modifications made by the "init_<container_name>.sh"
     script.
   - "update_<container_name>.sh" will be called on the corresponding container
@@ -153,6 +183,12 @@ A GenoRing module is a directory with the following structure:
 - "src": if the module uses custom containers, their sources will be provided
   there in sub-directories corresponding to service names (ie. YAML file names
   without the ".yml" extensions).
+- "res": if the module needs additional directory and files, that could be
+   mounted in containers for instance, they should be put in this resources
+   directory.
+   Note: Any resource that could be edited by the administrator for
+   customization should be copied in a sub-directory of the "./volumes/"
+   directory at installation time.
 
 ### Data mapping
 

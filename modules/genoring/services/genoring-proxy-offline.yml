@@ -1,0 +1,10 @@
+# v1.0
+image: nginx
+profiles: ["offline"]
+env_file:
+  - ${PWD}/modules/genoring/env/nginx.env
+ports:
+  - 8080:80
+volumes:
+  - ${PWD}/volumes/offline:/var/www/html
+restart: always

@@ -1,0 +1,35 @@
+Remaining tasks:
+- finish genoring shell script to PERL script translation.
+  - start
+  - setup
+  - enable module
+  - stop
+  - restart
+  - logs
+  - status
+  - reinitialize
+  - update
+  - disable module
+  - uninstall module
+  - offline
+  - backup
+  - restore
+- hook support:
+  - "init.pl"
+  - "disable.pl"
+  - "uninstall.pl"
+  - "update.pl"
+  - "backup.pl"
+  - "enable_<container_name>.sh"
+  - "disable_<container_name>.sh"
+  - "update_<container_name>.sh"
+- add support for profiles "prod", "staging", "dev", "backend" and "offline"
+  - in genoring PERL script: choice between prod/staging/dev should be made at
+    installation time. A new parameter "offline" should be supported.
+  - in genoring Drupal image to select modules to enable
+- make gigwa work
+- make jbrowse2 work
+- test offline mode
+- test update mode
+- improve status when site is installing
+- build dockers on lighter images (alpine-based)

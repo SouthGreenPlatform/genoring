@@ -1,7 +1,7 @@
 # v1.0
 image: mongo:4.2.24
 env_file:
-  - ${PWD}/env/gigwa.env
+  - ${PWD}/modules/gigwa/env/gigwa.env
 ports:
   - 59393:27017 # You may amend the external port only (left hand side), which must match environment MONGO_PORT
 volumes:

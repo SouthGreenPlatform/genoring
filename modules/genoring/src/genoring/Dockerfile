@@ -4,7 +4,7 @@
 # docker build -t genoring4.0.0beta3-drupal10.1.2-php8.2-fpm-bookworm .
 FROM php:8.2-fpm-bookworm
 
-LABEL org.opencontainers.image.authors="v.guignon@cgiar.org"
+LABEL net.genoring.image.authors="v.guignon@cgiar.org"
 
 # Environment
 ENV POSTGRES_HOST=db
@@ -102,9 +102,9 @@ RUN { \
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
 # Drupal pre-setup
-COPY ./resources /opt/resources
-RUN chmod u+rx /opt/resources/init.sh
+COPY ./res /opt/genoring
+RUN chmod u+rx /opt/genoring/init.sh
 RUN mkdir -p /opt/drupal
 WORKDIR /opt/drupal
 
-CMD /opt/resources/init.sh
+CMD /opt/genoring/init.sh
