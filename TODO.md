@@ -1,13 +1,9 @@
 Remaining tasks:
 - finish genoring shell script to PERL script translation.
-  - start
+  - split up initialisation of StartGenoring in subroutines
   - setup
   - enable module
-  - stop
   - restart
-  - logs
-  - status
-  - reinitialize
   - update
   - disable module
   - uninstall module
