@@ -77,6 +77,10 @@ fi
 # Check if the database is already initialized.
 # Wait for database ready (3 minutes max).
 echo "Waiting for database server to be ready..."
+if [ ! -z "$POSTGRES_PASSWORD" ]; then
+  # Update credential in case of change.
+  echo "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$POSTGRES_PASSWORD" >~/.pgpass && chmod go-rwx ~/.pgpass
+fi
 loop_count=0
 while ! pg_isready -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER && [[ "$loop_count" -lt 180 ]]; do
   echo -n "."
@@ -88,11 +92,16 @@ if [[ "$loop_count" -ge 180 ]]; then
   exit 1
 fi
 echo "...Database server seems ready."
-
-if [ "$( psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -XtAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DRUPAL_DB';" )" = '1' ]; then
+test_drupal_db=$( psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -XtAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DRUPAL_DB';" )
+test_drupal_db_error=$?
+if [ '1' = "$test_drupal_db" ]; then
   # Database already initialized.
   echo "Database already initialized."
 else
+  if [ $test_drupal_db_error -ne 0 ]; then
+    >&2 echo "ERROR: Failed to connect to PostgreSQL database. Stopping here."
+    exit 1
+  fi
   # Initialize database...
   echo "Setup database..."
   # Setup PostgreSQL.
@@ -106,7 +115,11 @@ else
     cp ./web/sites/default/default.settings.php ./web/sites/default/settings.php
     # Append some settings.
     echo -e "\n\$settings['config_sync_directory'] = '../config/sync';\n\$settings['file_private_path'] = '/opt/drupal/private/';\n" >>./web/sites/default/settings.php
-    echo -e "\n\$settings['trusted_host_patterns'] = [$DRUPAL_TRUSTED_HOST];\n" >>./web/sites/default/settings.php
+    echo -e "\n\$settings['trusted_host_patterns'] = [" >>./web/sites/default/settings.php
+    # We must not use "echo -e" for $DRUPAL_TRUSTED_HOST because it complicates
+    # escaping in env file, especially for "\E".
+    echo "$DRUPAL_TRUSTED_HOST" >>./web/sites/default/settings.php
+    echo -e "];\n" >>./web/sites/default/settings.php
     # Append auto-include for external databases settings in "external_databases.php".
     echo -e "\n\nif (file_exists(\$app_root . '/' . \$site_path . '/external_databases.php')) {\n  include \$app_root . '/' . \$site_path . '/external_databases.php';\n}\n" >>./web/sites/default/settings.php
     echo "   OK"
@@ -130,7 +143,7 @@ else
 
   if [ ! -e ./web/sites/default/external_databases.php ]; then
     echo "* external_databases.php"
-    cp /opt/resources/external_databases.template.php ./web/sites/default/external_databases.php
+    cp /opt/genoring/external_databases.template.php ./web/sites/default/external_databases.php
     echo "   OK"
   fi
 
@@ -157,13 +170,13 @@ else
   echo "...Drupal extensions setup done."
 
   echo "Setup GenoRing site..."
-  ./vendor/drush/drush/drush -y php:script /opt/resources/init_site.php
+  ./vendor/drush/drush/drush -y php:script /opt/genoring/init_site.php
   echo "...GenoRing site setup done."
 
 fi
 
 echo "Process extensions scrips..."
-if [ -d /opt/genoring/init/ && -z "$( find /opt/genoring/init/ -maxdepth 0 -type f -not -empty -name '*.sh' )" ]; then
+if [[ -d /opt/genoring/init/ ]] && [[ -z "$( find /opt/genoring/init/ -maxdepth 0 -type f -not -empty -name '*.sh' )" ]]; then
   /opt/genoring/init/*.sh
 fi
 echo "..processing extensions scrips done."

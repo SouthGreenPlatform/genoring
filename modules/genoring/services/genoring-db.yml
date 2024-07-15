@@ -1,7 +1,7 @@
 # v1.0
 image: postgres:15
 env_file:
-  - ${PWD}/modules/genoring/env/genoring.env
+  - ${PWD}/modules/genoring/env/db.env
 volumes:
   - ${PWD}/volumes/db/pgdata:/var/lib/postgresql/data
   - genoring-data-volume:/data

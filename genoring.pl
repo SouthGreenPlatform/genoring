@@ -53,10 +53,6 @@ B<$DOCKER_COMPOSE_FILE>: (string)
 
 Name of the Docker Compose file.
 
-B<$CONFIG_FILE>: (string)
-
-Name of the GenoRing config file.
-
 B<$MODULE_FILE>: (string)
 
 Name of the module config file.
@@ -74,7 +70,6 @@ Maximum number of seconds to wait for a service to be ready (running).
 our $GENORING_VERSION = '1.0';
 our $BASEDIR = dirname(__FILE__);
 our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
-our $CONFIG_FILE = 'genoring.conf';
 our $MODULE_FILE = 'modules.conf';
 our $MODULE_DIR = 'modules';
 our $STATE_MAX_TRIES = 120;
@@ -113,9 +108,82 @@ my $g_flags = {};
 
 =head1 FUNCTIONS
 
+=head2 Run
+
+B<Description>: Runs a shell command and displays a message in case of error. If
+$fatal_error is TRUE, calls die() and use warn() otherwise.
+
+B<ArgsCount>: 3
+
+=over 4
+
+=item $command: (string) (R)
+
+The command line to execute.
+
+=item $error_message: (string) (U)
+
+The error message to display in case of error. Do not prefix it with 'ERROR' or
+'WARNING' as it will be automatically managed in this routine.
+
+=item $fatal_error: (string) (O)
+
+If TRUE, the error is fatal and the script should die. Otherwise, just warn.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub Run {
+  my ($command, $error_message, $fatal_error) = @_;
+
+  # Get caller.
+  my ($package, $filename, $line, $subroutine) = caller(1);
+  $subroutine = $subroutine ? $subroutine . ': ' : '';
+  $subroutine =~ s/^main:://;
+
+  if (!$command) {
+    die "ERROR: ${subroutine}Run: No command to run!";
+  }
+
+  $error_message ||= 'Execution failed!';
+  $error_message = ($fatal_error ? 'ERROR: ' : 'WARNING: ')
+    . $subroutine
+    . $error_message;
+
+  my $failed = system($command);
+
+  if ($? == -1) {
+    $error_message = "$error_message (error $?)\n$!";
+  }
+  elsif ($? & 127) {
+    $error_message = "$error_message\n"
+      . sprintf(
+        "Child died with signal %d, %s coredump\n",
+        ($? & 127), ($? & 128) ? 'with' : 'without'
+      );
+  }
+  else {
+    $error_message = "$error_message " . sprintf("(error %d)", $? >> 8);
+  }
+  
+  if ($failed) {
+    if ($fatal_error) {
+      die($error_message);
+    }
+    else {
+      warn($error_message);
+    }
+  }
+}
+
+=pod
+
 =head2 StartGenoring
 
-B<Description>: Starts GenoRing platform by calling docker compose. If the
+B<Description>: Starts GenoRing platform by calling docker compose up -d. If the
 system has not been installed yet, the installation process will be
 automatically started first.
 
@@ -126,44 +194,31 @@ B<Return>: (nothing)
 =cut
 
 sub StartGenoring {
-  # Check if setup needs to be run first.
-  my %modules;
-  if (!-e $MODULE_FILE) {
-    my $module_fh;
-    if (open($module_fh, ">$MODULE_FILE")) {
-      print {$module_fh} "genoring\n";
-      close($module_fh);
-      $modules{'genoring'} = 'genoring';
-    }
-    else {
-      die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
-    }
-  }
-  else {
-    # Get enabled modules.
-    my $module_fh;
-    if (open($module_fh, $MODULE_FILE)) {
-      while (<$module_fh>) {
-        $_ =~ s/^\s+|\s+$//g;
-        $modules{$_} = $_;
-      }
-      close($module_fh);
-    }
-    else {
-      die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
-    }
-  }
+  print "Starting GenoRing...\n";
 
+  # Get enabled modules.
+  my $modules = GetModules(1);
+  
+  # @todo Compile missing containers with sources.
+
+  # Check if setup needs to be run first.
   if (!-e $DOCKER_COMPOSE_FILE) {
     # Needs first-time initialization.
+    print "- GenoRing needs to be setup\n";
     # @todo
     # Process environment variables and ask user for inputs for variables with
     # tags SET et OPT.
+    print "- Setup environment...\n";
+    print "  ...Environment setup done.\n";
+
     # Generate docker-compose.yml...
+    print "- Generating Docker Compose main file...\n";
     my %services;
     my %volumes;
     my @proxy_dependencies;
-    foreach my $module (keys(%modules)) {
+    foreach my $module (@$modules) {
+      print "  - Processing $module module\n";
+
       # Work on module services.
       opendir(my $dh, "$MODULE_DIR/$module/services")
         or die "ERROR: StartGenoring: Failed to access '$MODULE_DIR/$module/services' directory!\n$!";
@@ -232,6 +287,7 @@ sub StartGenoring {
         }
         close($vl_fh);
       }
+      print "    OK\n";
     }
     # Done with all modules, add proxy dependencies.
     if (exists($services{'genoring-proxy'})) {
@@ -239,6 +295,7 @@ sub StartGenoring {
     }
 
     # Generate "services" and "volumes" sections from enabled services.
+    print "  All modules processed.\n";
     # Add other modules to genoring container dependencies (depends_on:).
     my $dc_fh;
     if (open($dc_fh, ">$DOCKER_COMPOSE_FILE")) {
@@ -272,85 +329,322 @@ sub StartGenoring {
     else {
       die "ERROR: failed to open Docker Compose file '$DOCKER_COMPOSE_FILE':\n$!\n";
     }
+    print "  ...Docker Compose file generated.\n";
 
     # Apply global initialization hooks (modules/*/hooks/init.pl).
-    foreach my $module (keys(%modules)) {
+    print "- Initialiazing modules...\n";
+    foreach my $module (@$modules) {
       if (-e "$MODULE_DIR/$module/hooks/init.pl") {
-        system("perl $BASEDIR/$MODULE_DIR/$module/hooks/init.pl")
-          or die "ERROR: StartGenoring: Failed to initialize $module module!\n$!\n";
+        print "  Initialiazing $module module...";
+        Run(
+          "perl $MODULE_DIR/$module/hooks/init.pl",
+          "Failed to initialize $module module!",
+          1
+        );
+        print "OK\n";
       }
     }
+    print "  Modules initialiazed on local system, initializing services...\n";
 
     # Start dockers in backend mode.
-    # @todo Use COMPOSE_PROFILES instead.
-    system("docker compose --profile backend up -d")
-      or die "ERROR: StartGenoring: Failed to start GenoRing backend!\n$!\n";
+    print "  - Starting GenoRing backend for initialization...\n";
+    $ENV{'COMPOSE_PROFILES'} = 'backend';
+    Run(
+      "docker compose up -d",
+      "Failed to start GenoRing backend!",
+      1
+    );
+    print "    OK\n";
 
     # Check dockers are ready.
-    foreach my $module (keys(%modules)) {
-      if (-e "$MODULE_DIR/$module/hooks/state.pl") {
-        my $tries = $STATE_MAX_TRIES;
-        my $state = `perl $MODULE_DIR/$module/hooks/state.pl`;
-        if ($?) {
-          die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
-        }
-        print "Checking if $module module is ready...\n";
-        while (--$tries && ($state !~ m/running/i)) {
-          print '.';
-          sleep(1);
-          $state = `perl $MODULE_DIR/$module/hooks/state.pl`;
-          if ($?) {
-            die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
-          }
-        }
-        if ($state !~ m/running|ready/i) {
-          die sprintf("ERROR: StartGenoring: Failed to get $module module initialized in less than %d min!", $STATE_MAX_TRIES/60);
-        }
-      }
-    }
+    print "  - Waiting for all services to be operational...\n";
+    WaitModulesReady(@$modules);
+    print "    OK\n";
 
     # Apply docker initialization hooks of each enabled module for each
     # enabled module (ie. modules/"mod1"/hooks/init_"mod2".sh).
-    foreach my $module (keys(%modules)) {
+    print "  - Applying container initialization hooks...\n";
+    foreach my $module (@$modules) {
       if (-d "$MODULE_DIR/$module/hooks/") {
         # readdir and filter.
+        # @todo
+      }
+    }
+    print "    OK\n";
+    print "  ...Modules initialiazed.\n";
+
+    # Stop containers.
+    print "- Stopping backend.\n";
+    StopGenoring();
+  }
+
+  print "- Starting GenoRing...\n";
+  # set COMPOSE_PROFILES according to $CONFIG_FILE.
+  $ENV{'COMPOSE_PROFILES'} = 'dev';
+  Run(
+    "docker compose up -d",
+    "Failed to start GenoRing!",
+    1
+  );
+  print "  GenoRing started.\n";
+  WaitModulesReady(@$modules);
+  print "  GenoRing is ready to accept client connections.\n";
+}
+
+=pod
+
+=head2 StopGenoring
+
+B<Description>: Stops GenoRing platform by calling docker compose down.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub StopGenoring {
+  Run(
+    "docker compose --profile '*' down --remove-orphans",
+    "Failed to stop GenoRing!",
+    1
+  );
+}
+
+=pod
+
+=head2 GetLogs
+
+B<Description>: Displays GenoRing logs.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub GetLogs {
+  Run(
+    "docker compose logs -f",
+    "Failed to GenoRing logs!",
+    1
+  );
+}
+
+=pod
+
+=head2 GetStatus
+
+B<Description>: Displays GenorRing status.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $container: (string) (O)
+
+Container name.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub GetStatus {
+   print GetState(@_) . "\n";
+}
+
+=pod
+
+=head2 GetState
+
+B<Description>: Displays the given GenorRing container state or a global state
+for all GenoRing containers (ie. 'running' only if all a running, otherwise the
+first non-running state).
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $container: (string) (O)
+
+Container name.
+
+=back
+
+B<Return>: (string)
+  The GenoRing or container state.
+
+=cut
+
+sub GetState {
+  my ($container) = @_;
+  my $state = '';
+  if ($container) {
+    (undef, $state) = IsContainerRunning($container);
+  }
+  else {
+    my $states = `docker compose ps --all --format '{{.Names}} {{.State}}'`;
+    $state = $states ? 'running' : '';
+    foreach my $line (split(/\n+/, $states)) {
+      if ($line !~ m/\srunning$/) {
+        ($state) = ($line =~ m/(\S+)\s*$/);
+        last;
+      }
+    }
+  }
+
+  return $state;
+}
+
+=pod
+
+=head2 GetModuleRealState
+
+B<Description>: Returns the given module real state (can be different from the
+state returned by Docker).
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $container: (string) (O)
+
+Container name.
+
+=back
+
+B<Return>: (string)
+
+The module state. Should be one of "created", "running", "restarting", "paused",
+"dead", "exited" or an empty string if not available (not running).
+
+=cut
+
+sub GetModuleRealState {
+  my ($module, $progress) = @_;
+  my $state = '';
+  if (-e "$MODULE_DIR/$module/hooks/state.pl") {
+    my $tries = $STATE_MAX_TRIES;
+    $state = `perl $MODULE_DIR/$module/hooks/state.pl`;
+    if ($?) {
+      die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
+    }
+    print "Checking if $module module is ready...\n" if $progress;
+    while (--$tries && ($state !~ m/running/i)) {
+      print '.' if $progress;
+      sleep(1);
+      $state = `perl $MODULE_DIR/$module/hooks/state.pl`;
+      if ($?) {
+        die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
       }
     }
     
-    # Stop containers.
-    
   }
-  # set COMPOSE_PROFILES according to $CONFIG_FILE.
-  system("docker compose --profile dev up -d")
-    or die "ERROR: StartGenoring: Failed to start GenoRing!\n$!\n";
+  else {
+    # Check if module containers are running.
+    # Get module services.
+    foreach my $service (@{GetModuleServices($module)}) {
+      # Check service is running.
+      my $service_state = GetState($service);
+      if ($service_state && ($service_state != m/running/)) {
+        return $service_state;
+      }
+    }
+  }
+  return $state;
 }
 
-sub StopGenoring {
-  # docker compose down
+
+=pod
+
+=head2 WaitModulesReady
+
+B<Description>: Wait until all enabled modules are ready.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub WaitModulesReady {
+  my @modules = @_;
+  foreach my $module (@modules) {
+    my $state = GetModuleRealState($module, 1);
+    if ($state !~ m/running|ready/i) {
+      # @todo Show 4 last lines of logs during progress in GetModuleRealState().
+      my $logs = '';
+      foreach my $service (@{GetModuleServices($module)}) {
+        my $service_state = GetState($service);
+        if ($service_state && ($service_state != m/running/)) {
+          $logs = `docker logs $service 2>&1`;
+        }
+      }
+      die sprintf("\nERROR: StartGenoring: Failed to get $module module initialized in less than %d min!\n", $STATE_MAX_TRIES/60)
+        . "LOGS: $logs";
+    }
+  }
 }
 
-sub GetLogs {
-  # docker compose logs -f
-}
+=pod
 
-sub GetStatus {
-}
+=head2 Reinitialize
 
-# Removes Drupal files and database data for a full reinstall.
+B<Description>: Remove all configs, and volume data. Remove GenoRing persitant
+docker elements to allow a new reinstallation from scratch. Ask confirmation
+before performing destructives tasks.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
 sub Reinitialize {
-  # assert_root
-  # # @todo Warn and ask for confirmation.
-  # stop_genoring
-  # docker container prune -f
-  # docker volume rm genoring-drupal
-  # # @todo Check if only a sub-part should be managed.
-  # # @todo Add an option to remove ALL and not just Drupal and its db.
-  # rm -rf volumes/drupal
-  # # rm -rf volumes/data
-  # rm -rf volumes/db
-  # # @todo Clear enabled modules.
-  # mkdir -p volumes/drupal
-  # mkdir -p volumes/data
+  #  Warn and ask for confirmation.
+  print "WARNING: This will stop all GenoRing containers, REMOVE their local data ('volumes' directory contant) and reset GenoRing config! This operation can not be undone so make backups before as needed. Are you sure you want to continue? (y|n) ";
+  my $userword = <STDIN>;
+  chomp $userword;
+  if (!$userword || $userword !~ m/^y(?:es)?/i) {
+    print "Operation canceled!\n";
+    exit(0);
+  }
+
+  # @todo Check if only a sub-part should be managed.
+  # @todo Add an option to remove ALL and not just Drupal and its db.
+
+  # Stop genoring.
+  StopGenoring();
+
+  # Cleanup containers.
+  print "Pruning stopped containers...\n";
+  Run(
+    "docker container prune -f",
+    "Failed to prune containers!"
+  );
+
+  # Remove GenoRing volumes.
+  print "Removing GenoRing volumes...\n";
+  Run(
+    "docker volume rm -f genoring-drupal genoring-data",
+    "Failed to remove GenoRing volumes!"
+  );
+  # @todo Remove module's shared volumes as well.
+
+  # Remove Drupal and database content.
+  Run(
+    "docker run --rm -v $BASEDIR/volumes:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/data",
+    "Failed clear local volume content!"
+  );
+  # @todo Clear enabled modules.
+
+  # Clear config.
+  print "Clearing config...\n";
+  unlink $DOCKER_COMPOSE_FILE;
+
+  print "Reinitialization done!\n";
 }
 
 # Initializes GenoRing system with user inputs.
@@ -575,39 +869,177 @@ sub Compile {
   
   # Check if container is running and stop it unless it is not running the same
   # image.
-  my ($id, $state, $image) = IsContainerRunning($service);
+  my ($id, $state, $name, $image) = IsContainerRunning($service);
   if ($id) {
     if ($image && ($image ne $service)) {
       die "ERROR: Compile: A container with the same name ($service) but a different image ($image) is currently running. Please stop it before compiling.";
     }
-    system("docker stop $id") == 0
-      or warn "WARNING: Compile: Failed to stop container '$service' (image $image)! $! (error code $?)";
-    system("docker container prune -f") == 0
-      or warn "WARNING: Compile: Failed to prune containers! $! (error code $?)";
+    Run(
+      "docker stop $id",
+      "Failed to stop container '$service' (image $image)!"
+    );
+    Run(
+      "docker container prune -f",
+      "Failed to prune containers!"
+    );
   }
 
-  system("docker image rm -f $service") == 0
-    or die "ERROR: Compile: Failed to remove previous image (service ${module}[$service]): $! (error code $?)";
-  system("docker build -t $service $MODULE_DIR/$module/src/$service/") == 0
-    or die "ERROR: Compile: Failed to compile container (service ${module}[$service]): $! (error code $?)";
+  Run(
+    "docker image rm -f $service",
+    "Failed to remove previous image (service ${module}[$service])!",
+    1
+  );
+  Run(
+    "docker build -t $service $MODULE_DIR/$module/src/$service/",
+    "Failed to compile container (service ${module}[$service])",
+    1
+  );
 }
 
-##
-# Returns a list of GenoRing modules.
-#
-# Arguments:
-#  status (optional): if non-zero, only returns enabled modules, if 0 only
-#    returns disabled available modules and if not set, returns all available
-#    modules.
-#
-sub Getmodules {
-  # if [ -z $1 ]; then
-  #   find modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n"
-  # elif [ "0" == "$1" ]; then
-  #   find modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -v -x -f ./enabled_modules.txt
-  # elif [ "1" == "$1" ]; then
-  #   cat ./enabled_modules.txt
-  # fi
+=pod
+
+=head2 GetModules
+
+B<Description>: Returns a list of GenoRing modules.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $module_mode: (integer) (O)
+
+If 1, only returns enabled modules, if 0 only returns disabled available modules
+and if not set, returns all available modules.
+
+=back
+
+B<Return>: (array ref)
+
+The list of modules.
+
+=cut
+
+sub GetModules {
+  my ($module_mode) = @_;
+  my @modules;
+  if (!defined($module_mode)) {
+    # Get all available modules.
+    opendir(my $dh, "$MODULE_DIR")
+      or die "ERROR: GetModules: Failed to list '$MODULE_DIR' directory!\n$!";
+    my @modules = (grep { $_ !~ m/^\.$/ && -d "$MODULE_DIR/$_" } readdir($dh));
+  }
+  elsif (0 == $module_mode) {
+    # Get disabled modules.
+    my $all_modules = GetModules();
+    my $enabled_modules = { map { $_ => $_ } GetModules(1) };
+    my @modules = (grep { !exists($enabled_modules->{$_}) } @$all_modules);
+  }
+  elsif (1 == $module_mode) {
+    my %modules;
+    # Get enabled modules.
+    if (!-e $MODULE_FILE) {
+      my $module_fh;
+      if (open($module_fh, ">$MODULE_FILE")) {
+        print {$module_fh} "genoring\n";
+        close($module_fh);
+        $modules{'genoring'} = 'genoring';
+      }
+      else {
+        die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+      }
+    }
+    else {
+      # Get enabled modules.
+      my $module_fh;
+      if (open($module_fh, $MODULE_FILE)) {
+        while (<$module_fh>) {
+          $_ =~ s/^\s+|\s+$//g;
+          $modules{$_} = $_;
+        }
+        close($module_fh);
+      }
+      else {
+        die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+      }
+    }
+    @modules = keys(%modules);
+  }
+
+  return \@modules;
+}
+
+=pod
+
+=head2 GetModuleServices
+
+B<Description>: Returns a list of services provided by the given module.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+Module name.
+
+=back
+
+B<Return>: (array ref)
+
+The list of services.
+
+=cut
+
+sub GetModuleServices {
+  my ($module) = @_;
+
+  if (!defined($module)) {
+    die "ERROR: GetModuleServices: No module name provided!";
+  }
+
+  # Get all available services.
+  opendir(my $dh, "$MODULE_DIR/$module/services")
+    or die "ERROR: GetModuleServices: Failed to list '$MODULE_DIR/$module/services' directory!\n$!";
+  my @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh));
+
+  return \@services;
+}
+
+=pod
+
+=head2 GetModuleVolumes
+
+B<Description>: Returns a list of shared volumes used by the given module.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+Module name.
+
+=back
+
+B<Return>: (array ref)
+
+The list of volumes.
+
+=cut
+
+sub GetModuleVolumes {
+  my ($module) = @_;
+
+  if (!defined($module)) {
+    die "ERROR: GetModuleVolumes: No module name provided!";
+  }
+
+  # Get all available volumes.
+  opendir(my $dh, "$MODULE_DIR/$module/volumes")
+    or die "ERROR: GetModuleVolumes: Failed to list '$MODULE_DIR/$module/volumes' directory!\n$!";
+  my @volumes = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/volumes/$_" } readdir($dh));
+
+  return \@volumes;
 }
 
 ##
@@ -621,7 +1053,7 @@ sub Getmodules {
 #   not found (ie. does not exist), 0 if the module is disabled and 1 if the
 #   module is enabled.
 #
-sub GetmoduleStatus {
+sub GetModuleStatus {
   # if [ -z $1 ]; then
   #   >&2 echo "ERROR: get_module_status: No module name provided!"
   #   exit 1
@@ -715,8 +1147,8 @@ The container name.
 
 B<Return>: (list)
 
-The container identifier, the state string and the image name of the running
-container or an empty list otherwise.
+The container identifier, the state string, the container name and the image
+name of the running container or an empty list otherwise.
 
 =cut
 
@@ -727,8 +1159,16 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return '';
   }
-  my $ps = `docker ps --all --filter name=$container --format '{{.ID}} {{.State}} {{.Image}}'`;
-  return split(/\s+/, $ps);
+  my $ps_all = `docker ps --all --filter name=$container --format '{{.ID}} {{.State}} {{.Names}} {{.Image}}'`;
+  my @ps = split(/\n+/, $ps_all);
+  foreach my $ps (@ps) {
+    my @status = split(/\s+/, $ps);
+    # Name filter does not do an exact match so we do it here.
+    if ($status[2] eq $container) {
+      return (@status);
+    }
+  }
+  return ();
 }
 
 
@@ -739,78 +1179,23 @@ sub IsContainerRunning {
 
 =head1 OPTIONS
 
-#--- describes parameters given to the script
-#+++ command line syntax
-#--- requirement of the option and its parameter can be:
-#--- required: name or nature inside <>
-#--- optional: name or nature inside []
-#--- alternative between 2 elements: elements separated by a |
-
-=head2 Parameters
+genoring.pl [help | man | start | stop | compile] -debug
 
 =over 4
 
-#+++=item B<-help>:
-#+++
-#+++Prints a brief help message and exits.
-#+++
-#+++=item B<-man>:
-#+++
-#+++Prints the manual page and exits.
-#+++
-#+++=item B<-debug> (integer):
-#+++
-#+++Executes the script in debug mode. The integer value is optional and is used
-#+++to set debug level (use 0 to force disable debug mode).
-#+++Default: 0 (not in debug mode).
-#+++
+=item B<help>:
 
-=item B<[option_name]> ([option nature]): #+++
+Display help and exits.
 
-[option description]. #+++
-Default: [option default value if one] #+++
+=item B<man>:
 
-#--- remove if log not used
-#+++=item B<-log>:
-#+++
-#+++Enable logging.
-#+++
-#+++=item B<-log-*> (any):
-#+++
-#+++Logging arguments.
+Prints the manual page and exits.
+
+=item B<-debug>:
+
+Enables debug mode.
 
 =back
-#--- Example:
-#---
-#--- Template.pl [-help | -man]
-#---
-#--- Template.pl [-debug [debug_level]] [-size <width> [height]]
-#---
-#--- =over 4
-#---
-#--- =item B<-help>:
-#---
-#--- Prints a brief help message and exits.
-#---
-#--- =item B<-man>:
-#---
-#--- Prints the manual page and exits.
-#---
-#--- =item B<-debug> (integer):
-#---
-#--- Executes the script in debug mode. If an integer value is specified, it will
-#--- be the debug level. If "-debug" option was used without specifying a debug
-#--- level, level 1 is assumed.
-#--- Default: 0 (not in debug mode).
-#---
-#---=item B<-size> (positive_real) (positive_real):
-#---
-#--- Set the dimensions of the object that will be drawn. The first value is
-#--- the width; the height is the second value if specified, otherwise it will
-#--- assume height and width are equal to the first value.
-#--- Default: width and height are set to 1.
-#---
-#---=back
 
 =cut
 
@@ -865,6 +1250,18 @@ $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
 
 if ($command =~ m/^start$/i) {
   StartGenoring(@arguments);
+}
+elsif ($command =~ m/^stop$/i) {
+  StopGenoring(@arguments);
+}
+elsif ($command =~ m/^logs$/i) {
+  GetLogs(@arguments);
+}
+elsif ($command =~ m/^status$/i) {
+  GetStatus(@arguments);
+}
+elsif ($command =~ m/^reinit(?:ialize)?$/i) {
+  Reinitialize(@arguments);
 }
 elsif ($command =~ m/^compile$/i) {
   Compile(@arguments);

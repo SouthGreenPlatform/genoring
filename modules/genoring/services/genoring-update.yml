@@ -7,9 +7,6 @@ volumes:
   - type: bind
     source: ${PWD}/volumes/proxy/genoring-fpm.conf
     target: /etc/nginx/templates/default.conf.template
-  - type: bind
-    source: ${PWD}/volumes/proxy/init.html
-    target: /var/www/html/init.html
   - ${PWD}/volumes/proxy/modules:/etc/nginx/genoring
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
