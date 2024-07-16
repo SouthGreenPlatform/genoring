@@ -93,10 +93,20 @@ B<$g_flags>: (hash ref)
 
 Contains flags set on command line with their values if set or "1" otherwise.
 
+B<$_g_modules>: (hash ref)
+
+Cache variable for module lists. See GetModules(). Should not be used directly.
+
+B<$_g_services>: (hash ref)
+
+Cache variable for services lists. See GetServices(). Should not be used directly.
+
 =cut
 
 our $g_debug = 0;
-my $g_flags = {};
+our $g_flags = {};
+our $_g_modules = {};
+our $_g_services = {};
 
 
 
@@ -183,40 +193,52 @@ sub Run {
 
 =head2 StartGenoring
 
-B<Description>: Starts GenoRing platform by calling docker compose up -d. If the
-system has not been installed yet, the installation process will be
-automatically started first.
+B<Description>: Starts GenoRing platform in the given mode (default: 'normal').
 
-B<ArgsCount>: 0
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $mode: (string) (O)
+
+Running mode. Must be one of:
+- normal: starts normally (ie. dev|staging|prod|backend mode).
+- backend: only starts "backend".
+- offline: only starts "offline" service.
+- backoff: starts in "backend" mode with "offline" service as frontend.
+Default: "normal".
+
+=back
 
 B<Return>: (nothing)
 
 =cut
 
 sub StartGenoring {
-  print "Starting GenoRing...\n";
-
-  # Get enabled modules.
-  my $modules = GetModules(1);
-  
-  # @todo Compile missing containers with sources.
-
-  # Check if setup needs to be run first.
-  if (!-e $DOCKER_COMPOSE_FILE) {
-    SetupGenoring();
+  # Get running mode.
+  my ($mode) = @_;
+  if ($mode && ($mode !~ m/^(?:normal|backend|offline|backoff)$/)) {
+    die "ERROR: StartGenoring: Invalid starting mode: '$mode'! Valid mode should be one of 'normal', 'backend', 'offline' or 'backoff'.\n";
   }
-
-  print "- Starting GenoRing...\n";
-  # set COMPOSE_PROFILES according to genoring.env
-  $ENV{'COMPOSE_PROFILES'} = 'dev';
+  # Set COMPOSE_PROFILES according to the selected environment.
+  if ($mode || ($mode == 'normal')) {
+    # Get site environment.
+    $ENV{'COMPOSE_PROFILES'} = GetProfile();
+  }
+  elsif ($mode == 'backend') {
+    $ENV{'COMPOSE_PROFILES'} = 'backend';
+  }
+  elsif ($mode == 'offline') {
+    $ENV{'COMPOSE_PROFILES'} = 'offline';
+  }
+  elsif ($mode == 'backoff') {
+    $ENV{'COMPOSE_PROFILES'} = 'backend,offline';
+  }
   Run(
     "docker compose up -d",
-    "Failed to start GenoRing!",
+    "Failed to start GenoRing ($mode mode)!",
     1
   );
-  print "  GenoRing started.\n";
-  WaitModulesReady(@$modules);
-  print "  GenoRing is ready to accept client connections.\n";
 }
 
 =pod
@@ -243,7 +265,7 @@ sub StopGenoring {
 
 =head2 GetLogs
 
-B<Description>: Displays GenoRing logs.
+B<Description>: Displays GenoRing logs. If the "-f" flag is used, follows logs.
 
 B<ArgsCount>: 0
 
@@ -252,25 +274,33 @@ B<Return>: (nothing)
 =cut
 
 sub GetLogs {
-  Run(
-    "docker compose logs -f",
-    "Failed to GenoRing logs!",
-  );
+  if (exists($g_flags->{'f'})) {
+    Run(
+      "docker compose --profile '*' logs -f",
+      "Failed to GenoRing logs!",
+    );
+  }
+  else {
+    Run(
+      "docker compose logs",
+      "Failed to GenoRing logs!",
+    );
+  }
 }
 
 =pod
 
 =head2 GetStatus
 
-B<Description>: Displays GenorRing status.
+B<Description>: Displays GenorRing or a given module status.
 
 B<ArgsCount>: 0-1
 
 =over 4
 
-=item $container: (string) (O)
+=item $module: (string) (O)
 
-Container name.
+An optional module name.
 
 =back
 
@@ -279,7 +309,17 @@ B<Return>: (nothing)
 =cut
 
 sub GetStatus {
-   print GetState(@_) . "\n";
+  my $state = GetState(@_);
+  if (@_) {
+    # @todo Get given module state: convert module name to container name.
+    print $_[0] . " is " . ($state || 'not running') . ".\n";
+  }
+  else {
+    if ('running' eq $state) {
+      # @todo Check if offline or backend.
+    }
+    print "GenoRing is " . ($state || 'not running') . ".\n";
+  }
 }
 
 =pod
@@ -383,7 +423,6 @@ sub GetModuleRealState {
   return $state;
 }
 
-
 =pod
 
 =head2 WaitModulesReady
@@ -397,8 +436,11 @@ B<Return>: (nothing)
 =cut
 
 sub WaitModulesReady {
-  my @modules = @_;
-  foreach my $module (@modules) {
+  my $modules = [@_];
+  if (!scalar(@$modules)) {
+    $modules = GetModules(1);
+  }
+  foreach my $module (@$modules) {
     my $state = GetModuleRealState($module, 1);
     if ($state !~ m/running|ready/i) {
       # @todo Show 4 last lines of logs during progress in GetModuleRealState().
@@ -409,7 +451,7 @@ sub WaitModulesReady {
           $logs = `docker logs $service 2>&1`;
         }
       }
-      die sprintf("\nERROR: StartGenoring: Failed to get $module module initialized in less than %d min!\n", $STATE_MAX_TRIES/60)
+      die sprintf("\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min!\n", $STATE_MAX_TRIES/60)
         . "LOGS: $logs";
     }
   }
@@ -443,7 +485,9 @@ sub Reinitialize {
   # @todo Add an option to remove ALL and not just Drupal and its db.
 
   # Stop genoring.
+  print "Stop GenoRing...\n";
   StopGenoring();
+  print "  OK.\n";
 
   # Cleanup containers.
   print "Pruning stopped containers...\n";
@@ -451,6 +495,7 @@ sub Reinitialize {
     "docker container prune -f",
     "Failed to prune containers!"
   );
+  print "  OK.\n";
 
   # Remove GenoRing volumes.
   print "Removing GenoRing volumes...\n";
@@ -465,11 +510,18 @@ sub Reinitialize {
     "docker run --rm -v $BASEDIR/volumes:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/data",
     "Failed clear local volume content!"
   );
-  # @todo Clear enabled modules.
+  # @todo Clear data of enabled modules.
+  print "  OK.\n";
+
+  # Uninstall enabled modules.
+  print "Uninstall all modules...\n";
+  unlink $MODULE_FILE;
+  print "  OK.\n";
 
   # Clear config.
   print "Clearing config...\n";
   unlink $DOCKER_COMPOSE_FILE;
+  print "  OK.\n";
 
   print "Reinitialization done!\n";
 }
@@ -488,19 +540,91 @@ B<Return>: (nothing)
 
 sub SetupGenoring {
 
-  # Get enabled modules.
-  my $modules = GetModules(1);
-
-  # Needs first-time initialization.
-  print "- GenoRing needs to be setup\n";
   # @todo
   # Process environment variables and ask user for inputs for variables with
   # tags SET et OPT.
   print "- Setup environment...\n";
+  SetupGenoringEnvironment();
   print "  ...Environment setup done.\n";
 
   # Generate docker-compose.yml...
   print "- Generating Docker Compose main file...\n";
+  GenerateDockerComposeFile();
+  print "  ...Docker Compose file generated.\n";
+
+  # Apply global initialization hooks (modules/*/hooks/init.pl).
+  print "- Initialiazing modules...\n";
+  ApplyLocalHooks('init');
+  print "  Modules initialiazed on local system, initializing services...\n";
+
+  # Start dockers in backend mode.
+  print "  - Starting GenoRing backend for initialization...\n";
+  StartGenoring('backend');
+  print "    OK\n";
+
+  # Check dockers are ready.
+  print "  - Waiting for all services to be operational...\n";
+  WaitModulesReady();
+  print "    OK\n";
+
+  # Apply docker initialization hooks of each enabled module service for each
+  # enabled module service (ie. modules/"svc1"/hooks/init_"svc2".sh).
+  print "  - Applying container initialization hooks...\n";
+  ApplyContainerHooks('enable');
+  print "  ...Modules initialiazed.\n";
+
+  # Stop containers.
+  print "- Stopping backend.\n";
+  StopGenoring();
+
+  # # @todo Check for modules to enable.
+  # # docker exec -v ./modules/profile/path/to/:/path/to/ -it genoring /path/to/script.sh
+  # # @toto Ask to start genoring.
+}
+
+=pod
+
+=head2 SetupGenoringEnvironment
+
+B<Description>: Ask user to set GenoRing environment variables.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub SetupGenoringEnvironment {
+
+  # Get enabled modules.
+  my $modules = GetModules(1);
+
+  foreach my $module (@$modules) {
+    # # @toto Manage environment file generation.
+    # # Ask for ...
+    # while [ -z "$value" ]; do
+    #   read -p "Enter a value: " value
+    # done
+  }
+
+}
+
+=pod
+
+=head2 GenerateDockerComposeFile
+
+B<Description>: Generates Docker Compose file.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub GenerateDockerComposeFile {
+  # Get enabled modules.
+  my $modules = GetModules(1);
+
   my %services;
   my %volumes;
   my @proxy_dependencies;
@@ -509,20 +633,20 @@ sub SetupGenoring {
 
     # Work on module services.
     opendir(my $dh, "$MODULE_DIR/$module/services")
-      or die "ERROR: StartGenoring: Failed to access '$MODULE_DIR/$module/services' directory!\n$!";
+      or die "ERROR: GenerateDockerComposeFile: Failed to access '$MODULE_DIR/$module/services' directory!\n$!";
     my @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh));
     closedir($dh);
     foreach my $service_yml (@services) {
       my $svc_fh;
       open($svc_fh, "$MODULE_DIR/$module/services/$service_yml")
-        or die "ERROR: StartGenoring: Failed to open module service file '$service_yml'.\n$!";
+        or die "ERROR: GenerateDockerComposeFile: Failed to open module service file '$service_yml'.\n$!";
       my $service = substr($service_yml, 0, -4);
       if (($module ne 'genoring') || ($service eq 'genoring')) {
         push(@proxy_dependencies, $service);
       }
       my $svc_version = <$svc_fh>;
       if ($svc_version !~ m/^# v?(\d+)\.(\d+)/i) {
-        die "ERROR: StartGenoring: Invalid $module module service file '$service_yml': missing version!";
+        die "ERROR: GenerateDockerComposeFile: Invalid $module module service file '$service_yml': missing version!";
       }
       $services{$service} = {
         'version' => $1,
@@ -544,16 +668,16 @@ sub SetupGenoring {
     foreach my $volume_yml (@volumes) {
       my $vl_fh;
       open($vl_fh, "$MODULE_DIR/$module/volumes/$volume_yml")
-        or die "ERROR: StartGenoring: Failed to open module volume file '$volume_yml'.\n$!";
+        or die "ERROR: GenerateDockerComposeFile: Failed to open module volume file '$volume_yml'.\n$!";
       my $volume = substr($volume_yml, 0, -4);
       my $vol_version = <$vl_fh>;
       if ($vol_version !~ m/^# v?(\d+)\.(\d+)/i) {
-        die "ERROR: StartGenoring: Invalid $module module volume file '$volume_yml': missing version!";
+        die "ERROR: GenerateDockerComposeFile: Invalid $module module volume file '$volume_yml': missing version!";
       }
       if (exists($volumes{$volume})) {
         # Compare versions.
         if ($volumes{$volume}->{'version'} != $1) {
-          die "ERROR: StartGenoring: Incompatible $module module volume file '$volume_yml': major version differs from corresponding " . $volumes{$volume}->{'module'} . " module definition!";
+          die "ERROR: GenerateDockerComposeFile: Incompatible $module module volume file '$volume_yml': major version differs from corresponding " . $volumes{$volume}->{'module'} . " module definition!";
         }
         # Keep latest or most recent definition.
         if ($volumes{$volume}->{'subversion'} >= $2) {
@@ -615,78 +739,8 @@ sub SetupGenoring {
     close($dc_fh);
   }
   else {
-    die "ERROR: failed to open Docker Compose file '$DOCKER_COMPOSE_FILE':\n$!\n";
+    die "ERROR: GenerateDockerComposeFile: Failed to open Docker Compose file '$DOCKER_COMPOSE_FILE':\n$!\n";
   }
-  print "  ...Docker Compose file generated.\n";
-
-  # Apply global initialization hooks (modules/*/hooks/init.pl).
-  print "- Initialiazing modules...\n";
-  foreach my $module (@$modules) {
-    if (-e "$MODULE_DIR/$module/hooks/init.pl") {
-      print "  Initialiazing $module module...";
-      Run(
-        "perl $MODULE_DIR/$module/hooks/init.pl",
-        "Failed to initialize $module module!",
-        1
-      );
-      print "OK\n";
-    }
-  }
-  print "  Modules initialiazed on local system, initializing services...\n";
-
-  # Start dockers in backend mode.
-  print "  - Starting GenoRing backend for initialization...\n";
-  $ENV{'COMPOSE_PROFILES'} = 'backend';
-  Run(
-    "docker compose up -d",
-    "Failed to start GenoRing backend!",
-    1
-  );
-  print "    OK\n";
-
-  # Check dockers are ready.
-  print "  - Waiting for all services to be operational...\n";
-  WaitModulesReady(@$modules);
-  print "    OK\n";
-
-  # Apply docker initialization hooks of each enabled module service for each
-  # enabled module service (ie. modules/"svc1"/hooks/init_"svc2".sh).
-  print "  - Applying container initialization hooks...\n";
-  foreach my $module (@$modules) {
-    if (-d "$MODULE_DIR/$module/hooks/") {
-      # readdir and filter on services.
-      opendir(my $dh, "$MODULE_DIR/$module/hooks")
-        or die "ERROR: StartGenoring: Failed to list '$MODULE_DIR/$module/hooks' directory!\n$!";
-      my @hooks = (grep { $_ =~ m/^enable_.+\.sh$/ && -r "$MODULE_DIR/$module/hooks/$_" } readdir($dh));
-      foreach my $hook (@hooks) {
-        if (($hook =~ m/^enable_(.+)\.sh$/) && exists($services{$1})) {
-          Run(
-            "docker exec -v $(pwd)/$MODULE_DIR/$module/hooks/:/genoring/ -it $1 /genoring/$hook",
-            "Failed to initialize $module in $1 (hook $hook)"
-          );
-        }
-      }
-    }
-  }
-  print "    OK\n";
-  print "  ...Modules initialiazed.\n";
-
-  # Stop containers.
-  print "- Stopping backend.\n";
-  StopGenoring();
-
-  # mkdir -p volumes/drupal
-  # mkdir -p volumes/data
-  # # @toto Manage environment file generation.
-  # # Ask for ...
-  # while [ -z "$value" ]; do
-  #   read -p "Enter a value: " value
-  # done
-  # 
-  # # @todo Check for modules to enable.
-  # # docker exec -v ./modules/profile/path/to/:/path/to/ -it genoring /path/to/script.sh
-  # # @toto Ask to start genoring.
-  # start_genoring
 }
 
 ##
@@ -698,115 +752,146 @@ sub SetupGenoring {
 #
 sub Update {
 
-  # Get enabled modules.
-  my $modules = GetModules(1);
-  my %services; # @todo
+  print "Updating GenoRing...\n";
 
-  # @todo Check if running.
-  StopGenoring();
-
-  # @todo Check if only some parts should be updated or update all.
-  # docker compose run -e DRUPAL_UPDATE=2 genoring
-
-  # Start dockers in backend mode.
-  print "  - Starting GenoRing backend for initialization...\n";
-  $ENV{'COMPOSE_PROFILES'} = 'backend';
-  Run(
-    "docker compose up -d",
-    "Failed to start GenoRing backend!",
-    1
-  );
-  print "    OK\n";
-
-  # Check dockers are ready.
-  print "  - Waiting for all services to be operational...\n";
-  WaitModulesReady(@$modules);
-  print "    OK\n";
-
-  # Apply docker initialization hooks of each enabled module service for each
-  # enabled module service (ie. modules/"svc1"/hooks/init_"svc2".sh).
-  print "  - Applying container initialization hooks...\n";
-  foreach my $module (@$modules) {
-    if (-d "$MODULE_DIR/$module/hooks/") {
-      # readdir and filter on services.
-      opendir(my $dh, "$MODULE_DIR/$module/hooks")
-        or die "ERROR: StartGenoring: Failed to list '$MODULE_DIR/$module/hooks' directory!\n$!";
-      my @hooks = (grep { $_ =~ m/^enable_.+\.sh$/ && -r "$MODULE_DIR/$module/hooks/$_" } readdir($dh));
-      foreach my $hook (@hooks) {
-        if (($hook =~ m/^enable_(.+)\.sh$/) && exists($services{$1})) {
-          Run(
-            "docker exec -v $(pwd)/$MODULE_DIR/$module/hooks/:/genoring/ -it $1 /genoring/$hook",
-            "Failed to initialize $module in $1 (hook $hook)"
-          );
-        }
-      }
-    }
+  my $mode = 'backend';
+  # Check if genoring is running and if so, we need to set "offline" mode
+  # and restart it properly after the update.
+  if ('running' eq GetState()) {
+    $mode = 'backoff';
   }
-  print "    OK\n";
-  print "  ...Modules initialiazed.\n";
 
-  # Stop containers.
-  print "- Stopping backend.\n";
+  # Stop if running.
+  print "- Make sure GenoRing is stopped\n";
   StopGenoring();
 
+  # @todo Make an update backup.
+  eval {
+    # Apply global update hooks (modules/*/hooks/update.pl).
+    print "- Updating modules...\n";
+    ApplyLocalHooks('update');
+    print "  Modules updated on local system, updating services...\n";
+
+    # Start containers in backend mode.
+    print "- Starting GenoRing backend for update...\n";
+    StartGenoring($mode);
+    print "  OK\n";
+
+    # Check modules are ready.
+    print "- Waiting for all services to be operational...\n";
+    WaitModulesReady();
+    print "  OK\n";
+
+    # @todo Check if only some parts should be updated or update all.
+    Run(
+     "docker compose run -e DRUPAL_UPDATE=2 genoring",
+     "ERROR: Update: Failed to run update on GenoRing container!",
+     1
+    );
+
+    # Apply docker initialization hooks of each enabled module service for each
+    # enabled module service (ie. modules/"svc1"/hooks/init_"svc2".sh).
+    print "  - Applying container update hooks...\n";
+    ApplyContainerHooks('update');
+    print "    OK\n";
+    print "  ...Modules updated.\n";
+
+    # Stop containers.
+    print "- Stopping backend.\n";
+    StopGenoring();
+
+    # Restart if needed.
+    if ('backoff' eq $mode) {
+      print "- Restart GenoRing...\n";
+      StartGenoring('normal');
+      print "  OK\n";
+      # Check modules are ready.
+      print "- Waiting for all services to be operational...\n";
+      WaitModulesReady();
+      print "  OK\n";
+    }
+
+    print "Update done.\n";
+  };
+
+  if ($@) {
+    print "ERROR: Update failed!\n$@\n";
+    # @todo If failed, restore backup.
+  }
 }
 
-##
-# Enables the given GenoRing module.
-#
-# Arguments:
-#  module: the module to enable and setup.
-#
+=pod
+
+=head2 InstallModule
+
+B<Description>: Installs and enables the given module.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub InstallModule {
-  # Check if the system is running and stop it.
-  # Set maintenance mode.
-  # Perform install.
-  # Start the system.
-  # Perform container installations.
-  # Stop the system if it was not started.
+  my ($module) = @_;
+  if (!$module) {
+    die "ERROR: InstallModule: Missing module name!\n";
+  }
   
-  # if [ -z $1 ]; then
-  #   >&2 echo "ERROR: genoring_enable: No module name provided!"
-  #   exit 1
-  # fi
-  # # Get module status.
-  # get_module_status $1
-  # if [ -z "$module_status" ]; then
-  #   >&2 echo "ERROR: genoring_enable: module not found ($1)!"
-  #   exit 1
-  # elif [ "0" == "$module_status" ]; then
-  #   # Enable specified modules.
-  #   # Add module to the enabled module file.
-  #   echo "$1" >> ./enabled_modules.txt
-  #   # Copy nginx config.
-  #   if [ -e "./modules/$1/nginx/$1.conf" ]; then
-  #     # Do not overwrite existing.
-  #     cp -n "./modules/$1/nginx/$1.conf" ./proxy/modules/
-  #   fi
-  #   # Call init scripts.
-  #   echo "Initializing..."
-  #   if [ -x "./modules/$1/hooks/init.sh" ]; then
-  #     echo "- $1"
-  #     ./modules/$1/hooks/init.sh
-  #   fi
-  #   if [ -d "./modules/$1/hooks" ]; then
-  #     # Loop on docker initialization scripts.
-  #     for scriptname in modules/$1/hooks/init_*.sh; do
-  #       # When no files found, continue.
-  #       [ -e "$scriptname" ] || continue
-  #       container_name=$(echo $scriptname | perl -p -e "s#modules/$1/hooks/init_(.+)\.sh#\$1#g")
-  #       # Check if the corresponding container is running.
-  #       container_is_running $container_name
-  #       if [ ! -z "$container_is_running" ]; then
-  #         echo "- $container_name"
-  #         docker exec -v ./modules/$1/hooks/init_$container_name.sh:/usr/init/init_$container_name.sh -it $container_name /user/init/init_$container_name.sh
-  #       fi
-  #     done
-  #   fi
-  #   echo "...initialization done."
-  # elif [ "1" == "$module_status" ]; then
-  #   echo "WARNING: genoring_enable: module already enabled ($1)."
-  # fi
+  if (! -d "$MODULE_DIR/$module") {
+    die "ERROR: InstallModule: Module '$module' not found!\n";
+  }
+
+  my %enabled_volumes = map { $_ => $_ } @{GetModules(1)};
+  if (exists($enabled_volumes{$module})) {
+    warn "WARNING: InstallModule: Module '$module' already installed!\n";
+    return;
+  }
+
+  # Check if the system is running and stop it.
+  my $mode = 'backend';
+  # Check if genoring is running and if so, we need to set "offline" mode
+  # and restart it properly after the update.
+  if ('running' eq GetState()) {
+    $mode = 'backoff';
+  }
+
+  # Stop if running.
+  StopGenoring();
+
+  # Enable module.
+  my $module_fh;
+  if (open($module_fh, ">>$MODULE_FILE")) {
+    print {$module_fh} "$module\n";
+    close($module_fh);
+    $enabled_volumes{$module} = $module;
+  }
+  else {
+    die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+  }
+  
+  # Apply module init hook.
+  ApplyLocalHooks('init', $module);
+
+  # Set maintenance mode.
+  StartGenoring($mode);
+  WaitModulesReady();
+  ApplyContainerHooks('enable', $module);
+  StopGenoring();
+
+  # Restart if needed.
+  if ('backoff' eq $mode) {
+    StartGenoring('normal');
+    WaitModulesReady();
+  }
 }
 
 ##
@@ -877,6 +962,130 @@ sub Restore {
 
 =pod
 
+=head2 ApplyLocalHooks
+
+B<Description>: Find and run the given local hook scripts.
+
+B<ArgsCount>: 1-2
+
+=over 4
+
+=item $hook_name: (string) (R)
+
+The hook name.
+
+=item $module: (string) (O)
+
+Restrict hooks to this module.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ApplyLocalHooks {
+  my ($hook_name, $module) = @_;
+  
+  if (!$hook_name) {
+    die "ERROR: ApplyLocalHooks: Missing hook name!\n";
+  }
+
+  my $modules;
+  if ($module) {
+    # Only work on specified module.
+    $modules = [$module];
+  }
+  else {
+    # Get enabled modules.
+    $modules = GetModules(1);
+  }
+
+  foreach $module (@$modules) {
+    if (-e "$MODULE_DIR/$module/hooks/$hook_name.pl") {
+      print "  Processing $module module hook $hook_name...";
+      Run(
+        "perl $MODULE_DIR/$module/hooks/$hook_name.pl",
+        "Failed to process $module module hook $hook_name!",
+        1
+      );
+      print "  OK\n";
+    }
+  }
+}
+
+=pod
+
+=head2 ApplyContainerHooks
+
+B<Description>: Find and run the given container hook scripts into related
+containers.
+
+B<ArgsCount>: 1-2
+
+=over 4
+
+=item $hook_name: (string) (R)
+
+The hook name.
+
+=item $en_module: (string) (O)
+
+Restrict hooks to the given module and its services.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ApplyContainerHooks {
+  my ($hook_name, $en_module) = @_;
+
+  if (!$hook_name) {
+    die "ERROR: ApplyContainerHooks: Missing hook name!\n";
+  }
+
+  # Get enabled modules.
+  my $modules = GetModules(1);
+
+  # Get enabled services (no cache).
+  my $services = GetServices(1);
+  # Get new module services.
+  my $mod_services = { map { $_ => $en_module } (@{GetModuleServices()}) };
+
+  foreach my $module (@$modules) {
+    if (-d "$MODULE_DIR/$module/hooks/") {
+      # Read directory and filter on services.
+      opendir(my $dh, "$MODULE_DIR/$module/hooks")
+        or die "ERROR: ApplyContainerHooks: Failed to list '$MODULE_DIR/$module/hooks' directory!\n$!";
+      my @hooks = (grep { $_ =~ m/^${hook_name}_.+\.sh$/ && -r "$MODULE_DIR/$module/hooks/$_" } readdir($dh));
+      if ($module eq $en_module) {
+        foreach my $hook (@hooks) {
+          if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($services->{$1})) {
+            Run(
+              "docker exec -v $(pwd)/$MODULE_DIR/$module/hooks/:/genoring/ -it $1 /genoring/$hook",
+              "Failed to initialize $module in $1 (hook $hook)"
+            );
+          }
+        }
+      }
+      else {
+        foreach my $hook (@hooks) {
+          if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($mod_services->{$1})) {
+            Run(
+              "docker exec -v $(pwd)/$MODULE_DIR/$module/hooks/:/genoring/ -it $1 /genoring/$hook",
+              "Failed to initialize $module in $1 (hook $hook)"
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+=pod
+
 =head2 Compile
 
 B<Description>: Compiles a given container.
@@ -900,7 +1109,7 @@ B<Return>: (nothing)
 =cut
 
 sub Compile {
-  my ($module, $service) = (@_);
+  my ($module, $service) = @_;
   
   if (!$module) {
     die "ERROR: Compile: Missing module name!";
@@ -988,51 +1197,98 @@ The list of modules.
 
 sub GetModules {
   my ($module_mode) = @_;
-  my @modules;
   if (!defined($module_mode)) {
-    # Get all available modules.
-    opendir(my $dh, "$MODULE_DIR")
-      or die "ERROR: GetModules: Failed to list '$MODULE_DIR' directory!\n$!";
-    my @modules = (grep { $_ !~ m/^\.$/ && -d "$MODULE_DIR/$_" } readdir($dh));
+    if (!exists($_g_modules->{'all'})) {
+      # Get all available modules.
+      opendir(my $dh, "$MODULE_DIR")
+        or die "ERROR: GetModules: Failed to list '$MODULE_DIR' directory!\n$!";
+      $_g_modules->{'all'} = [ grep { $_ !~ m/^\.$/ && -d "$MODULE_DIR/$_" } readdir($dh) ];
+    }
+    return $_g_modules->{'all'};
   }
   elsif (0 == $module_mode) {
-    # Get disabled modules.
-    my $all_modules = GetModules();
-    my $enabled_modules = { map { $_ => $_ } GetModules(1) };
-    my @modules = (grep { !exists($enabled_modules->{$_}) } @$all_modules);
+    if (!exists($_g_modules->{'disabled'})) {
+      # Get disabled modules.
+      my $all_modules = GetModules();
+      my $enabled_modules = { map { $_ => $_ } GetModules(1) };
+      $_g_modules->{'disabled'} = [ grep { !exists($enabled_modules->{$_}) } @$all_modules ];
+    }
+    return $_g_modules->{'disabled'};
   }
   elsif (1 == $module_mode) {
-    my %modules;
-    # Get enabled modules.
-    if (!-e $MODULE_FILE) {
-      my $module_fh;
-      if (open($module_fh, ">$MODULE_FILE")) {
-        print {$module_fh} "genoring\n";
-        close($module_fh);
-        $modules{'genoring'} = 'genoring';
-      }
-      else {
-        die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
-      }
-    }
-    else {
+    if (!exists($_g_modules->{'enabled'})) {
+      my %modules;
       # Get enabled modules.
-      my $module_fh;
-      if (open($module_fh, $MODULE_FILE)) {
-        while (<$module_fh>) {
-          $_ =~ s/^\s+|\s+$//g;
-          $modules{$_} = $_;
+      if (!-e $MODULE_FILE) {
+        my $module_fh;
+        if (open($module_fh, ">$MODULE_FILE")) {
+          print {$module_fh} "genoring\n";
+          close($module_fh);
+          $modules{'genoring'} = 'genoring';
         }
-        close($module_fh);
+        else {
+          die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+        }
       }
       else {
-        die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+        # Get enabled modules.
+        my $module_fh;
+        if (open($module_fh, $MODULE_FILE)) {
+          while (<$module_fh>) {
+            $_ =~ s/^\s+|\s+$//g;
+            $modules{$_} = $_;
+          }
+          close($module_fh);
+        }
+        else {
+          die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+        }
+      }
+      $_g_modules->{'enabled'} = [ keys(%modules) ];
+    }
+    return $_g_modules->{'enabled'};
+  }
+}
+
+
+=pod
+
+=head2 GetServices
+
+B<Description>: Returns the list of GenoRing services (of enabled modules).
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $no_cache: (bool) (O)
+
+If 1, recompute the list of services.
+
+=back
+
+B<Return>: (hash ref)
+
+The list of services. Keys are service names and values are modules they belong
+to.
+
+=cut
+
+sub GetServices {
+  my ($no_cache) = @_;
+  
+  if (!defined($_g_services) || !scalar($_g_services) || $no_cache) {
+    my %services;
+    my $modules = GetModules(1);
+    foreach my $module (@$modules) {
+      foreach my $service (@{GetModuleServices($module)}) {
+        $services{$service} = $module;
       }
     }
-    @modules = keys(%modules);
+    $_g_services = \%services;
   }
 
-  return \@modules;
+  return $_g_services;
 }
 
 =pod
@@ -1065,9 +1321,13 @@ sub GetModuleServices {
   }
 
   # Get all available services.
-  opendir(my $dh, "$MODULE_DIR/$module/services")
-    or die "ERROR: GetModuleServices: Failed to list '$MODULE_DIR/$module/services' directory!\n$!";
-  my @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh));
+  my @services;
+  if (opendir(my $dh, "$MODULE_DIR/$module/services")) {
+    @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh));
+  }
+  else {
+    warn "WARNING: GetModuleServices: Failed to list '$MODULE_DIR/$module/services' directory!\n$!";
+  }
 
   return \@services;
 }
@@ -1109,56 +1369,156 @@ sub GetModuleVolumes {
   return \@volumes;
 }
 
-##
-# Returns the value of an environment variable in an env file.
-#
-# Arguments:
-#   $1: environment file path.
-#   $2: setting variable name.
-#
-# Return: 
-#   Sets the variable 'env_value'.
-#
+=pod
+
+=head2 GetEnvVariable
+
+B<Description>: Gets the value of an environment variable in a given env file.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $env_file: (string) (R)
+
+The environment file path.
+
+=item $variable: (string) (R)
+
+The setting variable name.
+
+=back
+
+B<Return>: (string)
+
+The variable value if found or undef otherwise.
+
+=cut
+
 sub GetEnvVariable {
-  # env_value=
-  # if [ -z $1 ]; then
-  #   >&2 echo "ERROR: get_env_setting: Environment file not provided!"
-  #   exit 1
-  # elif [ ! -f $1 ]; then
-  #   >&2 echo "ERROR: get_env_setting: Environment file not found ($1)!"
-  #   exit 1
-  # elif [ -z $2 ]; then
-  #   >&2 echo "ERROR: get_env_setting: No setting variable requested!"
-  #   exit 1
-  # fi
-  # env_value=$(grep -P "^\s*$2\s*[=:]" $1 | sed -r "s/\s*$2\s*[=:]\s*//" | sed -r "s/^'(.*)'\\s*\$|^\"(.*)\"\\s*\$/\1\2/" | tail -n 1)
+  my ($env_file, $variable) = @_;
+  my $value;
+  if (! $env_file) {
+    die "ERROR: GetEnvVariable: No environment file provided!";
+  }
+  if (! -r $env_file) {
+    die "ERROR: GetEnvVariable: Cannot access environment file '$env_file'!";
+  }
+
+  if (! $variable) {
+    die "ERROR: GetEnvVariable: No environment variable name provided!";
+  }
+
+  my $env_fh;
+  if (open($env_fh, $env_file)) {
+    while (my $line = <$env_fh>) {
+      if ($line =~ m/^\s*$variable\s*[=:]\s*(.*)$/) {
+        $value = $1;
+      }
+    }
+    close($env_fh);
+  }
+  else {
+    die "ERROR: failed to open environment file '$env_file':\n$!\n";
+  }
+
+  return $value;
 }
 
-##
-# Sets the value of an environment variable in a given env file.
-#
-# Arguments:
-#   $1: environment file path.
-#   $2: setting variable name.
-#   $3: new setting variable value.
-#
+=pod
+
+=head2 SetEnvVariable
+
+B<Description>: Sets the value of an environment variable in a given env file.
+
+B<ArgsCount>: 3
+
+=over 4
+
+=item $env_file: (string) (R)
+
+The environment file path.
+
+=item $variable: (string) (R)
+
+The setting variable name.
+
+=item $value: (string) (R)
+
+The new setting variable value.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub SetEnvVariable {
-  # if [ -z $1 ]; then
-  #   >&2 echo "ERROR: set_env_setting: Environment file not provided!"
-  #   exit 1
-  # elif [ ! -f $1 ]; then
-  #   >&2 echo "ERROR: set_env_setting: Environment file not found ($1)!"
-  #   exit 1
-  # elif [ -z $2 ]; then
-  #   >&2 echo "ERROR: set_env_setting: No setting variable requested!"
-  #   exit 1
-  # fi
-  # # Check if setting is there.
-  # if [ -z "$(grep -P "\s*$2\s*[=:]" $1)" ]; then
-  #   echo "\n$2=$3" >> $1
-  # else
-  #   perl -p -i -e "s/\s*\Q$2\E\s*[=:].*/$2=$3/g" $1
-  # fi
+  my ($env_file, $variable, $value) = @_;
+
+  if (! $env_file) {
+    die "ERROR: GetEnvVariable: No environment file provided!";
+  }
+  if (! -r $env_file) {
+    die "ERROR: GetEnvVariable: Cannot access environment file '$env_file'!";
+  }
+
+  if (! $variable) {
+    die "ERROR: GetEnvVariable: No environment variable name provided!";
+  }
+  
+  $value ||= '';
+
+  my $env_fh;
+  my $new_content = '';
+  my $got_value = 0;
+  if (open($env_fh, $env_file)) {
+    while (my $line = <$env_fh>) {
+      if ($line =~ m/^\s*$variable\s*[=:]$/) {
+        if ($got_value) {
+          $line = '';
+        }
+        else {
+          $line = "$variable=$value\n";
+          $got_value = 1
+        }
+      }
+      $new_content .= $line;
+    }
+    close($env_fh);
+    if (open($env_fh, ">$env_file")) {
+      print {$env_fh} $new_content;
+      close($env_fh);
+    }
+    else {
+      die "ERROR: Failed to update environment file '$env_file':\n$!\n";
+    }
+  }
+  else {
+    die "ERROR: Failed to open environment file '$env_file':\n$!\n";
+  }
+}
+
+=pod
+
+=head2 GetProfile
+
+B<Description>: Returns current site environment type (dev/staging/prod).
+
+B<Return>: (string)
+
+The site environment type. Must be one of 'dev', 'staging', 'prod' or 'backend'.
+
+=cut
+
+sub GetProfile {
+  my $site_env =
+    GetEnvVariable("$MODULE_DIR/genoring/env/genoring.env", 'GENORING_ENVIRONMENT')
+    || 'dev';
+  if ($site_env !~ m/^(?:dev|staging|prod|backend)$/) {
+    die "ERROR: GetProfile: Invalid site environment : '$site_env' in '$MODULE_DIR/genoring/env/genoring.env'! Valid profile should be one of 'dev', 'staging', 'prod' or 'backend'.\n";
+  }
+  return $site_env;
 }
 
 =pod
@@ -1283,10 +1643,29 @@ if ($man) {pod2usage('-verbose' => 2, '-exitval' => 0);}
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
 
 if ($command =~ m/^start$/i) {
+  # @todo Compile missing containers with sources.
+
+  # Check if setup needs to be run first.
+  if (!-e $DOCKER_COMPOSE_FILE) {
+    # Needs first-time initialization.
+    print "GenoRing needs to be setup...\n";
+    SetupGenoring();
+  }
+
+  print "Starting GenoRing...\n";
   StartGenoring(@arguments);
+  print "...GenoRing started.\n";
+
+  print "Ensuring services are ready...\n";
+  # Get enabled modules.
+  my $modules = GetModules(1);
+  WaitModulesReady(@$modules);
+  print "...GenoRing is ready to accept client connections.\n";
 }
 elsif ($command =~ m/^stop$/i) {
+  print "Stopping GenoRing...\n";
   StopGenoring(@arguments);
+  print "...GenoRing stopped.\n";
 }
 elsif ($command =~ m/^logs$/i) {
   GetLogs(@arguments);

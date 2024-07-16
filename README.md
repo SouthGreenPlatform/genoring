@@ -180,6 +180,9 @@ A GenoRing module is a directory with the following structure:
   Note: When running shell scripts inside containers, the GenoRing "modules"
   directory is mounted in the container as "/genoring/modules" and allow access
   to module's files if needed.
+  Note: Hook scripts may be called more than one time after a site installation.
+  It is up to the script to not perform several time a same operation if it has
+  already been done.
 - "src": if the module uses custom containers, their sources will be provided
   there in sub-directories corresponding to service names (ie. YAML file names
   without the ".yml" extensions).
