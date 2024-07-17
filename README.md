@@ -93,6 +93,7 @@ uninstallation and update.
 A GenoRing module is a directory with the following structure:
 - "README.md": a README file explaining the puprose of the module and how it
   works.
+- "LOCAL.md": a file explaining how to turn docker services into local ones.
 - "env": a directory containing environment files used by the module that may be
   edited by the site administrator to adjust configuration elements.
   Each environment file can hold multiple environment variables, one by line,
@@ -107,6 +108,14 @@ A GenoRing module is a directory with the following structure:
     # - Drupal admin account name
     #   @tags: OPT INS
     DRUPAL_USER=genoring
+  It is important do document variables with SET or OPT because they can be
+  managed by GenoRing script at installation time: the first line of the comment
+  block of a variable should contain the short variable description in one line.
+  The next line should be an empty comment line or only contain dashes ('-').
+  The nex comment lines should contain the complete description with
+  explanations on how to fill the value. The comment block should then contain
+  a "@default" annotation followed by a space and the default value (could be
+  empty) and the "@tags" annotation stating the use of the variable.
   See modules/genoring/env/genoring.env for more examples.
   Note: enabled Docker Compose profiles can be provided to a container through
   an environment variable defined as "COMPOSE_PROFILES=${COMPOSE_PROFILES}".
@@ -131,6 +140,9 @@ A GenoRing module is a directory with the following structure:
   - "offline": only enabled when the site is offline.
   Without specific profiles, the service is always loaded (if the module is
   enabled).
+  Note: The "services" directory may contain a "alt" subdirectory with
+  alternative services that can be used to replace the default ones. An
+  "alt.yml" file contains alternative settings managed by GenoRing.
 - "volumes": a set of YAML files corresponding to named volumes shared accross
   dockers. These are not to be confused with volumes that can be defined in the
   services above. A module service can mount a shared volume in its "volumes"
@@ -178,7 +190,7 @@ A GenoRing module is a directory with the following structure:
   - "update_<container_name>.sh" will be called on the corresponding container
     to perform updates.
   Note: When running shell scripts inside containers, the GenoRing "modules"
-  directory is mounted in the container as "/genoring/modules" and allow access
+  directory is copied in the container as "/genoring/modules" and allow access
   to module's files if needed.
   Note: Hook scripts may be called more than one time after a site installation.
   It is up to the script to not perform several time a same operation if it has
@@ -265,7 +277,8 @@ Stop GenoRing:
 
 Start GenoRing with Gigwa and JBrowse2 modules:
 ```
-  # perl genoring.pl install gigwa jbrowse2
+  # perl genoring.pl enable gigwa
+  # perl genoring.pl enable jbrowse2
   # perl genoring.pl start
 ```
 
@@ -276,13 +289,13 @@ Remove JBrowse2 module:
 
 Start GenoRing using Apache HTTPd instead of Nginx:
 ```
-  # perl genoring.pl mod genoring httpd
+  # perl genoring.pl alt genoring httpd
   # perl genoring.pl start
 ```
 
 Put back Nginx:
 ```
-  # perl genoring.pl mod genoring nginx
+  # perl genoring.pl alt genoring nginx
 ```
 
 Update all modules:
@@ -306,7 +319,7 @@ GenoRing platform.
 
 To clear all previous trials and get a clean install:
 ```
-  # perl genoring.pl reinitialize
+  # perl genoring.pl reset
 ```
 
 ### Switching to local components

@@ -515,8 +515,9 @@ sub Reinitialize {
   # @todo Remove module's shared volumes as well.
 
   # Remove Drupal and database content.
+  # @todo use genoring module uninstall hook instead.
   Run(
-    "docker run --rm -v $BASEDIR/volumes:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/data",
+    "docker run --rm -v $BASEDIR/volumes:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data",
     "Failed clear local volume content!"
   );
   # @todo Clear data of enabled modules.
@@ -608,7 +609,10 @@ sub SetupGenoringEnvironment {
   my $modules = GetModules(1);
 
   foreach my $module (@$modules) {
-    # # @toto Manage environment file generation.
+    # @todo Manage environment file generation.
+    print "Here, you will soon be able to customize settings (environment variables) before site installation... Hit enter to continue. ";
+    my $userword = <STDIN>;
+    chomp $userword;
     # # Ask for ...
     # while [ -z "$value" ]; do
     #   read -p "Enter a value: " value

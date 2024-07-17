@@ -1,33 +1,26 @@
 Remaining tasks:
+- create a "devel" module for debugging and as example
 - finish genoring shell script to PERL script translation.
-  - split up initialisation of StartGenoring in subroutines
-  - setup
-  - enable module
-  - restart
-  - update
+  - setup: offer environment file modifications
   - disable module
   - uninstall module
   - offline
   - backup
   - restore
 - hook support:
-  - "init.pl"
   - "disable.pl"
   - "uninstall.pl"
   - "update.pl"
   - "backup.pl"
-  - "enable_<container_name>.sh"
   - "disable_<container_name>.sh"
   - "update_<container_name>.sh"
 - add support for profiles "prod", "staging", "dev", "backend" and "offline"
   - in genoring PERL script: choice between prod/staging/dev should be made at
     installation time. A new parameter "offline" should be supported.
   - in genoring Drupal image to select modules to enable
-- create a "devel" module for debugging and as example
-- make gigwa work
-- make jbrowse2 work
 - test offline mode
-- test update mode
 - improve status when site is installing
+- add (drush?) functions to simplify module Drupla integration to easily
+  generate menu items, pages, etc.
 - build dockers on lighter images (alpine-based)
 - Add a module for BrAPI/BrAPI Mapper
