@@ -2,16 +2,22 @@
 
 use strict;
 use warnings;
+use File::Copy;
 
 ++$|; #no buffering
 
 # Install Gigwa config.
 system("docker run -it -v ./volumes/gigwa:/copy --entrypoint=/bin/cp guilhemsempere/gigwa:2.8-RELEASE -r /usr/local/tomcat/config /copy");
 
-if (!-d './volumes/proxy/genoring') {
-  mkdir './volumes/proxy/genoring';
+# Add proxy configs.
+if (-d './volumes/proxy/nginx') {
+  if (!-e './volumes/proxy/nginx/gigwa.conf') {
+    copy('./modules/gigwa/res/nginx/gigwa.conf', './volumes/proxy/nginx/gigwa.conf');
+  }
 }
 
-if (!-e './volumes/proxy/genoring/gigwa.conf') {
-  copy('./modules/gigwa/res/nginx/gigwa.conf', './volumes/proxy/genoring/gigwa.conf');
+if (-d './volumes/proxy/httpd') {
+  if (!-e './volumes/proxy/httpd/gigwa.conf') {
+    copy('./modules/gigwa/res/httpd/gigwa.conf', './volumes/proxy/httpd/gigwa.conf');
+  }
 }

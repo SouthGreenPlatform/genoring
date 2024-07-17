@@ -5,7 +5,7 @@ env_file:
 ports:
   - 8123:8080
 volumes:
-  - ${PWD}/volumes/gigwa:/usr/local/tomcat/config
+  - ${PWD}/volumes/gigwa/config:/usr/local/tomcat/config
   - genoring-data-volume:/data
 depends_on:
   - genoring-mongodb

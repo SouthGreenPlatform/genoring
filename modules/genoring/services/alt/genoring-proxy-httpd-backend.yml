@@ -1,0 +1,15 @@
+# v1.0
+image: httpd:2.4
+profiles: ["backend"]
+env_file:
+  - ${PWD}/modules/genoring/env/httpd.env
+volumes:
+  - type: bind
+    source: ${PWD}/volumes/proxy/genoring-httpd.conf
+    target: /usr/local/apache2/conf/httpd.conf
+  - ${PWD}/volumes/proxy/modules:/usr/local/apache2/conf/genoring
+  - genoring-drupal-volume:/opt/drupal
+  - genoring-data-volume:/data
+depends_on:
+  - genoring
+restart: always

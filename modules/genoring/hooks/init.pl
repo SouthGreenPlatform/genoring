@@ -25,6 +25,10 @@ if (!-d './volumes/proxy') {
   mkdir './volumes/proxy';
 }
 
+if (!-d './volumes/proxy/nginx') {
+  mkdir './volumes/proxy/nginx';
+}
+
 if (!-e './volumes/proxy/genoring-fpm.conf') {
   copy('./modules/genoring/res/nginx/genoring-fpm.conf', './volumes/proxy/genoring-fpm.conf');
 }

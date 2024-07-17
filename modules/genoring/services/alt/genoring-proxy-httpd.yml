@@ -1,15 +1,15 @@
 # v1.0
-image: nginx
+image: httpd:2.4
 profiles: ["prod","staging","dev"]
 env_file:
-  - ${PWD}/modules/genoring/env/nginx.env
+  - ${PWD}/modules/genoring/env/httpd.env
 ports:
   - 8080:80
 volumes:
   - type: bind
     source: ${PWD}/volumes/proxy/genoring-fpm.conf
     target: /etc/nginx/templates/default.conf.template
-  - ${PWD}/volumes/proxy/nginx:/etc/nginx/genoring
+  - ${PWD}/volumes/proxy/modules:/etc/nginx/genoring
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
 restart: always

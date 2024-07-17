@@ -1,0 +1,10 @@
+# v1.0
+image: httpd:2.4
+profiles: ["offline"]
+env_file:
+  - ${PWD}/modules/genoring/env/httpd.env
+ports:
+  - 8080:80
+volumes:
+  - ${PWD}/volumes/offline:/usr/local/apache2/htdocs
+restart: always

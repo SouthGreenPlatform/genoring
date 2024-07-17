@@ -101,12 +101,17 @@ B<$_g_services>: (hash ref)
 
 Cache variable for services lists. See GetServices(). Should not be used directly.
 
+B<$_g_volumes>: (hash ref)
+
+Cache variable for volumes lists. See GetVolumes(). Should not be used directly.
+
 =cut
 
 our $g_debug = 0;
 our $g_flags = {};
 our $_g_modules = {};
 our $_g_services = {};
+our $_g_volumes = {};
 
 
 
@@ -221,17 +226,18 @@ sub StartGenoring {
     die "ERROR: StartGenoring: Invalid starting mode: '$mode'! Valid mode should be one of 'normal', 'backend', 'offline' or 'backoff'.\n";
   }
   # Set COMPOSE_PROFILES according to the selected environment.
-  if ($mode || ($mode == 'normal')) {
+  if (!$mode || ($mode eq 'normal')) {
     # Get site environment.
+    $mode = 'normal';
     $ENV{'COMPOSE_PROFILES'} = GetProfile();
   }
-  elsif ($mode == 'backend') {
+  elsif ($mode eq 'backend') {
     $ENV{'COMPOSE_PROFILES'} = 'backend';
   }
-  elsif ($mode == 'offline') {
+  elsif ($mode eq 'offline') {
     $ENV{'COMPOSE_PROFILES'} = 'offline';
   }
-  elsif ($mode == 'backoff') {
+  elsif ($mode eq 'backoff') {
     $ENV{'COMPOSE_PROFILES'} = 'backend,offline';
   }
   Run(
@@ -415,7 +421,7 @@ sub GetModuleRealState {
     foreach my $service (@{GetModuleServices($module)}) {
       # Check service is running.
       my $service_state = GetState($service);
-      if ($service_state && ($service_state != m/running/)) {
+      if ($service_state && ($service_state !~ m/running/)) {
         return $service_state;
       }
     }
@@ -442,16 +448,16 @@ sub WaitModulesReady {
   }
   foreach my $module (@$modules) {
     my $state = GetModuleRealState($module, 1);
-    if ($state !~ m/running|ready/i) {
+    if ($state && ($state !~ m/running/i)) {
       # @todo Show 4 last lines of logs during progress in GetModuleRealState().
       my $logs = '';
       foreach my $service (@{GetModuleServices($module)}) {
         my $service_state = GetState($service);
-        if ($service_state && ($service_state != m/running/)) {
-          $logs = `docker logs $service 2>&1`;
+        if ($service_state && ($service_state !~ m/running/)) {
+          $logs .= "$service:\n" . `docker logs $service 2>&1` . "\n\n";
         }
       }
-      die sprintf("\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min!\n", $STATE_MAX_TRIES/60)
+      die sprintf("\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min (state $state)!\n", $STATE_MAX_TRIES/60)
         . "LOGS: $logs";
     }
   }
@@ -472,13 +478,16 @@ B<Return>: (nothing)
 =cut
 
 sub Reinitialize {
-  #  Warn and ask for confirmation.
-  print "WARNING: This will stop all GenoRing containers, REMOVE their local data ('volumes' directory contant) and reset GenoRing config! This operation can not be undone so make backups before as needed. Are you sure you want to continue? (y|n) ";
-  my $userword = <STDIN>;
-  chomp $userword;
-  if (!$userword || $userword !~ m/^y(?:es)?/i) {
-    print "Operation canceled!\n";
-    exit(0);
+  
+  if (!exists($g_flags->{'f'})) {
+    #  Warn and ask for confirmation.
+    print "WARNING: This will stop all GenoRing containers, REMOVE their local data ('volumes' directory contant) and reset GenoRing config! This operation can not be undone so make backups before as needed. Are you sure you want to continue? (y|n) ";
+    my $userword = <STDIN>;
+    chomp $userword;
+    if (!$userword || $userword !~ m/^y(?:es)?/i) {
+      print "Operation canceled!\n";
+      exit(0);
+    }
   }
 
   # @todo Check if only a sub-part should be managed.
@@ -507,7 +516,7 @@ sub Reinitialize {
 
   # Remove Drupal and database content.
   Run(
-    "docker run --rm -v $BASEDIR/volumes:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/data",
+    "docker run --rm -v $BASEDIR/volumes:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/data",
     "Failed clear local volume content!"
   );
   # @todo Clear data of enabled modules.
@@ -540,7 +549,6 @@ B<Return>: (nothing)
 
 sub SetupGenoring {
 
-  # @todo
   # Process environment variables and ask user for inputs for variables with
   # tags SET et OPT.
   print "- Setup environment...\n";
@@ -841,6 +849,7 @@ B<Return>: (nothing)
 =cut
 
 sub InstallModule {
+  # @todo: remove module from modules.conf if installation fails.
   my ($module) = @_;
   if (!$module) {
     die "ERROR: InstallModule: Missing module name!\n";
@@ -855,6 +864,8 @@ sub InstallModule {
     warn "WARNING: InstallModule: Module '$module' already installed!\n";
     return;
   }
+  # Clear caches.
+  ClearCache();
 
   # Check if the system is running and stop it.
   my $mode = 'backend';
@@ -880,6 +891,9 @@ sub InstallModule {
   
   # Apply module init hook.
   ApplyLocalHooks('init', $module);
+  
+  # Update Docker Compose config.
+  GenerateDockerComposeFile();
 
   # Set maintenance mode.
   StartGenoring($mode);
@@ -892,6 +906,11 @@ sub InstallModule {
     StartGenoring('normal');
     WaitModulesReady();
   }
+}
+
+##
+#
+sub DisableModule {
 }
 
 ##
@@ -1020,6 +1039,8 @@ sub ApplyLocalHooks {
 
 B<Description>: Find and run the given container hook scripts into related
 containers.
+IMPORTANT: Hooks will only be processed in *running* containers. Warnings will
+be issued for enabled services that are not running.
 
 B<ArgsCount>: 1-2
 
@@ -1031,7 +1052,9 @@ The hook name.
 
 =item $en_module: (string) (O)
 
-Restrict hooks to the given module and its services.
+Restrict hooks to the given module and its services. When set to a valid module
+name, only its hooks will be processed first and then only other module hooks
+related to this module will be run as well.
 
 =back
 
@@ -1049,35 +1072,51 @@ sub ApplyContainerHooks {
   # Get enabled modules.
   my $modules = GetModules(1);
 
-  # Get enabled services (no cache).
-  my $services = GetServices(1);
-  # Get new module services.
-  my $mod_services = { map { $_ => $en_module } (@{GetModuleServices()}) };
-
+  # Get enabled services.
+  my $services = GetServices();
+  
+  # Process enabled modules.
+  my %initialized_containers;
+APPLYCONTAINERHOOKS_MODULES:
   foreach my $module (@$modules) {
     if (-d "$MODULE_DIR/$module/hooks/") {
       # Read directory and filter on services.
       opendir(my $dh, "$MODULE_DIR/$module/hooks")
         or die "ERROR: ApplyContainerHooks: Failed to list '$MODULE_DIR/$module/hooks' directory!\n$!";
       my @hooks = (grep { $_ =~ m/^${hook_name}_.+\.sh$/ && -r "$MODULE_DIR/$module/hooks/$_" } readdir($dh));
-      if ($module eq $en_module) {
-        foreach my $hook (@hooks) {
-          if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($services->{$1})) {
-            Run(
-              "docker exec -v $(pwd)/$MODULE_DIR/$module/hooks/:/genoring/ -it $1 /genoring/$hook",
-              "Failed to initialize $module in $1 (hook $hook)"
-            );
+      # Process all module hooks that can be run.
+APPLYCONTAINERHOOKS_HOOKS:
+      foreach my $hook (@hooks) {
+        if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($services->{$1})) {
+          my $service = $1;
+          # Check if a module has been specified and only process its hooks.
+          if ($en_module && ($en_module ne $module) && ($services->{$service} ne $module)) {
+            # Skip non-matching hooks.
+            next APPLYCONTAINERHOOKS_HOOKS;
           }
-        }
-      }
-      else {
-        foreach my $hook (@hooks) {
-          if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($mod_services->{$1})) {
-            Run(
-              "docker exec -v $(pwd)/$MODULE_DIR/$module/hooks/:/genoring/ -it $1 /genoring/$hook",
-              "Failed to initialize $module in $1 (hook $hook)"
-            );
+          # Check if container is running.
+          my ($id, $state, $name, $image) = IsContainerRunning($service);
+          if (!$state || ($state !~ m/running/)) {
+            $state ||= 'not running';
+            warn "WARNING: Failed to run $module module hook in $service (hook $hook): $service is $state.";
+            next APPLYCONTAINERHOOKS_HOOKS;
           }
+          # Provide module files to container if not done already.
+          if (!exists($initialized_containers{$service})) {
+            Run(
+              "docker exec -it $service mkdir -p /genoring",
+              "Failed to prepare module file copy in $service ($module $hook hook)"
+            );
+            Run(
+              "docker cp \$(pwd)/$MODULE_DIR/ $service:/genoring/$MODULE_DIR/",
+              "Failed to copy module files in $service ($module $hook hook)"
+            );
+            $initialized_containers{$service} = 1;
+          }
+          Run(
+            "docker exec -it $service /genoring/$MODULE_DIR/$module/hooks/$hook",
+            "Failed to run hook of $module in $service (hook $hook)"
+          );
         }
       }
     }
@@ -1174,6 +1213,39 @@ sub Compile {
 
 =pod
 
+=head2 CompileMissingContainers
+
+B<Description>: Compiles all missing containers from which sources are
+available.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub CompileMissingContainers {
+
+  # Get module services.
+  my $services = GetServices();
+  
+  # Check missing containers.
+  foreach my $service (keys(%$services)) {
+    my $image_id = `docker images -q $service:latest`;
+    if (!$image_id) {
+      # Check if we got sources
+      my $module = $services->{$service};
+      if (-d "$MODULE_DIR/$module/src/$service") {
+        # Got sources, compile.
+        print "Compile missing service $module:$service.\n";
+        Compile($module, $service);
+      }
+    }
+  }
+}
+
+=pod
+
 =head2 GetModules
 
 B<Description>: Returns a list of GenoRing modules.
@@ -1202,7 +1274,7 @@ sub GetModules {
       # Get all available modules.
       opendir(my $dh, "$MODULE_DIR")
         or die "ERROR: GetModules: Failed to list '$MODULE_DIR' directory!\n$!";
-      $_g_modules->{'all'} = [ grep { $_ !~ m/^\.$/ && -d "$MODULE_DIR/$_" } readdir($dh) ];
+      $_g_modules->{'all'} = [ sort grep { $_ !~ m/^\./ && -d "$MODULE_DIR/$_" } readdir($dh) ];
     }
     return $_g_modules->{'all'};
   }
@@ -1211,7 +1283,7 @@ sub GetModules {
       # Get disabled modules.
       my $all_modules = GetModules();
       my $enabled_modules = { map { $_ => $_ } GetModules(1) };
-      $_g_modules->{'disabled'} = [ grep { !exists($enabled_modules->{$_}) } @$all_modules ];
+      $_g_modules->{'disabled'} = [ sort grep { !exists($enabled_modules->{$_}) } @$all_modules ];
     }
     return $_g_modules->{'disabled'};
   }
@@ -1244,28 +1316,17 @@ sub GetModules {
           die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
         }
       }
-      $_g_modules->{'enabled'} = [ keys(%modules) ];
+      $_g_modules->{'enabled'} = [ sort keys(%modules) ];
     }
     return $_g_modules->{'enabled'};
   }
 }
-
 
 =pod
 
 =head2 GetServices
 
 B<Description>: Returns the list of GenoRing services (of enabled modules).
-
-B<ArgsCount>: 0-1
-
-=over 4
-
-=item $no_cache: (bool) (O)
-
-If 1, recompute the list of services.
-
-=back
 
 B<Return>: (hash ref)
 
@@ -1275,9 +1336,7 @@ to.
 =cut
 
 sub GetServices {
-  my ($no_cache) = @_;
-  
-  if (!defined($_g_services) || !scalar($_g_services) || $no_cache) {
+  if (!defined($_g_services) || !scalar(%$_g_services)) {
     my %services;
     my $modules = GetModules(1);
     foreach my $module (@$modules) {
@@ -1321,15 +1380,46 @@ sub GetModuleServices {
   }
 
   # Get all available services.
+  # @todo Manage alternatives and disabled services in modules.conf.
   my @services;
   if (opendir(my $dh, "$MODULE_DIR/$module/services")) {
-    @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh));
+    @services = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh));
   }
   else {
     warn "WARNING: GetModuleServices: Failed to list '$MODULE_DIR/$module/services' directory!\n$!";
   }
 
   return \@services;
+}
+
+
+=pod
+
+=head2 GetVolumes
+
+B<Description>: Returns the list of GenoRing volumes (of enabled modules).
+
+B<Return>: (hash ref)
+
+The list of volumes. Keys are volume names and values are array of modules using
+them.
+
+=cut
+
+sub GetVolumes {
+  if (!defined($_g_volumes) || !scalar(%$_g_volumes)) {
+    my %volumes;
+    my $modules = GetModules(1);
+    foreach my $module (@$modules) {
+      foreach my $volume (@{GetModuleVolumes($module)}) {
+        $volumes{$volume} ||= [];
+        push(@{$volumes{$volume}}, $module);
+      }
+    }
+    $_g_volumes = \%volumes;
+  }
+
+  return $_g_volumes;
 }
 
 =pod
@@ -1364,7 +1454,7 @@ sub GetModuleVolumes {
   # Get all available volumes.
   opendir(my $dh, "$MODULE_DIR/$module/volumes")
     or die "ERROR: GetModuleVolumes: Failed to list '$MODULE_DIR/$module/volumes' directory!\n$!";
-  my @volumes = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/volumes/$_" } readdir($dh));
+  my @volumes = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/volumes/$_" } readdir($dh));
 
   return \@volumes;
 }
@@ -1566,6 +1656,48 @@ sub IsContainerRunning {
 }
 
 
+=pod
+
+=head2 ClearCache
+
+B<Description>: Clears cache data.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $category: (string) (O)
+
+Only clear the given category of cache. Could be one of: 'modules',
+'services' or 'volumes'.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ClearCache {
+  my ($category) = @_;
+  if (!$category) {
+    $_g_modules = {};
+    $_g_services = {};
+    $_g_volumes = {};
+  }
+  elsif ($category eq 'modules') {
+    $_g_modules = {};
+  }
+  elsif ($category eq 'services') {
+    $_g_services = {};
+  }
+  elsif ($category eq 'volumes') {
+    $_g_volumes = {};
+  }
+  else {
+    print "WARNING: Unknown cache category: '$category'\n";
+  }
+}
+
 # Script options
 #################
 
@@ -1573,7 +1705,7 @@ sub IsContainerRunning {
 
 =head1 OPTIONS
 
-genoring.pl [help | man | start | stop | compile] -debug
+genoring.pl [help | man | start | stop | logs | status | reset | update | enable | disable | uninstall | modules | services | volumes | backup | restore | compile] -debug
 
 =over 4
 
@@ -1643,7 +1775,8 @@ if ($man) {pod2usage('-verbose' => 2, '-exitval' => 0);}
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
 
 if ($command =~ m/^start$/i) {
-  # @todo Compile missing containers with sources.
+  # Compile missing containers with sources.
+  CompileMissingContainers();
 
   # Check if setup needs to be run first.
   if (!-e $DOCKER_COMPOSE_FILE) {
@@ -1663,6 +1796,11 @@ if ($command =~ m/^start$/i) {
   print "...GenoRing is ready to accept client connections.\n";
 }
 elsif ($command =~ m/^stop$/i) {
+  # Check if installed.
+  if (!-e $DOCKER_COMPOSE_FILE) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
   print "Stopping GenoRing...\n";
   StopGenoring(@arguments);
   print "...GenoRing stopped.\n";
@@ -1673,16 +1811,39 @@ elsif ($command =~ m/^logs$/i) {
 elsif ($command =~ m/^status$/i) {
   GetStatus(@arguments);
 }
-elsif ($command =~ m/^reinit(?:ialize)?$/i) {
+elsif ($command =~ m/^reset|reinit(?:ialize)?$/i) {
   Reinitialize(@arguments);
 }
 elsif ($command =~ m/^update$/i) {
+  # Check if installed.
+  if (!-e $DOCKER_COMPOSE_FILE) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
   Update(@arguments);
 }
 elsif ($command =~ m/^enable$/i) {
+  # Check if installed.
+  if (!-e $DOCKER_COMPOSE_FILE) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
   InstallModule(@arguments);
 }
+elsif ($command =~ m/^disable$/i) {
+  # Check if installed.
+  if (!-e $DOCKER_COMPOSE_FILE) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
+  DisableModule(@arguments);
+}
 elsif ($command =~ m/^uninstall$/i) {
+  # Check if installed.
+  if (!-e $DOCKER_COMPOSE_FILE) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
   UninstallModule(@arguments);
 }
 elsif ($command =~ m/^backup$/i) {
@@ -1698,10 +1859,16 @@ elsif ($command =~ m/^modules$/i) {
   print join(', ', @{GetModules(@arguments)}) . "\n";
 }
 elsif ($command =~ m/^services$/i) {
-  print join(', ', @{GetModuleServices(@arguments)}) . "\n";
+  my $services = GetServices(@arguments);
+  foreach my $service (sort keys(%$services)) {
+    print "$service (" . $services->{$service} . ")\n";
+  }
 }
 elsif ($command =~ m/^volumes$/i) {
-  print join(', ', @{GetModuleVolumes(@arguments)}) . "\n";
+  my $volumes = GetVolumes(@arguments);
+  foreach my $volume (sort keys(%$volumes)) {
+    print "$volume (" . join(', ', @{$volumes->{$volume}}) . ")\n";
+  }
 }
 else {
   pod2usage('-verbose' => 1, '-exitval' => 1);
