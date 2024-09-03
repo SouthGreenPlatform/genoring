@@ -1,4 +1,32 @@
 Remaining tasks:
+- prefix volume files with module name to be homogenous
+- on installation, copy used env files to a separate root conf directory with
+  module config renamed into genoring.yml.
+  Env files should be prefixed by module name tp avpod collisions.
+  PERL: "use CPAN::Meta::YAML;" should be sufficient.
+  https://metacpan.org/pod/CPAN::Meta::YAML
+  genoring.yml:
+  ----------
+  modules:
+    genoring:
+      version: 1.0
+      services:
+        - genoring:genoring
+        - genoring:genoring-db
+        - genoring:genoring-proxy-httpd
+        - ...
+      volumes:
+        - genoring:genoring-drupal-volume
+        - ...
+    gigwa:
+      ...
+  ----------
+- handle alternatives:
+  the modules/.../services/alt.yml should allow adding, removing and replacing
+  services (ie. keeping the same name), even from other installed modules. It
+  should handle version compatibility and manage multiple overrides (should be
+  able to replace a service or one of its known replacement if the service is
+  not present because it has already been replaced).
 - create a "devel" module for debugging and as example
 - finish genoring shell script to PERL script translation.
   - setup: offer environment file modifications

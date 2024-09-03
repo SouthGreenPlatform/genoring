@@ -104,10 +104,13 @@ A GenoRing module is a directory with the following structure:
   - "OPT": means the variable can be customize or left as is
   - "INS": means the variable is used at installation
   - "RUN": means the variable is used at runtime
+
   Ex.:
+  ```
     # - Drupal admin account name
     #   @tags: OPT INS
     DRUPAL_USER=genoring
+  ```
   It is important do document variables with SET or OPT because they can be
   managed by GenoRing script at installation time: the first line of the comment
   block of a variable should contain the short variable description in one line.
