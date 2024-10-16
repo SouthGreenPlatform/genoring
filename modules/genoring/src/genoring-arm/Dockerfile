@@ -2,7 +2,7 @@
 # Compile with:
 # docker build -t genoring .
 # docker build -t genoring4.0.0beta3-drupal10.1.2-php8.2-fpm-bookworm .
-FROM php:8.2-fpm-bookworm
+FROM arm64v8/php:8.2-fpm-bookworm
 
 LABEL net.genoring.image.authors="v.guignon@cgiar.org"
 

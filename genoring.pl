@@ -240,8 +240,9 @@ sub StartGenoring {
   elsif ($mode eq 'backoff') {
     $ENV{'COMPOSE_PROFILES'} = 'backend,offline';
   }
+  # TODO: check that docker runs.
   Run(
-    "docker compose up -d",
+    "docker compose up -d" . (exists($g_flags->{'arm'}) ? ' --platform linux/amd64' : ''),
     "Failed to start GenoRing ($mode mode)!",
     1
   );
@@ -517,7 +518,7 @@ sub Reinitialize {
   # Remove Drupal and database content.
   # @todo use genoring module uninstall hook instead.
   Run(
-    "docker run --rm -v $BASEDIR/volumes:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data",
+    "docker run --rm -v $BASEDIR/volumes:/genoring -w / " . (exists($g_flags->{'arm'}) ? 'arm64v8/' : '') . "alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data",
     "Failed clear local volume content!"
   );
   # @todo Clear data of enabled modules.
@@ -796,7 +797,7 @@ sub Update {
 
     # @todo Check if only some parts should be updated or update all.
     Run(
-     "docker compose run -e DRUPAL_UPDATE=2 genoring",
+     "docker compose run " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-e DRUPAL_UPDATE=2 genoring",
      "ERROR: Update: Failed to run update on GenoRing container!",
      1
     );
@@ -1108,7 +1109,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
             Run(
-              "docker exec -it $service mkdir -p /genoring",
+              "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service mkdir -p /genoring",
               "Failed to prepare module file copy in $service ($module $hook hook)"
             );
             Run(
@@ -1118,7 +1119,7 @@ APPLYCONTAINERHOOKS_HOOKS:
             $initialized_containers{$service} = 1;
           }
           Run(
-            "docker exec -it $service /genoring/$MODULE_DIR/$module/hooks/$hook",
+            "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook",
             "Failed to run hook of $module in $service (hook $hook)"
           );
         }
@@ -1177,10 +1178,13 @@ sub Compile {
     }
   }
 
-  if (!-d "$MODULE_DIR/$module/src/$service") {
+  # Get service sub-directory for sources (take into account ARM support).
+  my $service_subdir = $service . (exists($g_flags->{'arm'}) ? '-arm' : '');
+
+  if (!-d "$MODULE_DIR/$module/src/$service_subdir") {
     die "ERROR: Compile: The given service (${module}[$service]) does not have sources!";
   }
-  elsif (!-r "$MODULE_DIR/$module/src/$service/Dockerfile") {
+  elsif (!-r "$MODULE_DIR/$module/src/$service_subdir/Dockerfile") {
     die "ERROR: Compile: Unable to access the Dockerfile of the given service (${module}[$service])!";
   }
 
@@ -1209,7 +1213,7 @@ sub Compile {
     1
   );
   Run(
-    "docker build -t $service $MODULE_DIR/$module/src/$service/",
+    "docker build -t $service $MODULE_DIR/$module/src/$service_subdir/",
     "Failed to compile container (service ${module}[$service])",
     1
   );
@@ -1709,7 +1713,7 @@ sub ClearCache {
 
 =head1 OPTIONS
 
-genoring.pl [help | man | start | stop | logs | status | reset | update | enable | disable | uninstall | modules | services | volumes | backup | restore | compile] -debug
+genoring.pl [help | man | start | stop | logs | status | reset | update | enable | disable | uninstall | modules | services | volumes | backup | restore | compile] [-debug] [-arm]
 
 =over 4
 
@@ -1724,6 +1728,11 @@ Prints the manual page and exits.
 =item B<-debug>:
 
 Enables debug mode.
+
+=item B<-arm>:
+
+Use ARM versions for Docker compilation when available or run on ARM
+architectures.
 
 =back
 
