@@ -160,7 +160,8 @@ sub Run {
   $subroutine =~ s/^main:://;
 
   if (!$command) {
-    die "ERROR: ${subroutine}Run: No command to run!";
+    # Die on logic errors.
+    die "ERROR: ${subroutine} Run: No command to run!";
   }
 
   $error_message ||= 'Execution failed!';
@@ -240,12 +241,16 @@ sub StartGenoring {
   elsif ($mode eq 'backoff') {
     $ENV{'COMPOSE_PROFILES'} = 'backend,offline';
   }
-  # TODO: check that docker runs.
-  Run(
-    "docker compose up -d" . (exists($g_flags->{'arm'}) ? ' --platform linux/amd64' : ''),
-    "Failed to start GenoRing ($mode mode)!",
-    1
-  );
+  # Check that genoring docker is not already running.
+  my ($id, $state, $name, $image) = IsContainerRunning('genoring');
+  if (!$state || ($state !~ m/running/)) {
+    # Not running, start it.
+    Run(
+      "docker compose up -d" . (exists($g_flags->{'arm'}) ? ' --platform linux/amd64' : ''),
+      "Failed to start GenoRing ($mode mode)!",
+      1
+    );
+  }
 }
 
 =pod
@@ -316,14 +321,29 @@ B<Return>: (nothing)
 =cut
 
 sub GetStatus {
-  my $state = GetState(@_);
-  if (@_) {
-    # @todo Get given module state: convert module name to container name.
-    print $_[0] . " is " . ($state || 'not running') . ".\n";
+  my ($module) = @_;
+  if ($module) {
+    my $module_state = GetModuleRealState($module);
+    if (!$module_state || ($module_state !~ m/running/)) {
+      print "$module is not running.\n";
+      return;
+    }
+    else {
+      print "$module is running.\n";
+    }
   }
   else {
+    my $state = GetState();
     if ('running' eq $state) {
-      # @todo Check if offline or backend.
+      if ($ENV{'COMPOSE_PROFILES'} =~ m/offline/) {
+        $state .= ' in offline mode';
+        if ($ENV{'COMPOSE_PROFILES'} =~ m/backend/) {
+          $state .= ' with backend';
+        }
+      }
+      elsif ($ENV{'COMPOSE_PROFILES'} =~ m/backend/) {
+        $state .= ' in backend mode';
+      }
     }
     print "GenoRing is " . ($state || 'not running') . ".\n";
   }
@@ -374,18 +394,64 @@ sub GetState {
 
 =pod
 
+=head2 IsContainerRunning
+
+B<Description>: Tells if the given container name is currently running.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $container: (string) (R)
+
+The container name.
+
+=back
+
+B<Return>: (list)
+
+The container identifier, the state string, the container name and the image
+name of the running container or an empty list otherwise.
+The state string should be one of "created", "running", "restarting", "paused",
+"dead" or "exited".
+
+=cut
+
+sub IsContainerRunning {
+  my ($container) = @_;
+
+  if (!$container) {
+    warn "WARNING: IsContainerRunning: Missing container name!";
+    return '';
+  }
+  my $ps_all = `docker ps --all --filter name=$container --format '{{.ID}} {{.State}} {{.Names}} {{.Image}}'`;
+  my @ps = split(/\n+/, $ps_all);
+  foreach my $ps (@ps) {
+    my @status = split(/\s+/, $ps);
+    # Name filter does not do an exact match so we do it here.
+    if ($status[2] eq $container) {
+      return (@status);
+    }
+  }
+  return ();
+}
+
+=pod
+
 =head2 GetModuleRealState
 
 B<Description>: Returns the given module real state (can be different from the
-state returned by Docker).
+state returned by Docker). It calls the state hook.
+If $progress is set, it will try $STATE_MAX_TRIES seconds to check if the module
+is not running.
 
 B<ArgsCount>: 0-1
 
 =over 4
 
-=item $container: (string) (O)
+=item $module: (string) (O)
 
-Container name.
+Module name.
 
 =back
 
@@ -398,6 +464,11 @@ The module state. Should be one of "created", "running", "restarting", "paused",
 
 sub GetModuleRealState {
   my ($module, $progress) = @_;
+
+  if (!$module) {
+    die "ERROR: GetModuleRealState: Missing module name!";
+  }
+
   my $state = '';
   if (-e "$MODULE_DIR/$module/hooks/state.pl") {
     my $tries = $STATE_MAX_TRIES;
@@ -414,7 +485,6 @@ sub GetModuleRealState {
         die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
       }
     }
-
   }
   else {
     # Check if module containers are running.
@@ -422,7 +492,7 @@ sub GetModuleRealState {
     foreach my $service (@{GetModuleServices($module)}) {
       # Check service is running.
       my $service_state = GetState($service);
-      if ($service_state && ($service_state !~ m/running/)) {
+      if ($service_state !~ m/running/) {
         return $service_state;
       }
     }
@@ -479,25 +549,23 @@ B<Return>: (nothing)
 =cut
 
 sub Reinitialize {
-
   if (!exists($g_flags->{'f'})) {
     #  Warn and ask for confirmation.
-    print "WARNING: This will stop all GenoRing containers, REMOVE their local data ('volumes' directory contant) and reset GenoRing config! This operation can not be undone so make backups before as needed. Are you sure you want to continue? (y|n) ";
-    my $user_input = <STDIN>;
-    chomp $user_input;
-    if (!$user_input || $user_input !~ m/^y(?:es)?/i) {
+    if (!Confirm("WARNING: This will stop all GenoRing containers, REMOVE their local data ('volumes' directory contant) and reset GenoRing config! This operation can not be undone so make backups before as needed. Are you sure you want to continue?")) {
       print "Operation canceled!\n";
       exit(0);
     }
   }
 
-  # @todo Check if only a sub-part should be managed.
-  # @todo Add an option to remove ALL and not just Drupal and its db.
-
   # Stop genoring.
   print "Stop GenoRing...\n";
-  StopGenoring();
-  print "  OK.\n";
+  eval{StopGenoring();};
+  if ($@) {
+    print "  Failed.\n$@\n";
+  }
+  else {
+    print "  OK.\n";
+  }
 
   # Cleanup containers.
   print "Pruning stopped containers...\n";
@@ -505,24 +573,24 @@ sub Reinitialize {
     "docker container prune -f",
     "Failed to prune containers!"
   );
+  print "  Done.\n";
+
+  # Remove all GenoRing volumes.
+  print "Removing all GenoRing volumes...\n";
+  my $modules = GetModules();
+  foreach my $module (@$modules) {
+    my $volumes = GetModuleVolumes($module);
+    if (@$volumes) {
+      Run(
+        "docker volume rm -f " . join(' ', @$volumes),
+        "Failed to remove GenoRing volumes for module '$module'!"
+      );
+    }
+  }
   print "  OK.\n";
 
-  # Remove GenoRing volumes.
-  print "Removing GenoRing volumes...\n";
-  Run(
-    "docker volume rm -f genoring-drupal genoring-data",
-    "Failed to remove GenoRing volumes!"
-  );
-  # @todo Remove module's shared volumes as well.
-
-  # Remove Drupal and database content.
-  # @todo use genoring module uninstall hook instead.
-  Run(
-    "docker run --rm -v $BASEDIR/volumes:/genoring -w / " . (exists($g_flags->{'arm'}) ? 'arm64v8/' : '') . "alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data",
-    "Failed clear local volume content!"
-  );
-  # @todo Clear data of enabled modules.
-  print "  OK.\n";
+  # Uninstall all modules.
+  ApplyLocalHooks('uninstall');
 
   # Uninstall enabled modules.
   print "Uninstall all modules...\n";
@@ -535,16 +603,7 @@ sub Reinitialize {
   print "  OK.\n";
 
   # Clear environment files.
-  opendir(my $dh, "env")
-    or warn "WARNING: Reinitialize: Failed to access 'env' directory!\n$!";
-  my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "env/$_" } readdir($dh));
-  closedir($dh);
-  foreach my $env_file (@env_files) {
-    # Check if environment file exist.
-    if (-e "env/$env_file") {
-      unlink "env/$env_file";
-    }
-  }
+  RemoveEnvFiles();
 
   print "Reinitialization done!\n";
 }
@@ -564,7 +623,7 @@ B<Return>: (nothing)
 sub SetupGenoring {
 
   # Process environment variables and ask user for inputs for variables with
-  # tags SET et OPT.
+  # tags SET and OPT.
   print "- Setup environment...\n";
   SetupGenoringEnvironment();
   print "  ...Environment setup done.\n";
@@ -598,10 +657,6 @@ sub SetupGenoring {
   # Stop containers.
   print "- Stopping backend.\n";
   StopGenoring();
-
-  # # @todo Check for modules to enable.
-  # # docker exec -v ./modules/profile/path/to/:/path/to/ -it genoring /path/to/script.sh
-  # # @toto Ask to start genoring.
 }
 
 =pod
@@ -794,8 +849,6 @@ ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
       }
     }
   }
-
-
 }
 
 =pod
@@ -820,6 +873,10 @@ sub GenerateDockerComposeFile {
   foreach my $module (@$modules) {
     print "  - Processing $module module\n";
 
+    if (!-d "$MODULE_DIR/$module/services") {
+      # No service to enable.
+      next;
+    }
     # Work on module services.
     opendir(my $dh, "$MODULE_DIR/$module/services")
       or die "ERROR: GenerateDockerComposeFile: Failed to access '$MODULE_DIR/$module/services' directory!\n$!";
@@ -829,6 +886,7 @@ sub GenerateDockerComposeFile {
       my $svc_fh;
       open($svc_fh, "$MODULE_DIR/$module/services/$service_yml")
         or die "ERROR: GenerateDockerComposeFile: Failed to open module service file '$service_yml'.\n$!";
+      # Trim extension.
       my $service = substr($service_yml, 0, -4);
       if (($module ne 'genoring') || ($service eq 'genoring')) {
         push(@proxy_dependencies, $service);
@@ -964,25 +1022,17 @@ sub Update {
     # Start containers in backend mode.
     print "- Starting GenoRing backend for update...\n";
     StartGenoring($mode);
-    print "  OK\n";
+    print "  OK.\n";
 
     # Check modules are ready.
     print "- Waiting for all services to be operational...\n";
     WaitModulesReady();
-    print "  OK\n";
+    print "  OK.\n";
 
-    # @todo Check if only some parts should be updated or update all.
-    Run(
-     "docker compose run " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-e DRUPAL_UPDATE=2 genoring",
-     "ERROR: Update: Failed to run update on GenoRing container!",
-     1
-    );
-
-    # Apply docker initialization hooks of each enabled module service for each
-    # enabled module service (ie. modules/"svc1"/hooks/init_"svc2".sh).
+    # Apply docker update hooks of each enabled module service for each
+    # enabled module service (ie. modules/"svc1"/hooks/update_"svc2".sh).
     print "  - Applying container update hooks...\n";
     ApplyContainerHooks('update');
-    print "    OK\n";
     print "  ...Modules updated.\n";
 
     # Stop containers.
@@ -993,11 +1043,11 @@ sub Update {
     if ('backoff' eq $mode) {
       print "- Restart GenoRing...\n";
       StartGenoring('normal');
-      print "  OK\n";
+      print "  OK.\n";
       # Check modules are ready.
       print "- Waiting for all services to be operational...\n";
       WaitModulesReady();
-      print "  OK\n";
+      print "  OK.\n";
     }
 
     print "Update done.\n";
@@ -1030,7 +1080,6 @@ B<Return>: (nothing)
 =cut
 
 sub InstallModule {
-  # @todo: remove module from modules.conf if installation fails.
   my ($module) = @_;
   if (!$module) {
     die "ERROR: InstallModule: Missing module name!\n";
@@ -1060,30 +1109,39 @@ sub InstallModule {
   StopGenoring();
 
   # Enable module.
-  my $module_fh;
-  if (open($module_fh, ">>$MODULE_FILE")) {
-    print {$module_fh} "$module\n";
-    close($module_fh);
-    $enabled_volumes{$module} = $module;
+  AddModuleToConf($module);
+  $enabled_volumes{$module} = $module;
+  my ($init_ok, $enable_ok);
+  eval {
+    # Setup environment files.
+    SetupGenoringEnvironment();
+
+    # Apply module init hook.
+    ApplyLocalHooks('init', $module);
+    $init_ok = 1;
+
+    # Update Docker Compose config.
+    GenerateDockerComposeFile();
+
+    # Set maintenance mode.
+    StartGenoring($mode);
+    WaitModulesReady();
+    ApplyContainerHooks('enable', $module);
+    $enable_ok = 1;
+    StopGenoring();
+  };
+  # If installation failed, cleanup things.
+  if ($@) {
+    warn "ERROR: Failed to install module '$module'.\n$@\n";
+    eval {
+      ApplyLocalHooks('uninstall', $module);
+    } if ($init_ok);
+    # Remove module from modules.conf if installation fails.
+    RemoveModuleFromConf($module);
+    # Update Docker Compose config.
+    GenerateDockerComposeFile();
+    StopGenoring();
   }
-  else {
-    die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
-  }
-  
-  # Setup environment files.
-  SetupGenoringEnvironment();
-
-  # Apply module init hook.
-  ApplyLocalHooks('init', $module);
-
-  # Update Docker Compose config.
-  GenerateDockerComposeFile();
-
-  # Set maintenance mode.
-  StartGenoring($mode);
-  WaitModulesReady();
-  ApplyContainerHooks('enable', $module);
-  StopGenoring();
 
   # Restart if needed.
   if ('backoff' eq $mode) {
@@ -1097,6 +1155,83 @@ sub InstallModule {
 sub DisableModule {
   # @todo Call disable hooks.
   # remove module from enabled modules.
+  my ($module, $non_interactive, $uninstall) = @_;
+
+  if (!$module) {
+    # Die on logic error.
+    die "ERROR: DisableModule: Missing module name!\n";
+  }
+
+  if (! -d "$MODULE_DIR/$module") {
+    warn "WARNING: DisableModule: Module '$module' not found!\n";
+  }
+
+  my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
+  if (!exists($enabled_modules{$module})) {
+    warn "WARNING: DisableModule: Module '$module' already disabled! Will retry to disable it.\n";
+  }
+  elsif (!$non_interactive) {
+    if (!Confirm("Are you sure you want to disable module '$module'?")) {
+      print "Operation canceled!\n";
+      exit(0);
+    }
+  }
+  # Clear caches.
+  ClearCache();
+
+  # Check if the system is running and stop it.
+  my $mode = 'backend';
+  # Check if genoring is running and if so, we need to set "offline" mode
+  # and restart it properly after the changes.
+  if ('running' eq GetState()) {
+    $mode = 'backoff';
+  }
+
+  # Stop if running.
+  eval {StopGenoring();};
+  if ($@) {
+    die "ERROR: Failed to stop GenoRing. Unable to uninstall module '$module'.\n$@\n";
+  }
+
+  # Disable module.
+  RemoveModuleFromConf($module);
+
+  # Update Docker Compose config.
+  eval {GenerateDockerComposeFile();};
+  if ($@) {
+    warn $@;
+  }
+
+  # Set maintenance mode to apply disabling hooks.
+  my $disable_hook_ok;
+  eval {
+    StartGenoring($mode);
+    WaitModulesReady();
+    ApplyContainerHooks('disable', $module);
+    $disable_hook_ok = 1;
+    StopGenoring();
+  };
+  if ($@) {
+    warn "WARNING: Failed to apply disable hooks!\n$@\n";
+  }
+
+  if ($uninstall) {
+    # Apply module uninstall hook.
+    eval {ApplyLocalHooks('uninstall', $module);};
+    if ($@) {
+      warn "WARNING: Failed to apply uninstall hooks!\n$@\n";
+    }
+
+    # Remove module environment files.
+    RemoveEnvFiles($module);
+  }
+
+  # Restart if needed.
+  if ('backoff' eq $mode) {
+    StartGenoring('normal');
+    WaitModulesReady();
+  }
+
 }
 
 ##
@@ -1107,91 +1242,28 @@ sub DisableModule {
 # @todo Maybe see if uninstall could be optional.
 #
 sub UninstallModule {
-  # # @todo Warn and ask for confirmation.
-  my ($module) = @_;
+  my ($module, $non_interactive) = @_;
 
   if (!$module) {
+    # Die on logic error.
     die "ERROR: UninstallModule: Missing module name!\n";
   }
 
   if (! -d "$MODULE_DIR/$module") {
-    die "ERROR: UninstallModule: Module '$module' not found!\n";
+    warn "WARNING: UninstallModule: Module '$module' not found!\n";
   }
 
-  my %enabled_volumes = map { $_ => $_ } @{GetModules(1)};
-  if (!exists($enabled_volumes{$module})) {
-    warn "WARNING: UninstallModule: Module '$module' already uninstalled!\n";
-    return;
+  my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
+  if (!exists($enabled_modules{$module})) {
+    warn "WARNING: UninstallModule: Module '$module' already uninstalled! Will retry to uninstall it.\n";
   }
-  # Clear caches.
-  ClearCache();
-
-  print "Are you sure you want ot UNINSTALL module '$module'? (y/n)";
-  my $user_input = <STDIN>;
-  if ($user_input != m/y/i) {
-    print "Uninstall canceled by user.\n";
-    return;
-  }
-
-  # Check if the system is running and stop it.
-  my $mode = 'backend';
-  # Check if genoring is running and if so, we need to set "offline" mode
-  # and restart it properly after the update.
-  if ('running' eq GetState()) {
-    $mode = 'backoff';
-  }
-
-  # Stop if running.
-  StopGenoring();
-
-  # Disable module.
-  my $module_fh;
-  if (open($module_fh, $MODULE_FILE)) {
-    my $module_conf = join('', <$module_fh>);
-    close($module_fh);
-    $module_conf =~ s/^$module(?:\s+|$)//gsm;
-    if (open($module_fh, ">$MODULE_FILE")) {
-      print {$module_fh} $module_conf;
-      close($module_fh);
-    }
-    else {
-      die "ERROR: failed to edit module file '$MODULE_FILE':\n$!\n";
+  elsif (!$non_interactive) {
+    if (!Confirm("This action will also remove data files used or generated by the module. Are you sure you want to UNINSTALL module '$module'?")) {
+      print "Operation canceled!\n";
+      exit(0);
     }
   }
-  else {
-    die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
-  }
-
-  # Update Docker Compose config.
-  GenerateDockerComposeFile();
-
-  # Set maintenance mode.
-  StartGenoring($mode);
-  WaitModulesReady();
-  ApplyContainerHooks('disable', $module);
-  StopGenoring();
-
-  # Apply module uninstall hook.
-  ApplyLocalHooks('uninstall', $module);
-  
-  # Remove module environment files.
-  # List module env files.
-  opendir(my $dh, "$MODULE_DIR/$module/env")
-    or warn "WARNING: UninstallModule: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
-  my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
-  closedir($dh);
-  foreach my $env_file (@env_files) {
-    # Check if environment file exist.
-    if (-e "env/${module}_$env_file") {
-      unlink "env/${module}_$env_file";
-    }
-  }
-
-  # Restart if needed.
-  if ('backoff' eq $mode) {
-    StartGenoring('normal');
-    WaitModulesReady();
-  }
+  DisableModule($module, 1, 1);
 }
 
 ##
@@ -1213,6 +1285,23 @@ sub Restore {
 
 B<Description>: Find and run the given local hook scripts.
 
+Local hook scripts are PERL scripts runned on the current server running
+"genoring.pl" and dockers. They can be called for a given module or for all
+modules implementing the hook. The return code can be used to raise errors. They
+are called when dockers are stopped except for the "state" hook.
+
+Hook file name sructure: "<hook_name>.pl"
+
+List of supported local hooks:
+- init: called just before a module is enabled, in order to setup the file
+  system (ie. create local data directories, generate, download or copy files,
+  etc.).
+- uninstall: cleanup local file system and remove data files and directories
+  generated by the module.
+- update: update local file system for the given module.
+- state: output the state of a module (ie. "created", "running", "restarting",
+  "paused", "dead", "exited").
+
 B<ArgsCount>: 1-2
 
 =over 4
@@ -1221,9 +1310,13 @@ B<ArgsCount>: 1-2
 
 The hook name.
 
-=item $module: (string) (O)
+=item $module: (string) (U)
 
 Restrict hooks to this module.
+
+=item $args: (string) (O)
+
+Additional arguments to transmit to the hook script in command line.
 
 =back
 
@@ -1232,7 +1325,8 @@ B<Return>: (nothing)
 =cut
 
 sub ApplyLocalHooks {
-  my ($hook_name, $module) = @_;
+  my ($hook_name, $module, $args) = @_;
+  $args ||= '';
 
   if (!$hook_name) {
     die "ERROR: ApplyLocalHooks: Missing hook name!\n";
@@ -1244,20 +1338,32 @@ sub ApplyLocalHooks {
     $modules = [$module];
   }
   else {
-    # Get enabled modules.
+    # Get all enabled modules.
     $modules = GetModules(1);
   }
 
+  my @errors;
   foreach $module (@$modules) {
     if (-e "$MODULE_DIR/$module/hooks/$hook_name.pl") {
       print "  Processing $module module hook $hook_name...";
-      Run(
-        "perl $MODULE_DIR/$module/hooks/$hook_name.pl",
-        "Failed to process $module module hook $hook_name!",
-        1
-      );
-      print "  OK\n";
+      eval {
+        Run(
+          "perl $MODULE_DIR/$module/hooks/$hook_name.pl $args",
+          "Failed to process $module module hook $hook_name!",
+          1
+        );
+      };
+      if ($@) {
+        push(@errors, $@);
+        print "  Failed.\n";
+      }
+      else {
+        print "  OK.\n";
+      }
     }
+  }
+  if (@errors) {
+    warn "ERROR: ApplyLocalHooks:\n" . join("\n", @errors) . "\n";
   }
 }
 
@@ -1270,6 +1376,33 @@ containers.
 IMPORTANT: Hooks will only be processed in *running* containers. Warnings will
 be issued for enabled services that are not running.
 
+Container hooks are shell scripts run into a genoring container corresponding to
+a given service which appears in the hook script name. Hook script name
+structure: "<hook_name>_<service_name>.sh"
+
+Note: the "service_name" is a docker name.
+
+Example: "enable_toto.sh" will run the "enable_toto.sh" on the
+"toto" container when either the module holding that hook is enabled or the
+"toto" service is enabled (while the module holding that hook is already
+enabled).
+
+To run scripts in the container, the "modules/" directory is copied into the
+container directory "/genoring". In previous example, if "enable_toto.sh" is a
+hook of the "mymodule" module, when the "mymodule" module is enabled, all the
+directory "./modules/" is copied in the "toto" docker in the "/genoring/"
+directory and the hook script is started from
+"/genoring/modules/mymodule/hooks/enable_toto.sh". Since the developer of the
+hook script knows the container that will run the script, the script should be
+adapted to that container (ie. choose between "#!/bin/bash" or "#!/bin/sh" for
+instance).
+
+List of supported container hooks:
+- enable: called for a module on services when one of them is enabled.
+- disable: called for a module on services when one of them is disabled.
+- update: called for a module on services when one of them is updated.
+- backup: called for a module on services when one of them must perform backups.
+
 B<ArgsCount>: 1-2
 
 =over 4
@@ -1278,11 +1411,15 @@ B<ArgsCount>: 1-2
 
 The hook name.
 
-=item $en_module: (string) (O)
+=item $en_module: (string) (U)
 
 Restrict hooks to the given module and its services. When set to a valid module
 name, only its hooks will be processed first and then only other module hooks
 related to this module will be run as well.
+
+=item $args: (string) (O)
+
+Additional arguments to transmit to the hook script in command line.
 
 =back
 
@@ -1291,7 +1428,8 @@ B<Return>: (nothing)
 =cut
 
 sub ApplyContainerHooks {
-  my ($hook_name, $en_module) = @_;
+  my ($hook_name, $en_module, $args) = @_;
+  $args ||= '';
 
   if (!$hook_name) {
     die "ERROR: ApplyContainerHooks: Missing hook name!\n";
@@ -1342,7 +1480,7 @@ APPLYCONTAINERHOOKS_HOOKS:
             $initialized_containers{$service} = 1;
           }
           Run(
-            "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook",
+            "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
             "Failed to run hook of $module in $service (hook $hook)"
           );
         }
@@ -1683,9 +1821,13 @@ sub GetModuleVolumes {
   }
 
   # Get all available volumes.
-  opendir(my $dh, "$MODULE_DIR/$module/volumes")
-    or die "ERROR: GetModuleVolumes: Failed to list '$MODULE_DIR/$module/volumes' directory!\n$!";
-  my @volumes = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/volumes/$_" } readdir($dh));
+  my @volumes;
+  if (opendir(my $dh, "$MODULE_DIR/$module/volumes")) {
+    @volumes = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/volumes/$_" } readdir($dh));
+  }
+  else {
+    warn "WARNING: GetModuleVolumes: Failed to list '$MODULE_DIR/$module/volumes' directory!\n$!";
+  }
 
   return \@volumes;
 }
@@ -1822,6 +1964,56 @@ sub SetEnvVariable {
 
 =pod
 
+=head2 RemoveEnvFiles
+
+B<Description>: Remove all environment files from the given module or from all
+modules.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $module: (string) (O)
+
+A specific module.
+
+=back
+
+
+B<Return>: (nothing)
+
+=cut
+
+sub RemoveEnvFiles {
+  my ($module) = @_;
+  if ($module) {
+    # Remove module environment files.
+    # List module env files.
+    opendir(my $dh, "$MODULE_DIR/$module/env")
+      or warn "WARNING: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
+    my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
+    closedir($dh);
+    foreach my $env_file (@env_files) {
+      # Check if environment file exist.
+      if (-e "env/${module}_$env_file") {
+        unlink "env/${module}_$env_file";
+      }
+    }
+  }
+  else {
+    # Remove all environment files.
+    opendir(my $dh, "env")
+      or warn "WARNING: Failed to access 'env' directory!\n$!";
+    my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "env/$_" } readdir($dh));
+    closedir($dh);
+    foreach my $env_file (@env_files) {
+      unlink "env/$env_file";
+    }
+  }
+}
+
+=pod
+
 =head2 GetProfile
 
 B<Description>: Returns current site environment type (dev/staging/prod).
@@ -1844,48 +2036,75 @@ sub GetProfile {
 
 =pod
 
-=head2 IsContainerRunning
+=head2 AddModuleToConf
 
-B<Description>: Tells if the given container name is currently running.
+B<Description>: Adds a module to module config file.
 
 B<ArgsCount>: 1
 
 =over 4
 
-=item $container: (string) (R)
+=item $module: (string) (R)
 
-The container name.
+The module name.
 
 =back
 
-B<Return>: (list)
-
-The container identifier, the state string, the container name and the image
-name of the running container or an empty list otherwise.
-The state string should be one of "created", "running", "restarting", "paused",
-"dead" or "exited".
+B<Return>: nothing
 
 =cut
 
-sub IsContainerRunning {
-  my ($container) = @_;
-
-  if (!$container) {
-    warn "WARNING: IsContainerRunning: Missing container name!";
-    return '';
+sub AddModuleToConf {
+  my ($module) = @_;
+  my $module_fh;
+  if (open($module_fh, ">>$MODULE_FILE")) {
+    print {$module_fh} "$module\n";
+    close($module_fh);
   }
-  my $ps_all = `docker ps --all --filter name=$container --format '{{.ID}} {{.State}} {{.Names}} {{.Image}}'`;
-  my @ps = split(/\n+/, $ps_all);
-  foreach my $ps (@ps) {
-    my @status = split(/\s+/, $ps);
-    # Name filter does not do an exact match so we do it here.
-    if ($status[2] eq $container) {
-      return (@status);
-    }
+  else {
+    die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
   }
-  return ();
 }
 
+=pod
+
+=head2 RemoveModuleFromConf
+
+B<Description>: Removes a module from module config file.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=back
+
+B<Return>: nothing
+
+=cut
+
+sub RemoveModuleFromConf {
+  my ($module) = @_;
+  my $module_fh;
+  if (open($module_fh, $MODULE_FILE)) {
+    my $module_conf = join('', <$module_fh>);
+    close($module_fh);
+    $module_conf =~ s/^$module(?:\s+|$)//gsm;
+    if (open($module_fh, ">$MODULE_FILE")) {
+      print {$module_fh} $module_conf;
+      close($module_fh);
+    }
+    else {
+      die "ERROR: failed to edit module file '$MODULE_FILE':\n$!\n";
+    }
+  }
+  else {
+    die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+  }
+}
 
 =pod
 
@@ -1927,6 +2146,39 @@ sub ClearCache {
   else {
     print "WARNING: Unknown cache category: '$category'\n";
   }
+}
+
+=pod
+
+=head2 Confirm
+
+B<Description>: Ask a question and get user confirmation.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $message: (string) (R)
+
+Confirmation message. The message does not need to have "(y/n)" in the end as it
+is automatically added.
+
+=back
+
+B<Return>: (bool)
+
+1 if confirmed (yes) and 0 otherwise.
+
+=cut
+
+sub Confirm {
+  my ($message) = @_;
+  print "$message (y/n) ";
+  my $user_input = <STDIN>;
+  if ($user_input !~ m/^y/i) {
+    return 0;
+  }
+  return 1;
 }
 
 # Script options

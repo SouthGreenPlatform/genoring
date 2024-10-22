@@ -10,5 +10,5 @@ if ($is_running && ($is_running =~ m/^[\d\s]+$/)) {
   print 'running';
 }
 else {
-  print 'initializing';
+  print 'created';
 }
