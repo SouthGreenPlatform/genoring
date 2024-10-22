@@ -2,8 +2,8 @@
 image: genoring
 profiles: ["prod","staging","dev","backend"]
 env_file:
-  - ${PWD}/modules/genoring/env/genoring.env
-  - ${PWD}/modules/genoring/env/db.env
+  - ${PWD}/env/genoring_genoring.env
+  - ${PWD}/env/genoring_db.env
   - ${PWD}/modules/genoring/env/nginx.env
 volumes:
   - genoring-drupal-volume:/opt/drupal

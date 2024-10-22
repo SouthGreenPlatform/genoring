@@ -183,7 +183,7 @@ sub Run {
   else {
     $error_message = "$error_message " . sprintf("(error %d)", $? >> 8);
   }
-  
+
   if ($failed) {
     if ($fatal_error) {
       die($error_message);
@@ -414,7 +414,7 @@ sub GetModuleRealState {
         die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
       }
     }
-    
+
   }
   else {
     # Check if module containers are running.
@@ -479,13 +479,13 @@ B<Return>: (nothing)
 =cut
 
 sub Reinitialize {
-  
+
   if (!exists($g_flags->{'f'})) {
     #  Warn and ask for confirmation.
     print "WARNING: This will stop all GenoRing containers, REMOVE their local data ('volumes' directory contant) and reset GenoRing config! This operation can not be undone so make backups before as needed. Are you sure you want to continue? (y|n) ";
-    my $userword = <STDIN>;
-    chomp $userword;
-    if (!$userword || $userword !~ m/^y(?:es)?/i) {
+    my $user_input = <STDIN>;
+    chomp $user_input;
+    if (!$user_input || $user_input !~ m/^y(?:es)?/i) {
       print "Operation canceled!\n";
       exit(0);
     }
@@ -533,6 +533,18 @@ sub Reinitialize {
   print "Clearing config...\n";
   unlink $DOCKER_COMPOSE_FILE;
   print "  OK.\n";
+
+  # Clear environment files.
+  opendir(my $dh, "env")
+    or warn "WARNING: Reinitialize: Failed to access 'env' directory!\n$!";
+  my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "env/$_" } readdir($dh));
+  closedir($dh);
+  foreach my $env_file (@env_files) {
+    # Check if environment file exist.
+    if (-e "env/$env_file") {
+      unlink "env/$env_file";
+    }
+  }
 
   print "Reinitialization done!\n";
 }
@@ -605,20 +617,184 @@ B<Return>: (nothing)
 =cut
 
 sub SetupGenoringEnvironment {
+  my $user_input;
+
+  # Create environment directory.
+  mkdir('env') unless (-d 'env');
+
+  # @todo Only display if there are new environment files to setup.
+  print <<"___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___";
+To continue the installation, you will be asked to provide values for some
+setting variables for each module.
+___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
 
   # Get enabled modules.
   my $modules = GetModules(1);
-
+  my %env_vars;
   foreach my $module (@$modules) {
-    # @todo Manage environment file generation.
-    print "Here, you will soon be able to customize settings (environment variables) before site installation... Hit enter to continue. ";
-    my $userword = <STDIN>;
-    chomp $userword;
-    # # Ask for ...
-    # while [ -z "$value" ]; do
-    #   read -p "Enter a value: " value
-    # done
+    $env_vars{$module} = {};
+    # List module env files.
+    opendir(my $dh, "$MODULE_DIR/$module/env")
+      or die "ERROR: SetupGenoringEnvironment: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
+    my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
+    closedir($dh);
+    foreach my $env_file (@env_files) {
+      # Check if environment file already set.
+      if (!-z "env/${module}_$env_file") {
+        next;
+      }
+      # Parse each env file to get parametrable elements.
+      my $env_fh;
+      if (open($env_fh, "$MODULE_DIR/$module/env/$env_file")) {
+        my ($envvar_name, $envvar_desc, $envvar_default, $is_setting, $is_optional, $previous_content) = ('', '', '', 0, 0, '');
+        $env_vars{$module}->{$env_file} = [];
+        while (my $line = <$env_fh>) {
+          if ($line =~ m/^\s*$/) {
+            # Clear if empty line.
+            ($envvar_name, $envvar_desc, $envvar_default, $is_setting, $is_optional) = ('', '', '', 0, 0);
+          }
+          elsif ($line =~ m/^#\s+\@default\s+(.*)/) {
+            $envvar_default = $1;
+          }
+          elsif ($line =~ m/^#\s+\@tags\s+(.*)/) {
+            my $tags = $1;
+            if ($tags =~ m/SET/) {
+              $is_setting = 1;
+            }
+            else {
+              $is_setting = 0;
+            }
+            if ($tags =~ m/OPT/) {
+              $is_optional = 1;
+            }
+            else {
+              $is_optional = 0;
+            }
+          }
+          elsif (!$envvar_name && ($line =~ m/^#\s+(\w.+)/)) {
+            # Env var name.
+            $envvar_name = $1;
+          }
+          elsif ($envvar_name && ($line =~ m/^#/)) {
+            # Env var description.
+            # Skip first empty line.
+            if ($envvar_desc || ($line =~ m/\w/)) {
+              $envvar_desc .= substr($line, 2) . "\n";
+            }
+          }
+          elsif ($line =~ m/^\s*(\w+)\s*[=:]\s*(.*)$/) {
+            if ($is_setting || $is_optional) {
+              push(
+                @{$env_vars{$module}->{$env_file}},
+                {
+                  'var' => $1,
+                  'name' => $envvar_name,
+                  'description' => $envvar_desc,
+                  'current' => $2,
+                  'default' => $envvar_default,
+                  'is_setting' => $is_setting,
+                  'is_optional' => $is_optional,
+                  'module' => $module,
+                  'env_file' => $env_file,
+                  'previous_content' => $previous_content,
+                }
+              );
+              # Clear line to exclude it from previous content.
+              $line = '';
+              # Reset previous content.
+              $previous_content = '';
+            }
+            # Reset for next env var.
+            ($envvar_name, $envvar_desc, $envvar_default, $is_setting, $is_optional) = ('', '', '', 0, 0);
+          }
+          else {
+            # Unsupported line.
+            # warn "WARNING: Unsupported line in '$MODULE_DIR/$module/env/$env_file':\n$line\n";
+            ($envvar_name, $envvar_desc, $envvar_default, $is_setting, $is_optional) = ('', '', '', 0, 0);
+          }
+          $previous_content .= $line;
+        }
+        close($env_fh);
+
+        my $next_envfile = 0;
+        while (!$next_envfile) {
+          # Now get user input to fill env file.
+          if (scalar(@{$env_vars{$module}->{$env_file}})) {
+            print "Settings for \"$env_file\"\n";
+          }
+          foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
+            my $next_envvar = 0;
+            print "* " . ($envvar->{'name'} || $envvar->{'var'}) . "\n";
+            if (defined($envvar->{'default'})) {
+              print "  Default value: " . $envvar->{'default'} . "\n";
+            }
+            if (defined($envvar->{'current'})) {
+              print "  Current value: " . $envvar->{'current'} . "\n";
+            }
+            while (!$next_envvar) {
+              print "  Hit 'S' to set a new value, 'K' to keep current value, 'D' to use default value\n  and 'H' to display help and this prompt again: ";
+              $user_input = <STDIN>;
+              if ($user_input =~ m/S/i)  {
+                print "  Enter a new value:\n";
+                $user_input = <STDIN>;
+                chomp $user_input;
+                $envvar->{'current'} = $user_input;
+                $next_envvar = 1;
+              }
+              elsif ($user_input =~ m/K/i)  {
+                $next_envvar = 1;
+              }
+              elsif ($user_input =~ m/D/i)  {
+                $envvar->{'current'} = $envvar->{'default'};
+                $next_envvar = 1;
+              }
+              elsif ($user_input =~ m/H/i)  {
+                if ($envvar->{'description'}) {
+                  print
+                    "\nDESCRIPTION:\n============\n"
+                    . ($envvar->{'name'} || $envvar->{'var'}) . "\n\n"
+                    . $envvar->{'description'} . "\n";
+                }
+                else {
+                  print "Sorry, no description available.\n";
+                }
+              }
+            }
+          }
+          if (scalar(@{$env_vars{$module}->{$env_file}})) {
+            print "\nNew settings ($env_file):\n";
+            foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
+               print "* " . ($envvar->{'name'} || $envvar->{'var'}) . ": " . $envvar->{'current'} . "\n";
+            }
+            print "Validate these settings? (y/n)";
+            $user_input = <STDIN>;
+            if ($user_input =~ m/y/) {
+              # Save changes.
+              if (open($env_fh, ">env/${module}_$env_file")) {
+                foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
+                   print {$env_fh} $envvar->{'previous_content'} . $envvar->{'var'} . "=" . $envvar->{'current'} . "\n";
+                }
+                print {$env_fh} $previous_content;
+                close($env_fh);
+              }
+              else {
+                die "ERROR: failed to save environment file 'env/${module}_$env_file':\n$!\n";
+              }
+              $next_envfile = 1;
+            }
+          }
+          else {
+            # Nothing to change.
+            $next_envfile = 1;
+          }
+        }
+      }
+      else {
+        die "ERROR: failed to open environment file '$MODULE_DIR/$module/env/$env_file':\n$!\n";
+      }
+    }
   }
+
 
 }
 
@@ -859,7 +1035,7 @@ sub InstallModule {
   if (!$module) {
     die "ERROR: InstallModule: Missing module name!\n";
   }
-  
+
   if (! -d "$MODULE_DIR/$module") {
     die "ERROR: InstallModule: Module '$module' not found!\n";
   }
@@ -894,9 +1070,12 @@ sub InstallModule {
     die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
   }
   
+  # Setup environment files.
+  SetupGenoringEnvironment();
+
   # Apply module init hook.
   ApplyLocalHooks('init', $module);
-  
+
   # Update Docker Compose config.
   GenerateDockerComposeFile();
 
@@ -916,6 +1095,8 @@ sub InstallModule {
 ##
 #
 sub DisableModule {
+  # @todo Call disable hooks.
+  # remove module from enabled modules.
 }
 
 ##
@@ -926,49 +1107,91 @@ sub DisableModule {
 # @todo Maybe see if uninstall could be optional.
 #
 sub UninstallModule {
-  # assert_root
   # # @todo Warn and ask for confirmation.
-  # if [ -z $1 ]; then
-  #   >&2 echo "ERROR: genoring_disable: No module name provided!"
-  #   exit 1
-  # fi
-  # # Get module status.
-  # get_module_status $1
-  # if [ -z "$module_status" ]; then
-  #   >&2 echo "ERROR: genoring_disable: module not found ($1)!"
-  #   exit 1
-  # elif [ "1" == "$module_status" ]; then
-  #   # Disable specified modules.
-  #   # Remove module from the enabled module file.
-  #   perl -p -i -e "s/^\\s*\\Q$1\\E\\s*\$//g" ./enabled_modules.txt
-  #   # Remove nginx config.
-  #   if [ -e "./proxy/modules/$1.conf" ]; then
-  #     rm ./proxy/modules/$1.conf 
-  #   fi
-  #   # Call uninstall scripts.
-  #   echo "Uninstalling..."
-  #   if [ -x "./modules/$1/hooks/uninstall.sh" ]; then
-  #     echo "- $1"
-  #     ./modules/$1/hooks/uninstall.sh
-  #   fi
-  #   if [ -d "./modules/$1/hooks" ]; then
-  #     # Loop on docker uninstallation scripts.
-  #     for scriptname in ./modules/$1/hooks/uninstall_*.sh; do
-  #       # When no files found, continue.
-  #       [ -e "$scriptname" ] || continue
-  #       container_name=$(echo $scriptname | perl -p -e "s#modules/$1/hooks/uninstall_(.+)\.sh#\$1#g")
-  #       # Check if the corresponding container is running.
-  #       container_is_running $container_name
-  #       if [ ! -z "$container_is_running" ]; then
-  #         echo "- $container_name"
-  #         docker exec -v ./modules/$1/hooks/uninstall_$container_name.sh:/usr/init/uninstall_$container_name.sh -it $container_name /user/init/uninstall_$container_name.sh
-  #       fi
-  #     done
-  #   fi
-  #   echo "...uninstallation done."
-  # elif [ "0" == "$module_status" ]; then
-  #   echo "WARNING: genoring_disable: module already disabled ($1)."
-  # fi
+  my ($module) = @_;
+
+  if (!$module) {
+    die "ERROR: UninstallModule: Missing module name!\n";
+  }
+
+  if (! -d "$MODULE_DIR/$module") {
+    die "ERROR: UninstallModule: Module '$module' not found!\n";
+  }
+
+  my %enabled_volumes = map { $_ => $_ } @{GetModules(1)};
+  if (!exists($enabled_volumes{$module})) {
+    warn "WARNING: UninstallModule: Module '$module' already uninstalled!\n";
+    return;
+  }
+  # Clear caches.
+  ClearCache();
+
+  print "Are you sure you want ot UNINSTALL module '$module'? (y/n)";
+  my $user_input = <STDIN>;
+  if ($user_input != m/y/i) {
+    print "Uninstall canceled by user.\n";
+    return;
+  }
+
+  # Check if the system is running and stop it.
+  my $mode = 'backend';
+  # Check if genoring is running and if so, we need to set "offline" mode
+  # and restart it properly after the update.
+  if ('running' eq GetState()) {
+    $mode = 'backoff';
+  }
+
+  # Stop if running.
+  StopGenoring();
+
+  # Disable module.
+  my $module_fh;
+  if (open($module_fh, $MODULE_FILE)) {
+    my $module_conf = join('', <$module_fh>);
+    close($module_fh);
+    $module_conf =~ s/^$module(?:\s+|$)//gsm;
+    if (open($module_fh, ">$MODULE_FILE")) {
+      print {$module_fh} $module_conf;
+      close($module_fh);
+    }
+    else {
+      die "ERROR: failed to edit module file '$MODULE_FILE':\n$!\n";
+    }
+  }
+  else {
+    die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+  }
+
+  # Update Docker Compose config.
+  GenerateDockerComposeFile();
+
+  # Set maintenance mode.
+  StartGenoring($mode);
+  WaitModulesReady();
+  ApplyContainerHooks('disable', $module);
+  StopGenoring();
+
+  # Apply module uninstall hook.
+  ApplyLocalHooks('uninstall', $module);
+  
+  # Remove module environment files.
+  # List module env files.
+  opendir(my $dh, "$MODULE_DIR/$module/env")
+    or warn "WARNING: UninstallModule: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
+  my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
+  closedir($dh);
+  foreach my $env_file (@env_files) {
+    # Check if environment file exist.
+    if (-e "env/${module}_$env_file") {
+      unlink "env/${module}_$env_file";
+    }
+  }
+
+  # Restart if needed.
+  if ('backoff' eq $mode) {
+    StartGenoring('normal');
+    WaitModulesReady();
+  }
 }
 
 ##
@@ -1010,7 +1233,7 @@ B<Return>: (nothing)
 
 sub ApplyLocalHooks {
   my ($hook_name, $module) = @_;
-  
+
   if (!$hook_name) {
     die "ERROR: ApplyLocalHooks: Missing hook name!\n";
   }
@@ -1079,7 +1302,7 @@ sub ApplyContainerHooks {
 
   # Get enabled services.
   my $services = GetServices();
-  
+
   # Process enabled modules.
   my %initialized_containers;
 APPLYCONTAINERHOOKS_MODULES:
@@ -1154,7 +1377,7 @@ B<Return>: (nothing)
 
 sub Compile {
   my ($module, $service) = @_;
-  
+
   if (!$module) {
     die "ERROR: Compile: Missing module name!";
   }
@@ -1189,7 +1412,7 @@ sub Compile {
   }
 
   print "Compiling service ${module}[$service]...\n";
-  
+
   # Check if container is running and stop it unless it is not running the same
   # image.
   my ($id, $state, $name, $image) = IsContainerRunning($service);
@@ -1236,7 +1459,7 @@ sub CompileMissingContainers {
 
   # Get module services.
   my $services = GetServices();
-  
+
   # Check missing containers.
   foreach my $service (keys(%$services)) {
     my $image_id = `docker images -q $service:latest`;
@@ -1564,7 +1787,7 @@ sub SetEnvVariable {
   if (! $variable) {
     die "ERROR: GetEnvVariable: No environment variable name provided!";
   }
-  
+
   $value ||= '';
 
   my $env_fh;
@@ -1745,6 +1968,12 @@ architectures.
 # Change working directory to where the script is to later use relative paths.
 chdir $BASEDIR;
 $ENV{'COMPOSE_PROJECT_NAME'} = 'genoring';
+
+# Set COMPOSE_PROFILES to an empty string to prevent warning 'The
+# "COMPOSE_PROFILES" variable is not set. Defaulting to a blank string.'.
+if (!defined($ENV{'COMPOSE_PROFILES'})) {
+  $ENV{'COMPOSE_PROFILES'} = '';
+}
 
 # Options processing.
 my ($man, $help) = (0, 0);
