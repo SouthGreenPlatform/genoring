@@ -8,6 +8,7 @@ env_file:
 volumes:
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
+  - genoring-backups-volume:/backups
 depends_on:
   - genoring-db
 restart: unless-stopped

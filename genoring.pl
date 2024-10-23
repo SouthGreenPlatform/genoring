@@ -25,9 +25,10 @@ GenoRing module containers.
 use strict;
 use warnings;
 
-use Pod::Usage;
-use File::Basename;
 use Env;
+use File::Basename;
+use Pod::Usage;
+use Time::Piece;
 
 ++$|; #no buffering
 
@@ -990,16 +991,35 @@ sub GenerateDockerComposeFile {
   }
 }
 
-##
-# Updates the GenoRing system or the specified module.
-#
-# Arguments:
-#  service (optional): the service/module to update. If not set, all is
-#    updated.
-#
+=pod
+
+=head2 Update
+
+B<Description>: Updates the GenoRing system or the specified module.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $module: (string) (O)
+
+The module name is only this module should be updated.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub Update {
 
-  print "Updating GenoRing...\n";
+  my ($module) = @_;
+  if ($module) {
+    print "Updating GenoRing module '$module'...\n";
+  }
+  else {
+    print "Updating GenoRing...\n";
+  }
 
   my $mode = 'backend';
   # Check if genoring is running and if so, we need to set "offline" mode
@@ -1016,7 +1036,7 @@ sub Update {
   eval {
     # Apply global update hooks (modules/*/hooks/update.pl).
     print "- Updating modules...\n";
-    ApplyLocalHooks('update');
+    ApplyLocalHooks('update', $module);
     print "  Modules updated on local system, updating services...\n";
 
     # Start containers in backend mode.
@@ -1031,9 +1051,9 @@ sub Update {
 
     # Apply docker update hooks of each enabled module service for each
     # enabled module service (ie. modules/"svc1"/hooks/update_"svc2".sh).
-    print "  - Applying container update hooks...\n";
-    ApplyContainerHooks('update');
-    print "  ...Modules updated.\n";
+    print "  - Applying service update hooks...\n";
+    ApplyContainerHooks('update', $module);
+    print "  ...Services updated.\n";
 
     # Stop containers.
     print "- Stopping backend.\n";
@@ -1150,11 +1170,27 @@ sub InstallModule {
   }
 }
 
-##
-#
+=pod
+
+=head2 DisableModule
+
+B<Description>: Disables the given module.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub DisableModule {
-  # @todo Call disable hooks.
-  # remove module from enabled modules.
   my ($module, $non_interactive, $uninstall) = @_;
 
   if (!$module) {
@@ -1234,13 +1270,30 @@ sub DisableModule {
 
 }
 
-##
-# Disables and uninstalls the given GenoRing module.
-#
-# Arguments:
-#  module: the module to disable and uninstall.
-# @todo Maybe see if uninstall could be optional.
-#
+=pod
+
+=head2 UninstallModule
+
+B<Description>: Disables and uninstalls the given GenoRing module.
+
+B<ArgsCount>: 1-2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module to disable and uninstall.
+
+=item $non_interactive: (boolean) (O)
+
+If 1 (TRUE), no confirmation is asked before uninstalling.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub UninstallModule {
   my ($module, $non_interactive) = @_;
 
@@ -1266,17 +1319,207 @@ sub UninstallModule {
   DisableModule($module, 1, 1);
 }
 
-##
-# Performs a general backup of the GenoRing system into an archive file.
-#
+=pod
+
+=head2 Backup
+
+B<Description>: Performs a general backup of the GenoRing system into an archive
+file or a backup of the given module data and config.
+
+B<ArgsCount>: 0-2
+
+=over 4
+
+=item $backup_name: (string) (U)
+
+The backup name. If not set, a default one is provided. Default backups can be
+overriden without check while named backups can not.
+
+=item $module: (string) (O)
+
+Module machine name if only one module should be backuped.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub Backup {
-  # @todo Backup config and data to an archive.
+  my ($backup_name, $module) = @_;
+  if (!$backup_name) {
+    # No name provided, use a default one.
+    $backup_name = localtime->strftime('backup_%Y%d%mT%H%M');
+    my $backupdir = "volumes/backups/$backup_name";
+    # In the case of automatic names, we allow backup override.
+    if (!-d $backupdir) {
+      mkdir $backupdir;
+      if ($!) {
+        die "ERROR: Backup: Failed to create backup directory '$backupdir'.\n";
+      }
+    }
+  }
+  else {
+    my $backupdir = "volumes/backups/$backup_name";
+    if ($module) {
+      $backupdir .= "/$module";
+    }
+    if (-d $backupdir) {
+      # Check if directory is not empty as we don't allow backup override in
+      # case of named backups.
+      opendir(my $dh, $backupdir) or die "ERROR: Backup: Failed to open backup directory '$backupdir'.";
+      if (scalar(grep { $_ ne "." && $_ ne ".." } readdir($dh)) != 0) {
+        die "ERROR: Backup: Backup directory '$backupdir' is not empty. Aborting.";
+      }
+    }
+  }
+
+  # @todo Backup GenoRing config as well (docker-compose.yml, module.conf, env/).
+  print "Backuping GenoRing...\n";
+
+  my $mode = 'backend';
+  # Check if genoring is running and if so, we need to set "offline" mode
+  # and restart it properly after the update.
+  if ('running' eq GetState()) {
+    $mode = 'backoff';
+  }
+
+  # Stop if running.
+  print "- Make sure GenoRing is stopped\n";
+  StopGenoring();
+
+  eval {
+    # Launch backup hooks (modules/*/hooks/backup.pl).
+    print "- Backuping modules data...\n";
+    ApplyLocalHooks('backup', $module, $backup_name);
+    print "  Modules backuped on local system, backuping services data...\n";
+
+    # Start containers in backend mode.
+    print "- Starting GenoRing backend for backup...\n";
+    StartGenoring($mode);
+    print "  OK.\n";
+
+    # Check modules are ready.
+    print "- Waiting for all services to be operational...\n";
+    WaitModulesReady();
+    print "  OK.\n";
+
+    # Apply docker backup hooks of each enabled module service for each
+    # enabled module service (ie. modules/"svc1"/hooks/backup_"svc2".sh).
+    print "  - Call service backup hooks...\n";
+    ApplyContainerHooks('backup', $module, $backup_name);
+    print "  ...Services backuped.\n";
+
+    # Stop containers.
+    print "- Stopping backend.\n";
+    StopGenoring();
+
+    # Restart if needed.
+    if ('backoff' eq $mode) {
+      print "- Restart GenoRing...\n";
+      StartGenoring('normal');
+      print "  OK.\n";
+      # Check modules are ready.
+      print "- Waiting for all services to be operational...\n";
+      WaitModulesReady();
+      print "  OK.\n";
+    }
+
+    print "Backup done.\n";
+  };
+
+  if ($@) {
+    print "ERROR: Backup failed!\n$@\n";
+  }
 }
 
-##
-# Restores GenoRing from a given backup archive.
+=pod
+
+=head2 Restore
+
+B<Description>: Restores GenoRing from a given backup.
+
+B<ArgsCount>: 0-2
+
+=over 4
+
+=item $backup_name: (string) (R)
+
+The backup name.
+
+=item $module: (string) (O)
+
+Module machine name if only one module should be restored.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub Restore {
-  # @todo Restore a given backup archive.
+  my ($backup_name, $module) = @_;
+  if (!$backup_name) {
+    die "ERROR: no backup name provided! Nothing to restore.";
+  }
+
+  print "Restore GenoRing...\n";
+  # @todo Also restore GenoRing config files.
+
+  my $mode = 'backend';
+  # Check if genoring is running and if so, we need to set "offline" mode
+  # and restart it properly after the update.
+  if ('running' eq GetState()) {
+    $mode = 'backoff';
+  }
+
+  # Stop if running.
+  print "- Make sure GenoRing is stopped\n";
+  StopGenoring();
+
+  eval {
+    # Launch backup hooks (modules/*/hooks/backup.pl).
+    print "- Restoring modules data...\n";
+    ApplyLocalHooks('restore', $module, $backup_name);
+    print "  Modules restored on local system, restoring services data...\n";
+
+    # Start containers in backend mode.
+    print "- Starting GenoRing backend for backup...\n";
+    StartGenoring($mode);
+    print "  OK.\n";
+
+    # Check modules are ready.
+    print "- Waiting for all services to be operational...\n";
+    WaitModulesReady();
+    print "  OK.\n";
+
+    # Apply docker restore hooks of each enabled module service for each
+    # enabled module service (ie. modules/"svc1"/hooks/restore_"svc2".sh).
+    print "  - Call service restore hooks...\n";
+    ApplyContainerHooks('restore', $module, $backup_name);
+    print "  ...Services restored.\n";
+
+    # Stop containers.
+    print "- Stopping backend.\n";
+    StopGenoring();
+
+    # Restart if needed.
+    if ('backoff' eq $mode) {
+      print "- Restart GenoRing...\n";
+      StartGenoring('normal');
+      print "  OK.\n";
+      # Check modules are ready.
+      print "- Waiting for all services to be operational...\n";
+      WaitModulesReady();
+      print "  OK.\n";
+    }
+
+    print "Restore done.\n";
+  };
+
+  if ($@) {
+    print "ERROR: Restore failed!\n$@\n";
+  }
 }
 
 =pod
@@ -1299,10 +1542,14 @@ List of supported local hooks:
 - uninstall: cleanup local file system and remove data files and directories
   generated by the module.
 - update: update local file system for the given module.
+- backup: backup local files for the given module with the backup name as first
+  argument.
+- restore: restore local files for the given module with the backup name as first
+  argument.
 - state: output the state of a module (ie. "created", "running", "restarting",
   "paused", "dead", "exited").
 
-B<ArgsCount>: 1-2
+B<ArgsCount>: 1-3
 
 =over 4
 
@@ -1401,9 +1648,12 @@ List of supported container hooks:
 - enable: called for a module on services when one of them is enabled.
 - disable: called for a module on services when one of them is disabled.
 - update: called for a module on services when one of them is updated.
-- backup: called for a module on services when one of them must perform backups.
+- backup: called for a module on services when one of them must perform backups
+  with the backup name as first argument.
+- restore: called for a module on services when one of them must restore files,
+  content and config using the backup name provided as first argument.
 
-B<ArgsCount>: 1-2
+B<ArgsCount>: 1-3
 
 =over 4
 
@@ -2050,7 +2300,7 @@ The module name.
 
 =back
 
-B<Return>: nothing
+B<Return>: (nothing)
 
 =cut
 
@@ -2082,7 +2332,7 @@ The module name.
 
 =back
 
-B<Return>: nothing
+B<Return>: (nothing)
 
 =cut
 
@@ -2384,7 +2634,7 @@ Valentin GUIGNON (Bioversity), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 12/07/2024
+Date 23/10/2024
 
 =head1 SEE ALSO
 

@@ -38,5 +38,9 @@ if (!-d './volumes/offline') {
 }
 
 if (!-d './volumes/data') {
-  mkdir './volumes/data'
+  mkdir './volumes/data';
+}
+
+if (!-d './volumes/backups') {
+  mkdir './volumes/backups';
 }
