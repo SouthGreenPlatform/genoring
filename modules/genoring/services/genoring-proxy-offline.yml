@@ -2,7 +2,7 @@
 image: nginx
 profiles: ["offline"]
 env_file:
-  - ${PWD}/modules/genoring/env/nginx.env
+  - ${PWD}/env/genoring_nginx.env
 ports:
   - 8080:80
 volumes:

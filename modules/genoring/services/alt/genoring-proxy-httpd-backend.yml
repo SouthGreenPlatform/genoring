@@ -2,7 +2,7 @@
 image: httpd:2.4
 profiles: ["backend"]
 env_file:
-  - ${PWD}/modules/genoring/env/httpd.env
+  - ${PWD}/env/genoring_httpd.env
 volumes:
   - type: bind
     source: ${PWD}/volumes/proxy/genoring-httpd.conf

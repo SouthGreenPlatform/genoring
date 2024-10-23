@@ -164,6 +164,9 @@ sub Run {
     # Die on logic errors.
     die "ERROR: ${subroutine} Run: No command to run!";
   }
+  if ($g_debug) {
+    print "COMMAND: $command\n";
+  }
 
   $error_message ||= 'Execution failed!';
   $error_message = ($fatal_error ? 'ERROR: ' : 'WARNING: ')
@@ -247,7 +250,7 @@ sub StartGenoring {
   if (!$state || ($state !~ m/running/)) {
     # Not running, start it.
     Run(
-      "docker compose up -d" . (exists($g_flags->{'arm'}) ? ' --platform linux/amd64' : ''),
+      "docker compose up -d" . (exists($g_flags->{'arm'}) ? ' --platform linux/amd64 2>&1' : ''),
       "Failed to start GenoRing ($mode mode)!",
       1
     );
@@ -325,7 +328,7 @@ sub GetStatus {
   my ($module) = @_;
   if ($module) {
     my $module_state = GetModuleRealState($module);
-    if (!$module_state || ($module_state !~ m/running/)) {
+    if ($module_state && ($module_state !~ m/running/)) {
       print "$module is not running.\n";
       return;
     }
@@ -442,9 +445,13 @@ sub IsContainerRunning {
 =head2 GetModuleRealState
 
 B<Description>: Returns the given module real state (can be different from the
-state returned by Docker). It calls the state hook.
+state returned by Docker). It calls the module state hook (hooks/state.pl).
 If $progress is set, it will try $STATE_MAX_TRIES seconds to check if the module
-is not running.
+is not running and displays logs.
+If the state is not available (ex. modules with no own services), an empty
+string is returned and can not be considered as a running or a
+non-running state: it is just not available and the module might be running or
+not, depending on the existing services it relies on.
 
 B<ArgsCount>: 0-1
 
@@ -459,7 +466,7 @@ Module name.
 B<Return>: (string)
 
 The module state. Should be one of "created", "running", "restarting", "paused",
-"dead", "exited" or an empty string if not available (not running).
+"dead", "exited" or an empty string if not available.
 
 =cut
 
@@ -478,8 +485,32 @@ sub GetModuleRealState {
       die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
     }
     print "Checking if $module module is ready...\n" if $progress;
+    my $logs = '';
+    # Does not work on Windows.
+    my $terminal_width = `tput cols`;
     while (--$tries && ($state !~ m/running/i)) {
-      print '.' if $progress;
+      if ($progress) {
+        my @log_lines = split(/\n/, $logs);
+        my $line_count = scalar(@log_lines);
+        if ($terminal_width) {
+          foreach my $log_line (@log_lines) {
+            $line_count += int(length($log_line) / $terminal_width);
+          }
+        }
+        if ($line_count) {
+          print "\r" . ("\033[F" x ++$line_count);
+        }
+        $logs = '';
+        foreach my $service (@{GetModuleServices($module)}) {
+          $logs .= "==> $service:\n" . `docker logs -n 4 $service 2>&1` . "\n";
+        }
+        if ($logs) {
+          print $logs;
+        }
+        else {
+          print '.';
+        }
+      }
       sleep(1);
       $state = `perl $MODULE_DIR/$module/hooks/state.pl`;
       if ($?) {
@@ -521,12 +552,11 @@ sub WaitModulesReady {
   foreach my $module (@$modules) {
     my $state = GetModuleRealState($module, 1);
     if ($state && ($state !~ m/running/i)) {
-      # @todo Show 4 last lines of logs during progress in GetModuleRealState().
       my $logs = '';
       foreach my $service (@{GetModuleServices($module)}) {
         my $service_state = GetState($service);
         if ($service_state && ($service_state !~ m/running/)) {
-          $logs .= "$service:\n" . `docker logs $service 2>&1` . "\n\n";
+          $logs .= "==> $service:\n" . `docker logs -n 10 $service 2>&1` . "\n\n";
         }
       }
       die sprintf("\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min (state $state)!\n", $STATE_MAX_TRIES/60)
@@ -622,11 +652,11 @@ B<Return>: (nothing)
 =cut
 
 sub SetupGenoring {
-
+  my ($module) = @_;
   # Process environment variables and ask user for inputs for variables with
   # tags SET and OPT.
   print "- Setup environment...\n";
-  SetupGenoringEnvironment();
+  SetupGenoringEnvironment($module);
   print "  ...Environment setup done.\n";
 
   # Generate docker-compose.yml...
@@ -636,7 +666,7 @@ sub SetupGenoring {
 
   # Apply global initialization hooks (modules/*/hooks/init.pl).
   print "- Initialiazing modules...\n";
-  ApplyLocalHooks('init');
+  ApplyLocalHooks('init', $module);
   print "  Modules initialiazed on local system, initializing services...\n";
 
   # Start dockers in backend mode.
@@ -652,7 +682,7 @@ sub SetupGenoring {
   # Apply docker initialization hooks of each enabled module service for each
   # enabled module service (ie. modules/"svc1"/hooks/init_"svc2".sh).
   print "  - Applying container initialization hooks...\n";
-  ApplyContainerHooks('enable');
+  ApplyContainerHooks('enable', $module);
   print "  ...Modules initialiazed.\n";
 
   # Stop containers.
@@ -666,13 +696,26 @@ sub SetupGenoring {
 
 B<Description>: Ask user to set GenoRing environment variables.
 
-B<ArgsCount>: 0
+B<ArgsCount>: 0-2
+
+=over 4
+
+=item $reset: (boolean) (R)
+
+Force environment file re-generation.
+
+=item $module: (string) (O)
+
+A specific module name.
+
+=back
 
 B<Return>: (nothing)
 
 =cut
 
 sub SetupGenoringEnvironment {
+  my ($reset, $setup_module) = @_;
   my $user_input;
 
   # Create environment directory.
@@ -680,12 +723,18 @@ sub SetupGenoringEnvironment {
 
   # @todo Only display if there are new environment files to setup.
   print <<"___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___";
-To continue the installation, you will be asked to provide values for some
-setting variables for each module.
+To continue, you will be asked to provide values for some setting variables for
+each module.
 ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
 
-  # Get enabled modules.
-  my $modules = GetModules(1);
+  # Get enabled modules or specified module.
+  my $modules;
+  if ($setup_module) {
+    $modules = [$setup_module];
+  }
+  else {
+    $modules = GetModules(1);
+  }
   my %env_vars;
   foreach my $module (@$modules) {
     $env_vars{$module} = {};
@@ -696,7 +745,7 @@ ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
     closedir($dh);
     foreach my $env_file (@env_files) {
       # Check if environment file already set.
-      if (!-z "env/${module}_$env_file") {
+      if (!$reset && (-s "env/${module}_$env_file")) {
         next;
       }
       # Parse each env file to get parametrable elements.
@@ -788,7 +837,7 @@ ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
               print "  Current value: " . $envvar->{'current'} . "\n";
             }
             while (!$next_envvar) {
-              print "  Hit 'S' to set a new value, 'K' to keep current value, 'D' to use default value\n  and 'H' to display help and this prompt again: ";
+              print "  Hit 'S' to set a new value, 'K' to keep current value, 'D' to use default value\n  and 'H' to display help and this prompt again (S/K/D/H): ";
               $user_input = <STDIN>;
               if ($user_input =~ m/S/i)  {
                 print "  Enter a new value:\n";
@@ -840,7 +889,14 @@ ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
             }
           }
           else {
-            # Nothing to change.
+            # Nothing to change, copy file.
+            if (open($env_fh, ">env/${module}_$env_file")) {
+              print {$env_fh} $previous_content;
+              close($env_fh);
+            }
+            else {
+              die "ERROR: failed to save environment file 'env/${module}_$env_file':\n$!\n";
+            }
             $next_envfile = 1;
           }
         }
@@ -1712,7 +1768,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           }
           # Check if container is running.
           my ($id, $state, $name, $image) = IsContainerRunning($service);
-          if (!$state || ($state !~ m/running/)) {
+          if ($state && ($state !~ m/running/)) {
             $state ||= 'not running';
             warn "WARNING: Failed to run $module module hook in $service (hook $hook): $service is $state.";
             next APPLYCONTAINERHOOKS_HOOKS;
@@ -2239,25 +2295,31 @@ sub RemoveEnvFiles {
   if ($module) {
     # Remove module environment files.
     # List module env files.
-    opendir(my $dh, "$MODULE_DIR/$module/env")
-      or warn "WARNING: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
-    my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
-    closedir($dh);
-    foreach my $env_file (@env_files) {
-      # Check if environment file exist.
-      if (-e "env/${module}_$env_file") {
-        unlink "env/${module}_$env_file";
+    if (opendir(my $dh, "$MODULE_DIR/$module/env")) {
+      my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
+      closedir($dh);
+      foreach my $env_file (@env_files) {
+        # Check if environment file exist.
+        if (-e "env/${module}_$env_file") {
+          unlink "env/${module}_$env_file";
+        }
       }
     }
+    else {
+      warn "WARNING: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
+    }
   }
-  else {
+  elsif (-d 'env') {
     # Remove all environment files.
-    opendir(my $dh, "env")
-      or warn "WARNING: Failed to access 'env' directory!\n$!";
-    my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "env/$_" } readdir($dh));
-    closedir($dh);
-    foreach my $env_file (@env_files) {
-      unlink "env/$env_file";
+    if (opendir(my $dh, 'env')) {
+      my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "env/$_" } readdir($dh));
+      closedir($dh);
+      foreach my $env_file (@env_files) {
+        unlink "env/$env_file";
+      }
+    }
+    else {
+      warn "WARNING: Failed to access 'env' directory!\n$!";
     }
   }
 }
@@ -2438,7 +2500,7 @@ sub Confirm {
 
 =head1 OPTIONS
 
-genoring.pl [help | man | start | stop | logs | status | reset | update | enable | disable | uninstall | modules | services | volumes | backup | restore | compile] [-debug] [-arm]
+genoring.pl [help | man | start | stop | logs | status | reset | update | enable | disable | uninstall | setup | modules | services | volumes | backup | restore | compile] [-debug] [-arm]
 
 =over 4
 
@@ -2565,6 +2627,11 @@ elsif ($command =~ m/^update$/i) {
     exit(1);
   }
   Update(@arguments);
+}
+elsif ($command =~ m/^setup$/i) {
+  # (Re)run environment setup and docker-compose.yml generation.
+  SetupGenoringEnvironment($g_flags->{'f'}, @arguments);
+  GenerateDockerComposeFile();
 }
 elsif ($command =~ m/^enable$/i) {
   # Check if installed.

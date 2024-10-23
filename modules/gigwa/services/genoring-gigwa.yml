@@ -1,7 +1,7 @@
 # v1.0
 image: guilhemsempere/gigwa:2.8-RELEASE
 env_file:
-  - ${PWD}/modules/gigwa/env/gigwa.env
+  - ${PWD}/env/gigwa_gigwa.env
 ports:
   - 8123:8080
 volumes:

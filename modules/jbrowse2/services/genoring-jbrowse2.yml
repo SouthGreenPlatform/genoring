@@ -1,7 +1,7 @@
 # v1.0
 image: genoring-jbrowse2
 env_file:
-  - ${PWD}/modules/jbrowse2/env/jbrowse2.env
+  - ${PWD}/env/jbrowse2_jbrowse2.env
 ports:
   - 8124:8080
 restart: unless-stopped

@@ -2,7 +2,7 @@
 image: nginx
 profiles: ["backend"]
 env_file:
-  - ${PWD}/modules/genoring/env/nginx.env
+  - ${PWD}/env/genoring_nginx.env
 volumes:
   - type: bind
     source: ${PWD}/volumes/proxy/genoring-fpm.conf

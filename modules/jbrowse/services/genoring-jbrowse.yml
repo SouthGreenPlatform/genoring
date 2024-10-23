@@ -4,7 +4,7 @@ image: genoring-jbrowse
 # image: jbrowse/gmod-jbrowse
 
 env_file:
-  - ${PWD}/modules/jbrowse/env/jbrowse.env
+  - ${PWD}/env/jbrowse_jbrowse.env
 ports:
   - 8125:80
 restart: unless-stopped

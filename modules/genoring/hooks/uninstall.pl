@@ -20,7 +20,7 @@ elsif ($? & 127) {
       ($? & 127), ($? & 128) ? 'with' : 'without'
     );
 }
-else {
+elsif ($?) {
   $error_message = "$error_message " . sprintf("(error %d)", $? >> 8);
 }
 

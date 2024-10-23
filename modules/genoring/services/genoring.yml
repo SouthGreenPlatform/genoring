@@ -4,7 +4,7 @@ profiles: ["prod","staging","dev","backend"]
 env_file:
   - ${PWD}/env/genoring_genoring.env
   - ${PWD}/env/genoring_db.env
-  - ${PWD}/modules/genoring/env/nginx.env
+  - ${PWD}/env/genoring_nginx.env
 volumes:
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data

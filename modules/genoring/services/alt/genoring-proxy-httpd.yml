@@ -2,7 +2,7 @@
 image: httpd:2.4
 profiles: ["prod","staging","dev"]
 env_file:
-  - ${PWD}/modules/genoring/env/httpd.env
+  - ${PWD}/env/genoring_httpd.env
 ports:
   - 8080:80
 volumes:
