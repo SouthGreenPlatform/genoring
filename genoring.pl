@@ -185,21 +185,21 @@ sub Run {
 
   my $failed = system($command);
 
-  if ($? == -1) {
-    $error_message = "$error_message (error $?)\n$!";
-  }
-  elsif ($? & 127) {
-    $error_message = "$error_message\n"
-      . sprintf(
-        "Child died with signal %d, %s coredump\n",
-        ($? & 127), ($? & 128) ? 'with' : 'without'
-      );
-  }
-  else {
-    $error_message = "$error_message " . sprintf("(error %d)", $? >> 8);
-  }
-
   if ($failed) {
+    if ($? == -1) {
+      $error_message = "$error_message (error $?)\n$!";
+    }
+    elsif ($? & 127) {
+      $error_message = "$error_message\n"
+        . sprintf(
+          "Child died with signal %d, %s coredump\n",
+          ($? & 127), ($? & 128) ? 'with' : 'without'
+        );
+    }
+    else {
+      $error_message = "$error_message " . sprintf("(error %d)", $? >> 8);
+    }
+
     if ($fatal_error) {
       die($error_message);
     }
@@ -631,10 +631,10 @@ sub Reinitialize {
   print "  OK.\n";
 
   # Uninstall all modules.
-  ApplyLocalHooks('uninstall');
-
-  # Uninstall enabled modules.
   print "Uninstall all modules...\n";
+  foreach my $module (@$modules) {
+    ApplyLocalHooks('uninstall', $module);
+  }
   unlink $MODULE_FILE;
   print "  OK.\n";
 
@@ -1971,7 +1971,8 @@ sub GetModuleConfig {
       $_g_modules->{'config'} = $yaml->[0];
     }
     else {
-      die "ERROR: failed to open module file '$MODULE_FILE':\n$!\n";
+      warn "WARNING: failed to open module file '$MODULE_FILE':\n$!\n";
+      $_g_modules->{'config'} = {};
     }
   }
   return $_g_modules->{'config'};

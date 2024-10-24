@@ -7,6 +7,7 @@ ports:
 volumes:
   - ${PWD}/volumes/gigwa/config:/usr/local/tomcat/config
   - genoring-data-volume:/data
+  - genoring-backups-volume:/backups
 depends_on:
   - genoring-mongodb
 restart: unless-stopped
