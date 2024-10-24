@@ -2,8 +2,8 @@
 httpd:
   description: Replaces NGINX server with Apache HTTPd.
   substitue:
-    - genoring-proxy:genoring-proxy-httpd
-    - genoring-proxy-backend:genoring-proxy-httpd-backend
-    - genoring-proxy-offline:genoring-proxy-httpd-offline
+    genoring-proxy: genoring-proxy-httpd
+    genoring-proxy-backend: genoring-proxy-httpd-backend
+    genoring-proxy-offline: genoring-proxy-httpd-offline
   # add:
   # remove:
