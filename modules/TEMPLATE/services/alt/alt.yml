@@ -1,0 +1,17 @@
+# Alternative services declaration
+# Here "alt_name" is the name of an alternative. Multiple alternatives can be
+# defined here, one section after the other.
+alt_name:
+  description: Tells what the alternative does.
+  # 3 cases can be combined:
+  # - substitue to replace an existing module service by another.
+  substitue:
+    # Replaces the existing genoring-service-name by the one defined in this
+    # "alt" directory as "genoring-new-service.yml".
+    genoring-service-name: genoring-new-service
+  add:
+    # To add one or more new services defined in current directory.
+    - genoring-new-service2
+  remove:
+    # To remove/disable existing module services.
+    - genoring-service-name2

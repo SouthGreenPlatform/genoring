@@ -1,0 +1,27 @@
+# v1.0
+# The line above should be there and specify a service version.
+# The service name should start by "genoring-" to avoid name conflicts with
+# other (non-genoring) docker services.
+# The rest of this file is just a "services" definition of a docker compose
+# file for this service.
+# Note: volumes usage can be set here while their definitions will be set in
+# other files provided in the module "volumes" directory.
+image: <docker image name>
+profiles: ["prod","staging","dev"]
+env_file:
+  # Note: env files are automatically copied for the module "env" directory to
+  # the main GenoRing "env" directory when the module is installed.
+  - ${PWD}/env/example.env
+ports:
+  - 8080:80
+volumes:
+  - type: bind
+    source: ${PWD}/volumes/some_local_file
+    target: /opt/some_file_in_container
+  - ${PWD}/volumes/some_local_volume:/opt/some_docker_directory
+  - genoring-data-volume:/data
+  - genoring-backups-volume:/backups
+restart: always
+# Depencies will be added automatically for the proxy.
+# depends_on:
+#   - genoring

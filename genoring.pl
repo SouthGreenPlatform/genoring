@@ -701,7 +701,7 @@ sub SetupGenoring {
   # Apply docker initialization hooks of each enabled module service for each
   # enabled module service (ie. modules/"svc1"/hooks/init_"svc2".sh).
   print "  - Applying container initialization hooks...\n";
-  ApplyContainerHooks('enable', $module);
+  ApplyContainerHooks('enable', $module, 1);
   print "  ...Modules initialiazed.\n";
 
   # Stop containers.
@@ -1221,7 +1221,7 @@ sub InstallModule {
     # Set maintenance mode.
     StartGenoring($mode);
     WaitModulesReady();
-    ApplyContainerHooks('enable', $module);
+    ApplyContainerHooks('enable', $module, 1);
     $enable_ok = 1;
     StopGenoring();
   };
@@ -1323,7 +1323,7 @@ sub DisableModule {
   eval {
     StartGenoring($mode);
     WaitModulesReady();
-    ApplyContainerHooks('disable', $module);
+    ApplyContainerHooks('disable', $module, 1);
     $disable_hook_ok = 1;
     StopGenoring();
   };
@@ -1487,7 +1487,7 @@ sub Backup {
     # Apply docker backup hooks of each enabled module service for each
     # enabled module service (ie. modules/"svc1"/hooks/backup_"svc2".sh).
     print "  - Call service backup hooks...\n";
-    ApplyContainerHooks('backup', $module, $backup_name);
+    ApplyContainerHooks('backup', $module, 1, $backup_name);
     print "  ...Services backuped.\n";
 
     # Stop containers.
@@ -1576,7 +1576,7 @@ sub Restore {
     # Apply docker restore hooks of each enabled module service for each
     # enabled module service (ie. modules/"svc1"/hooks/restore_"svc2".sh).
     print "  - Call service restore hooks...\n";
-    ApplyContainerHooks('restore', $module, $backup_name);
+    ApplyContainerHooks('restore', $module, 1, $backup_name);
     print "  ...Services restored.\n";
 
     # Stop containers.
@@ -1733,7 +1733,7 @@ List of supported container hooks:
 - restore: called for a module on services when one of them must restore files,
   content and config using the backup name provided as first argument.
 
-B<ArgsCount>: 1-3
+B<ArgsCount>: 1-4
 
 =over 4
 
@@ -1745,7 +1745,12 @@ The hook name.
 
 Restrict hooks to the given module and its services. When set to a valid module
 name, only its hooks will be processed first and then only other module hooks
-related to this module will be run as well.
+related to this module will be run as well if $related is set to 1.
+
+=item $related: (bool) (O)
+
+Will also run hook scripts of other modules targetting one service of
+$en_module.
 
 =item $args: (string) (O)
 
@@ -1758,7 +1763,7 @@ B<Return>: (nothing)
 =cut
 
 sub ApplyContainerHooks {
-  my ($hook_name, $en_module, $args) = @_;
+  my ($hook_name, $en_module, $related, $args) = @_;
   $args ||= '';
 
   if (!$hook_name) {
@@ -1766,7 +1771,13 @@ sub ApplyContainerHooks {
   }
 
   # Get enabled modules.
-  my $modules = GetModules(1);
+  my $modules;
+  if (!$en_module || $related) {
+    $modules = GetModules(1);
+  }
+  else {
+    $modules = [$en_module];
+  }
 
   # Get enabled services.
   my $services = GetServices();
@@ -1786,7 +1797,11 @@ APPLYCONTAINERHOOKS_HOOKS:
         if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($services->{$1})) {
           my $service = $1;
           # Check if a module has been specified and only process its hooks.
-          if ($en_module && ($en_module ne $module) && ($services->{$service} ne $module)) {
+          # ie. process any hook of current module or any hook of another module
+          # that targets a service of the specified module, and skip others.
+          # Note: other modules hooks are not processed if $related was not TRUE
+          # as $modules would only contain the given module.
+          if ($en_module && ($en_module ne $module) && ($services->{$service} ne $en_module)) {
             # Skip non-matching hooks.
             next APPLYCONTAINERHOOKS_HOOKS;
           }
