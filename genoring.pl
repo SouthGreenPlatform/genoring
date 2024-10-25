@@ -24,6 +24,7 @@ GenoRing module containers.
 
 use strict;
 use warnings;
+use utf8;
 
 # Note: we use CPAN YAML parser because it is a core PERL module. We could have
 # used YAML::Tiny but it would have required either a user-side installation
@@ -506,17 +507,26 @@ sub GetModuleRealState {
     my $logs = '';
     # Does not work on Windows.
     my $terminal_width = `tput cols`;
+    my $fixed_width = 0;
+    if ($? || !$terminal_width || ($terminal_width !~ m/^\d+/)) {
+      $terminal_width = 0;
+      $fixed_width = 80;
+    }
+    else {
+      # For line breaks.
+      --$terminal_width;
+    }
     while (--$tries && ($state !~ m/running/i)) {
       if ($progress) {
         my @log_lines = split(/\n/, $logs);
         my $line_count = scalar(@log_lines);
         if ($terminal_width) {
           foreach my $log_line (@log_lines) {
-            $line_count += int(length($log_line) / $terminal_width);
+            $line_count += int(length($log_line) / ($terminal_width+1));
           }
         }
         if ($line_count) {
-          print "\r" . ("\033[F" x ++$line_count);
+          print "\r" . ("\033[F" x $line_count);
         }
         $logs = '';
         foreach my $service (@{GetModuleServices($module)}) {
@@ -524,7 +534,41 @@ sub GetModuleRealState {
             $logs .= "==> $service:\n" . `docker logs -n 4 $service 2>&1` . "\n";
           }
         }
+        # Remove non-printable characters (but keep line breaks).
+        $logs =~ s/[^ -~\n]+//g;
         if ($logs) {
+          @log_lines = split(/\n/, $logs);
+          $logs = '';
+          my $new_line_count = scalar(@log_lines);
+          if ($terminal_width) {
+            foreach my $log_line (@log_lines) {
+              # Cut too long lines.
+              $log_line =  substr($log_line, 0, $terminal_width);
+              $logs .= $log_line . (' ' x ($terminal_width - length($log_line) % ($terminal_width))) . "\n";
+            }
+          }
+          elsif ($fixed_width) {
+            foreach my $log_line (@log_lines) {
+              if (length($log_line) >= $fixed_width) {
+                # # Other approach: split long lines in multiple lines.
+                # # Problem: very long lines could take a lot of split lines and
+                # # are hidding previous log lines.
+                # my @sub_lines = ($log_line =~ m/(.{0,$fixed_width})/gs);
+                # $log_line =  join("\n", @sub_lines) . (' ' x ($fixed_width - length($log_line) % $fixed_width)) . "\n";
+                # $new_line_count += scalar(@sub_lines) - 1;
+                # Cut too long lines.
+                $log_line =  substr($log_line, 0, $fixed_width) . "\n";
+              }
+              else {
+                $log_line .=  (' ' x ($fixed_width - length($log_line) % $fixed_width)) . "\n"
+              }
+              $logs .= $log_line;
+            }
+          }
+          # Clear previous log lines that where not overwritten.
+          if ($new_line_count < $line_count) {
+            print ((' ' x  ($terminal_width || $fixed_width)) . "\n") x ($line_count - $new_line_count);
+          }
           print $logs;
         }
         else {
