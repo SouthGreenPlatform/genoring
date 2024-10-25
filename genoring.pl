@@ -520,7 +520,9 @@ sub GetModuleRealState {
         }
         $logs = '';
         foreach my $service (@{GetModuleServices($module)}) {
-          $logs .= "==> $service:\n" . `docker logs -n 4 $service 2>&1` . "\n";
+          if (IsContainerRunning($service)) {
+            $logs .= "==> $service:\n" . `docker logs -n 4 $service 2>&1` . "\n";
+          }
         }
         if ($logs) {
           print $logs;
@@ -649,6 +651,7 @@ sub Reinitialize {
   # Clear config.
   print "Clearing config...\n";
   unlink $DOCKER_COMPOSE_FILE;
+  unlink $EXTRA_HOSTS;
   print "  OK.\n";
 
   # Clear environment files.
@@ -677,6 +680,7 @@ sub SetupGenoring {
     my $modules = GetModules(1);
     if (!@$modules) {
       SetModuleConf('genoring');
+      $modules = GetModules(1);
     }
   }
 
@@ -992,9 +996,6 @@ sub GenerateDockerComposeFile {
     opendir($dh, "$MODULE_DIR/$module/volumes")
       or next;
     my @volumes = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/volumes/$_" } readdir($dh));
-    # Remove eventual 'genoring-' prefix as it will be added later when
-    # needed.
-    @volumes = map { $_ =~ s/^genoring-//; $_ } @volumes;
     closedir($dh);
     foreach my $volume_yml (@volumes) {
       my $vl_fh;
@@ -1062,10 +1063,9 @@ sub GenerateDockerComposeFile {
     # 'genoring-'.
     print {$dc_fh} "\nvolumes:\n";
     foreach my $volume (sort keys(%volumes)) {
-      my $volume_name = "genoring-$volume";
-      print {$dc_fh} "  $volume_name:\n    # v" . $volumes{$volume}->{'version'} . '.' . $volumes{$volume}->{'subversion'} . "\n";
+      print {$dc_fh} "  $volume:\n    # v" . $volumes{$volume}->{'version'} . '.' . $volumes{$volume}->{'subversion'} . "\n";
       print {$dc_fh} $volumes{$volume}->{'definition'};
-      print {$dc_fh} "    name: \"$volume_name\"\n";
+      print {$dc_fh} "    name: \"$volume\"\n";
     }
     
     # Check for extra hosts to add.
@@ -2020,7 +2020,7 @@ sub GetModuleConfig {
       $_g_modules->{'config'} = $yaml->[0];
     }
     else {
-      warn "WARNING: failed to open module file '$MODULE_FILE':\n$!\n";
+      # warn "WARNING: failed to open module file '$MODULE_FILE':\n$!\n";
       $_g_modules->{'config'} = {};
     }
   }
@@ -2052,6 +2052,7 @@ The list of modules.
 
 sub GetModules {
   my ($module_mode) = @_;
+  my $modules;
   if (!defined($module_mode)) {
     if (!exists($_g_modules->{'all'})) {
       # Get all available modules.
@@ -2059,13 +2060,13 @@ sub GetModules {
         or die "ERROR: GetModules: Failed to list '$MODULE_DIR' directory!\n$!";
       $_g_modules->{'all'} = [ sort grep { $_ !~ m/^\./ && -d "$MODULE_DIR/$_" } readdir($dh) ];
     }
-    return $_g_modules->{'all'};
+    $modules = $_g_modules->{'all'};
   }
   elsif ((0 == $module_mode) && exists($_g_modules->{'disabled'})) {
-    return $_g_modules->{'disabled'};
+    $modules = $_g_modules->{'disabled'};
   }
   elsif ((1 == $module_mode) && exists($_g_modules->{'enabled'})) {
-    return $_g_modules->{'enabled'};
+    $modules = $_g_modules->{'enabled'};
   }
   else {
     # No cache.
@@ -2082,7 +2083,7 @@ sub GetModules {
         }
         $_g_modules->{'disabled'} = [ sort values(%modules) ];
       }
-      return $_g_modules->{'disabled'} || [];
+      $modules = $_g_modules->{'disabled'} || [];
     }
     elsif (1 == $module_mode) {
       if ($_g_modules->{'config'}) {
@@ -2093,9 +2094,15 @@ sub GetModules {
         }
         $_g_modules->{'enabled'} = [ sort values(%modules) ];
       }
-      return $_g_modules->{'enabled'} || [];
+      $modules = $_g_modules->{'enabled'} || [];
     }
   }
+  
+  # Filter ALL CAPS example modules. Valid names only contain alpha-numeric
+  # characters and underscores, don't start by a number and must contain at
+  # least one lower case letter.
+  $modules = [grep(m/^(?:[a-z]\w*|[A-Z]\w*[a-z]\w*)$/, @$modules)];
+  return $modules;
 }
 
 =pod
@@ -2132,13 +2139,19 @@ sub GetServices {
 
 B<Description>: Returns a list of services provided by the given module.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1-2
 
 =over 4
 
 =item $module: (string) (R)
 
 Module name.
+
+=item $include: (string) (O)
+
+If left empty or set to 'enabled', only includes enabled services. If set to
+'disabled', only provide 'disabled' services, if set to 'alt', provides
+alternative services (enabled or not) and if set to all, provides all the above.
 
 =back
 
@@ -2149,7 +2162,7 @@ The list of services.
 =cut
 
 sub GetModuleServices {
-  my ($module) = @_;
+  my ($module, $include) = @_;
 
   if (!defined($module)) {
     die "ERROR: GetModuleServices: No module name provided!";
@@ -2159,7 +2172,19 @@ sub GetModuleServices {
   my @services;
   if (-d "$MODULE_DIR/$module/services") {
     if (opendir(my $dh, "$MODULE_DIR/$module/services")) {
-      @services = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh));
+      if (!$include || ('enabled' eq $include) || ('all' eq $include)) {
+        push(@services, map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh)));
+      }
+      if ($include) {
+         if (('disabled' eq $include) || ('all' eq $include)) {
+          push(@services, map { s/\.yml\.dis$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml\.dis$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh)));
+        }
+        if (('alt' eq $include) || ('all' eq $include)) {
+          push(@services,  map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && ($_ ne 'alt.yml') && -r "$MODULE_DIR/$module/services/alt/$_" } readdir($dh)));
+        }
+      }
+      my %seen = map {$_ => $_} @services;
+      @services = sort values(%seen);
     }
     else {
       warn "WARNING: GetModuleServices: Failed to list '$MODULE_DIR/$module/services' directory!\n$!";
@@ -2530,8 +2555,8 @@ sub SetModuleConf {
     'status' => 'enabled',
   };
   $_g_modules->{'config'}->{$module} = $module_conf;
-
-  my $yaml_text = $_g_modules->{'config'}->write_string()
+  my $yaml = CPAN::Meta::YAML->new($_g_modules->{'config'});
+  my $yaml_text = $yaml->write_string()
     or die "ERROR: failed to generate module config!\n"
     . CPAN::Meta::YAML->errstr;
   my $module_fh;
@@ -2542,6 +2567,10 @@ sub SetModuleConf {
   else {
     die "ERROR: failed to write module file '$MODULE_FILE':\n$!\n";
   }
+  # Clear cache.
+  delete($_g_modules->{'disabled'});
+  delete($_g_modules->{'enabled'});
+  delete($_g_modules->{'all'});
 }
 
 =pod
@@ -3045,7 +3074,7 @@ elsif ($command =~ m/^tolocal$/i) {
   ) {
     die "ERROR: Turn docker service into local service: no valid replacing IP provided!\n";
   }
-  my $services = GetServices(@arguments);
+  my $services = GetServices();
   if (!$services->{$service}) {
     die "ERROR: Turn docker service into local service: the given service does not exist or is not enabled!\n";
   }
@@ -3074,12 +3103,25 @@ elsif ($command =~ m/^tolocal$/i) {
   GenerateDockerComposeFile();
 }
 elsif ($command =~ m/^todocker$/i) {
-  my ($service, $alt) = @arguments;
+  my ($service, $alternative_name) = @arguments;
   if (!$service) {
     die "ERROR: Turn back local service into docker service: no service name provided!\n";
   }
+  my $services = GetServices();
+  if ($services->{$service}) {
+    die "ERROR: Turn local service into docker service: the given service already exist as a docker service!\n";
+  }
+  
+  my $module = $services->{$service};
+
   die "ERROR: Turn back local service into docker service: not implemented yet!\n";
   # @todo Check if an alternative service should be used.
+  
+  if ($alternative_name) {
+    my $alternatives = GetModuleAlternatives($module);
+    
+  }
+
   # Rename service to its original name or copy alt service.
   # Remove service from extra_hosts.
   # GenerateDockerComposeFile();
