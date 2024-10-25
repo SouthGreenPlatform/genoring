@@ -337,6 +337,34 @@ Report issues or support request on GenoRing Git issue queue at:
 
 https://gitlab.cirad.fr/agap/genoring/-/issues
 
+### F.A.Q.
+
+Q. Why GenoRing relies on a PREL script to manage everything?
+A. The main goals of GenoRing are to be easy to use, with very few requirements,
+  to be modulable and, easy to maintain.
+  Running it with a single command line was a key point. Several choices were
+  possible:
+  - Aks the user to use Docker compose commands but it would require the user to
+    create a docker-compose.yml file or at least edit it manually to add and
+    enable or disable modules. The user would also have to edit environment
+    files manually, which is not very convenient. And to achieve more complex
+    tasks (backups, use alternative services), it would not be very easy as
+    well. That's why using a script was unavoidable for simplicity.
+  - A shell script could have been used. While shell scripts don't require any
+    software installation on Linux or Mac systems, they would not work on
+    Windows systems. Furthernore, there are many reasons to avoid shell scripts:
+    https://mywiki.wooledge.org/BashPitfalls
+  - A PERL Script: that's the solution we choose because PERL is natively
+    available on most systems and easy (and free) to install on Windows as well.
+    And to reduce any other requirements, only standard PERL libraries are used.
+  - A python script, a PHP script,... could have been used but they all require
+    a language interpretor to be installed which would mean additional
+    requirements. There also could be issues due to incompatibles versions of
+    installed softwares.
+  - Maybe other more complex solutions exist as well but a PERL script remains a
+    simple choice and still not too complex to maintain.
+  
+
 ### Trouble shooting
 
 * When installing Drupal (the first time), the database docker logs a couple of

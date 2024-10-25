@@ -1,50 +1,36 @@
 #!/bin/bash
 
-# Automatically exit on error.
-set -e
-
 cd /opt/drupal/
 
 modules=(
   "tripal"
-  "brapi"
   "token"
   "geofield"
   "leaflet"
   "dbxschema"
-  "imagecache_external"
   "external_entities"
-  "xnttdb"
-  "xnttbrapi"
-  "xnttfiles"
   "xnttexif-xnttexif"
   "xnttjson"
   "xnttmanager"
-  "xnttmulti"
   "xnttstrjp"
   "xntttsv"
   "xnttxml"
   "xnttyaml"
   "chadol"
   "gbif2"
-  "xnttviews"
   "eu_cookie_compliance"
   "bibcite"
+  "honeypot"
 )
 enabled_modules=(
   "token"
-  "imagecache_external"
   "dbxschema_pgsql"
   "dbxschema_mysql"
-  "xnttdb"
   "chadol"
   "xnttjson"
   "xntttsv"
   "xnttxml"
   "xnttmanager"
-  "xnttmulti"
-  "xnttbrapi"
-  "brapi"
   "layout_builder"
 )
 
@@ -170,6 +156,8 @@ else
   echo "...Drupal extensions setup done."
 
   echo "Setup GenoRing site..."
+  cp /opt/genoring/logo-genoring.png /opt/drupal/web/sites/default/files/
+  ./vendor/drush/drush/drush config-import --partial --source=/opt/genoring/config/
   ./vendor/drush/drush/drush -y php:script /opt/genoring/init_site.php
   echo "...GenoRing site setup done."
 
@@ -196,15 +184,35 @@ echo "... done synchronizing host."
 # Update Drupal and modules.
 if [ $DRUPAL_UPDATE -gt 0 ]; then
   echo "Updating Drupal..."
-  # @todo Set Drupal offline.
-  # @todo Backup DB and restore if errors.
-  composer update --with-all-dependencies
-  ./vendor/drush/drush/drush -y updb
-  # @todo Set Drupal online.
-  echo "...Drupal update done."
+  # Check if updates could run well.
+  # @todo Maybe check free disk space as well?
+  if composer update --with-all-dependencies --dry-run; then
+    # Set Drupal offline.
+    ./vendor/drush/drush/drush sset system.maintenance_mode TRUE
+    # Backup DB.
+    echo "...backup Drupal..."
+    ./vendor/drush/drush/drush -y archive:dump --destination=/backups/preupdate_backup.tgz --overwrite
+    echo "...backup done..."
+    if [ $? -ne 0 ]; then
+      echo "...FAILED to backup, aborting update."
+      exit 1
+    fi
+    if composer update --with-all-dependencies && ./vendor/drush/drush/drush -y updb; then
+      echo "...Drupal update done."
+    else
+      # Restore DB backup.
+      echo "...Drupal update failed. Restoring..."
+        ./vendor/drush/drush/drush -y archive:restore /backups/preupdate_backup.tgz
+        rm -rf ./vendor
+        composer update
+      echo "...done restoring."
+    fi
+    # Set Drupal back online.
+    ./vendor/drush/drush/drush sset system.maintenance_mode FALSE
+  fi
   if [ $DRUPAL_UPDATE -eq 2 ]; then
     # Update and stop.
-    exit 0;
+    exit 0
   fi
 fi
 

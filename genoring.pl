@@ -503,7 +503,7 @@ sub GetModuleRealState {
     if ($?) {
       die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
     }
-    print "Checking if $module module is ready...\n" if $progress;
+    print "Checking if $module module is ready (see logs below for errors)...\n" if $progress;
     my $logs = '';
     # Does not work on Windows.
     my $terminal_width = `tput cols`;
@@ -567,7 +567,9 @@ sub GetModuleRealState {
           }
           # Clear previous log lines that where not overwritten.
           if ($new_line_count < $line_count) {
-            print ((' ' x  ($terminal_width || $fixed_width)) . "\n") x ($line_count - $new_line_count);
+            my $line_width = $terminal_width || $fixed_width;
+            my $line_diff = $line_count - $new_line_count;
+            print(((' ' x  $line_width) . "\n") x $line_diff);
           }
           print $logs;
         }
@@ -3169,6 +3171,13 @@ elsif ($command =~ m/^todocker$/i) {
   # Rename service to its original name or copy alt service.
   # Remove service from extra_hosts.
   # GenerateDockerComposeFile();
+}
+elsif ($command =~ m/^shell$/i) {
+  Run(
+    "docker exec -it genoring bash",
+    "Failed to open a GenoRing shell!",
+    1
+  );
 }
 elsif ($command =~ m/^volumes$/i) {
   my $volumes = GetVolumes(@arguments);
