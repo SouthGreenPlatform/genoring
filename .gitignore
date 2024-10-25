@@ -1,4 +1,5 @@
 docker-compose.yml
 modules.yml
+extra_hosts.yml
 env
 !.gitignore

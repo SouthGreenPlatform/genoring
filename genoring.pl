@@ -72,6 +72,11 @@ B<$MODULE_DIR>: (string)
 
 Name of the module directory.
 
+B<$EXTRA_HOSTS>: (string)
+
+Name of the extra hosts config file that contains service names replaced by
+local hosts (IPs).
+
 B<$STATE_MAX_TRIES>: (integer)
 
 Maximum number of seconds to wait for a service to be ready (running).
@@ -83,6 +88,7 @@ our $BASEDIR = dirname(__FILE__);
 our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
 our $MODULE_FILE = 'modules.yml';
 our $MODULE_DIR = 'modules';
+our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $STATE_MAX_TRIES = 120;
 
 
@@ -258,6 +264,7 @@ sub StartGenoring {
   # Check that genoring docker is not already running.
   my ($id, $state, $name, $image) = IsContainerRunning('genoring');
   if (!$state || ($state !~ m/running/)) {
+    ApplyLocalHooks('start');
     # Not running, start it.
     Run(
       "docker compose up -d" . (exists($g_flags->{'arm'}) ? ' --platform linux/amd64 2>&1' : ''),
@@ -285,6 +292,7 @@ sub StopGenoring {
     "Failed to stop GenoRing!",
     1
   );
+  ApplyLocalHooks('stop');
 }
 
 =pod
@@ -1059,6 +1067,30 @@ sub GenerateDockerComposeFile {
       print {$dc_fh} $volumes{$volume}->{'definition'};
       print {$dc_fh} "    name: \"$volume_name\"\n";
     }
+    
+    # Check for extra hosts to add.
+    if (-e $EXTRA_HOSTS) {
+      my $extra_fh;
+      if (open($extra_fh, '<:utf8', $EXTRA_HOSTS)) {
+        my $extra_hosts = do { local $/; <$extra_fh> };
+        close($extra_fh);
+        # Trim.
+        $extra_hosts =~ s/^\s+|[ \t\f]+$//gm;
+        $extra_hosts =~ s/^\n+//gsm;
+        if ($extra_hosts) {
+          if ($extra_hosts !~ m/^(\w+: "\[?[\d.:]+\]?"\n)+$/s) {
+            warn "WARNING: It seems that the extra hosts file '$EXTRA_HOSTS' has been corrupted. GenoRing may not be able to run without manual adjustments in '$DOCKER_COMPOSE_FILE' in the 'extra_hosts:' section.\n";
+          }
+          # Indent.
+          $extra_hosts =~ s/^/  /gm;
+          print {$dc_fh} "extra_hosts:\n$extra_hosts";
+        }
+      }
+      else {
+        warn "WARNING: failed to open extra hosts file '$EXTRA_HOSTS'.\n$!\n";
+      }
+    }
+    
     close($dc_fh);
   }
   else {
@@ -1626,6 +1658,8 @@ List of supported local hooks:
   argument.
 - restore: restore local files for the given module with the backup name as first
   argument.
+- start: called just before GenoRing dockers are started.
+- stop: called just after GenoRing dockers are stopped.
 - state: output the state of a module (ie. "created", "running", "restarting",
   "paused", "dead", "exited").
 
@@ -2633,7 +2667,7 @@ sub Confirm {
 
 =head1 OPTIONS
 
-genoring.pl [help | man | start | stop | logs | status | reset | update | enable | disable | uninstall | setup | modules | services | volumes | backup | restore | compile] [-debug] [-arm]
+genoring.pl [help | man | start | stop | logs | status | reset | update | enable | disable | uninstall | setup | modules | services | volumes | backup | restore | compile | tolocal | todocker] [-debug] [-arm]
 
 =over 4
 
@@ -2979,6 +3013,76 @@ elsif ($command =~ m/^disalt$/i) {
   else {
     die "ERROR: alternative '$alternative_name' not found for module '$module'.\n";
   }
+}
+elsif ($command =~ m/^tolocal$/i) {
+  my ($service, $ip) = @arguments;
+  if (!$service) {
+    die "ERROR: Turn docker service into local service: no service name provided!\n";
+  }
+  if (!$ip
+    || ($ip !~ m/
+      (
+        # IP v4.
+        (^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$)
+        # IP v6.
+        | (^
+            (?:
+              # One of those syntaxes:
+              (?:(?:[0-9a-f]{1,4}:){7}(?:[0-9a-f]{1,4}|:))
+              | (?:(?:[0-9a-f]{1,4}:){6}(?::[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))
+              | (?:(?:[0-9a-f]{1,4}:){5}(?:(?:(?::[0-9a-f]{1,4}){1,2})|:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))
+              | (?:(?:[0-9a-f]{1,4}:){4}(?:(?:(?::[0-9a-f]{1,4}){1,3})|(?:(?::[0-9a-f]{1,4})?:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+              | (?:(?:[0-9a-f]{1,4}:){3}(?:(?:(?::[0-9a-f]{1,4}){1,4})|(?:(?::[0-9a-f]{1,4}){0,2}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+              | (?:(?:[0-9a-f]{1,4}:){2}(?:(?:(?::[0-9a-f]{1,4}){1,5})|(?:(?::[0-9a-f]{1,4}){0,3}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+              | (?:(?:[0-9a-f]{1,4}:){1}(?:(?:(?::[0-9a-f]{1,4}){1,6})|(?:(?::[0-9a-f]{1,4}){0,4}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+              | (?::(?:(?:(?::[0-9a-f]{1,4}){1,7})|(?:(?::[0-9a-f]{1,4}){0,5}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+            )
+            # Optional zone index.
+            (?:%.+)?
+          $)
+      )
+    /ix)
+  ) {
+    die "ERROR: Turn docker service into local service: no valid replacing IP provided!\n";
+  }
+  my $services = GetServices(@arguments);
+  if (!$services->{$service}) {
+    die "ERROR: Turn docker service into local service: the given service does not exist or is not enabled!\n";
+  }
+  my $module = $services->{$service};
+  # Disable the service.
+  if (-e "$MODULE_DIR/$module/services/alt/$service.yml.dis") {
+    # Using an alternative, remove it.
+    if (!unlink("$MODULE_DIR/$module/services/$service.yml")) {
+      die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
+    }
+  }
+  else {
+    if (!rename("$MODULE_DIR/$module/services/$service.yml", "$MODULE_DIR/$module/services/$service.yml.dis")) {
+      die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
+    }
+  }
+  # Append replacing host to "extra_hosts".
+  my $extra_fh;
+  if (open($extra_fh, '>>:utf8', $EXTRA_HOSTS)) {
+    print {$extra_fh} "$service: \"$ip\"\n";
+    close($extra_fh);
+  }
+  else {
+    die "ERROR: failed to open extra hosts file '$EXTRA_HOSTS' to add replacing host ($service: \"$ip\")\n$!\n";
+  }
+  GenerateDockerComposeFile();
+}
+elsif ($command =~ m/^todocker$/i) {
+  my ($service, $alt) = @arguments;
+  if (!$service) {
+    die "ERROR: Turn back local service into docker service: no service name provided!\n";
+  }
+  die "ERROR: Turn back local service into docker service: not implemented yet!\n";
+  # @todo Check if an alternative service should be used.
+  # Rename service to its original name or copy alt service.
+  # Remove service from extra_hosts.
+  # GenerateDockerComposeFile();
 }
 elsif ($command =~ m/^volumes$/i) {
   my $volumes = GetVolumes(@arguments);
