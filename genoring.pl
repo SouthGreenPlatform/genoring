@@ -220,7 +220,7 @@ sub Run {
 
 =head2 StartGenoring
 
-B<Description>: Starts GenoRing platform in the given mode (default: 'normal').
+B<Description>: Starts GenoRing platform in the given mode (default: 'online').
 
 B<ArgsCount>: 0-1
 
@@ -228,12 +228,12 @@ B<ArgsCount>: 0-1
 
 =item $mode: (string) (O)
 
-Running mode. Must be one of:
-- normal: starts normally (ie. dev|staging|prod|backend mode).
-- backend: only starts "backend".
-- offline: only starts "offline" service.
-- backoff: starts in "backend" mode with "offline" service as frontend.
-Default: "normal".
+Running mode (ie. dev|staging|prod|backend|offline mode). Must be one of:
+- online: starts normally.
+- backend: starts but disables CMS (no frontend).
+- offline: starts CMS but in "offline" mode (admin can login and access the web
+  interface while regular users can only access a maintenance page).
+Default: "online".
 
 =back
 
@@ -244,13 +244,13 @@ B<Return>: (nothing)
 sub StartGenoring {
   # Get running mode.
   my ($mode) = @_;
-  if ($mode && ($mode !~ m/^(?:normal|backend|offline|backoff)$/)) {
-    die "ERROR: StartGenoring: Invalid starting mode: '$mode'! Valid mode should be one of 'normal', 'backend', 'offline' or 'backoff'.\n";
+  if ($mode && ($mode !~ m/^(?:online|backend|offline)$/)) {
+    die "ERROR: StartGenoring: Invalid starting mode: '$mode'! Valid mode should be one of 'online', 'backend', 'offline'.\n";
   }
   # Set COMPOSE_PROFILES according to the selected environment.
-  if (!$mode || ($mode eq 'normal')) {
+  if (!$mode || ($mode eq 'online')) {
     # Get site environment.
-    $mode = 'normal';
+    $mode = 'online';
     $ENV{'COMPOSE_PROFILES'} = GetProfile();
   }
   elsif ($mode eq 'backend') {
@@ -258,9 +258,6 @@ sub StartGenoring {
   }
   elsif ($mode eq 'offline') {
     $ENV{'COMPOSE_PROFILES'} = 'offline';
-  }
-  elsif ($mode eq 'backoff') {
-    $ENV{'COMPOSE_PROFILES'} = 'backend,offline';
   }
   # Check that genoring docker is not already running.
   my ($id, $state, $name, $image) = IsContainerRunning('genoring');
@@ -272,6 +269,17 @@ sub StartGenoring {
       "Failed to start GenoRing ($mode mode)!",
       1
     );
+  }
+  # Apply container hooks.
+  WaitModulesReady();
+  if (!$mode || ($mode eq 'online')) {
+    ApplyContainerHooks('online');
+  }
+  elsif ($mode eq 'backend') {
+    ApplyContainerHooks('backend');
+  }
+  elsif ($mode eq 'offline') {
+    ApplyContainerHooks('offline');
   }
 }
 
@@ -312,13 +320,13 @@ sub GetLogs {
   if (exists($g_flags->{'f'})) {
     Run(
       "docker compose --profile '*' logs -f",
-      "Failed to GenoRing logs!",
+      "Failed to get GenoRing logs!",
     );
   }
   else {
     Run(
       "docker compose logs",
-      "Failed to GenoRing logs!",
+      "Failed to get GenoRing logs!",
     );
   }
 }
@@ -357,16 +365,11 @@ sub GetStatus {
   }
   else {
     my $state = GetState();
-    if ('running' eq $state) {
-      if ($ENV{'COMPOSE_PROFILES'} =~ m/offline/) {
-        $state .= ' in offline mode';
-        if ($ENV{'COMPOSE_PROFILES'} =~ m/backend/) {
-          $state .= ' with backend';
-        }
-      }
-      elsif ($ENV{'COMPOSE_PROFILES'} =~ m/backend/) {
-        $state .= ' in backend mode';
-      }
+    if ('offline' eq $state) {
+      $state = 'running in offline mode';
+    }
+    elsif ('backend' eq $state) {
+      $state = 'running in backend mode';
     }
     print "GenoRing is " . ($state || 'not running') . ".\n";
   }
@@ -376,7 +379,7 @@ sub GetStatus {
 
 =head2 GetState
 
-B<Description>: Displays the given GenorRing container state or a global state
+B<Description>: Returns the given GenorRing container state or a global state
 for all GenoRing containers (ie. 'running' only if all a running, otherwise the
 first non-running state).
 
@@ -409,6 +412,16 @@ sub GetState {
         ($state) = ($line =~ m/(\S+)\s*$/);
         last;
       }
+    }
+  }
+
+  # If it is running, check running mode.
+  if ('running' eq $state) {
+    if ($ENV{'COMPOSE_PROFILES'} =~ m/offline/) {
+      $state = 'offline';
+    }
+    elsif ($ENV{'COMPOSE_PROFILES'} =~ m/backend/) {
+      $state = 'backend';
     }
   }
 
@@ -590,7 +603,7 @@ sub GetModuleRealState {
     foreach my $service (@{GetModuleServices($module)}) {
       # Check service is running.
       my $service_state = GetState($service);
-      if ($service_state !~ m/running/) {
+      if ($service_state !~ m/^(?:running|backend|offline)$/) {
         return $service_state;
       }
     }
@@ -744,27 +757,18 @@ sub SetupGenoring {
   # Apply global initialization hooks (modules/*/hooks/init.pl).
   print "- Initialiazing modules...\n";
   ApplyLocalHooks('init', $module);
-  print "  Modules initialiazed on local system, initializing services...\n";
+  print "  ...Modules initialiazed on local system...\n";
 
   # Start dockers in backend mode.
-  print "  - Starting GenoRing backend for initialization...\n";
-  StartGenoring('backend');
-  print "    OK\n";
-
-  # Check dockers are ready.
-  print "  - Waiting for all services to be operational...\n";
-  WaitModulesReady();
-  print "    OK\n";
+  print "  - Starting GenoRing backend (in offline mode) for initialization...\n";
+  StartGenoring('offline');
+  print "    ...OK...\n";
 
   # Apply docker initialization hooks of each enabled module service for each
   # enabled module service (ie. modules/"svc1"/hooks/init_"svc2".sh).
   print "  - Applying container initialization hooks...\n";
   ApplyContainerHooks('enable', $module, 1);
   print "  ...Modules initialiazed.\n";
-
-  # Stop containers.
-  print "- Stopping backend.\n";
-  StopGenoring();
 }
 
 =pod
@@ -1146,6 +1150,299 @@ sub GenerateDockerComposeFile {
 
 =pod
 
+=head2 PrepareOperations
+
+B<Description>: Prepares GenoRing platform for operations (update, install,
+uninstall, etc.).
+
+B<ArgsCount>: 0
+
+B<Return>: (hash ref)
+
+An operation context hash.
+
+=cut
+
+sub PrepareOperations {
+  my $context = {};
+
+  # Clear caches.
+  ClearCache();
+
+  # Check if GenoRing is running or not.
+  $context->{'current_mode'} = GetState();
+  $context->{'operation_mode'} = 'offline';
+  if (('running' eq $context->{'current_mode'})
+    || ('backend' eq $context->{'current_mode'})
+  ) {
+    $context->{'operation_mode'} = 'backend';
+  }
+
+  # Stop if running.
+  print "- Stopping GenoRing...\n";
+  eval {StopGenoring();};
+  if ($@) {
+    die "ERROR: Failed to stop GenoRing!\n$@\n";
+  }
+  print "  ...OK.\n";
+
+  # Make a backup.
+  Backup('operation');
+
+  return $context;
+}
+
+=pod
+
+=head2 PerformLocalOperations
+
+B<Description>: Performs local operations and return new context.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $context: (hash ref) (R)
+
+The operation context.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub PerformLocalOperations {
+
+  my ($context) = @_;
+  return if $context->{'failed'};
+
+  my ($mode, $current_mode, $local_hooks, $module) = (
+    $context->{'operation_mode'},
+    $context->{'current_mode'},
+    $context->{'local_hooks'},
+    $context->{'module'},
+  );
+
+  eval {
+    # Make sure GenoRing is stopped.
+    StopGenoring();
+
+    # Apply local hooks (modules/*/hooks/${hook}.pl).
+    print "- Applying local hooks...\n";
+    my @local_hooks = sort {
+        my $ao = $local_hooks->{$a}->{'order'} || 0;
+        my $bo = $local_hooks->{$b}->{'order'} || 0;
+        return $ao <=> $bo;
+      }
+      keys(%$local_hooks);
+    foreach my $local_hook (@local_hooks) {
+      my $args = $context->{'local_hooks'}->{$local_hook}->{'args'};
+      ApplyLocalHooks($local_hook, $module, $args);
+      $context->{'local_hooks'}->{$local_hook}->{'ok'} = 1;
+    }
+    print "  ...OK.\n";
+  };
+
+  # Check for errors.
+  if ($@) {
+    $context->{'failed'} = $@;
+  }
+}
+
+=pod
+
+=head2 PerformContainerOperations
+
+B<Description>: Performs an operation and restore GenoRing system after a
+successfull or unsuccessfull operation.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $context: (hash ref) (R)
+
+The operation context.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub PerformContainerOperations {
+
+  my ($context) = @_;
+  return if $context->{'failed'};
+
+  my ($mode, $current_mode, $container_hooks, $module) = (
+    $context->{'operation_mode'},
+    $context->{'current_mode'},
+    $context->{'container_hooks'},
+    $context->{'module'},
+  );
+
+  eval {
+    # Start containers in backend mode.
+    print "- Starting GenoRing backend...\n";
+    StartGenoring($mode);
+    print "  ...OK.\n";
+
+    # Apply docker hooks of each enabled module service for each
+    # enabled module service (ie. modules/"svc1"/hooks/${hook}_"svc2".sh).
+    print "  - Applying service hooks...\n";
+    my @container_hooks = sort {
+        my $ao = $container_hooks->{$a}->{'order'} || 0;
+        my $bo = $container_hooks->{$b}->{'order'} || 0;
+        return $ao <=> $bo;
+      }
+      keys(%$container_hooks);
+
+    foreach my $container_hook (@container_hooks) {
+      my $related = $context->{'container_hooks'}->{$container_hook}->{'related'};
+      my $args = $context->{'container_hooks'}->{$container_hook}->{'args'};
+      ApplyContainerHooks($container_hook, $module, $related, $args);
+      $context->{'container_hooks'}->{$container_hook}->{'ok'} = 1;
+    }
+    print "  ...OK.\n";
+  };
+
+  # Check for errors.
+  if ($@) {
+    $context->{'failed'} = $@;
+  }
+}
+
+=pod
+
+=head2 CleanupOperations
+
+B<Description>: Cleanup GenoRing system and revert changes in case of operation
+failure.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $context: (hash ref) (R)
+
+The operation context.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub CleanupOperations {
+
+  my ($context) = @_;
+
+  my ($mode, $current_mode, $local_hooks, $container_hooks, $module) = (
+    $context->{'operation_mode'},
+    $context->{'current_mode'},
+    $context->{'local_hooks'},
+    $context->{'container_hooks'},
+    $context->{'module'},
+  );
+
+  if ($context->{'failed'}) {
+    warn "ERROR: Failed!\n" . $context->{'failed'} . "\n";
+
+    # Revert container hooks.
+    print "  - Reverting service hooks...\n";
+    my $failed = 0;
+    foreach my $container_hook (keys(%$container_hooks)) {
+      my $revert_hook = $context->{'container_hooks'}->{$container_hook}->{'revert'};
+      if ($revert_hook) {
+        my $related = $context->{'container_hooks'}->{$container_hook}->{'related'};
+        my $args = $context->{'container_hooks'}->{$container_hook}->{'args'};
+        eval {
+          ApplyContainerHooks($revert_hook, $module, $related, $args);
+          $context->{'container_hooks'}->{$container_hook}->{'reverted'} = 1;
+        };
+        if ($@) {
+          $failed = 1;
+        }
+      }
+    }
+    print "  ..." . ($failed ? 'Failed' : 'OK') . ".\n";
+
+    # Revert local hooks.
+    StopGenoring();
+    print "- Reverting local hooks...\n";
+    $failed = 0;
+    foreach my $local_hook (keys(%$local_hooks)) {
+      my $revert_hook = $context->{'local_hooks'}->{$local_hook}->{'revert'};
+      if ($revert_hook) {
+        my $args = $context->{'local_hooks'}->{$local_hook}->{'args'};
+        eval {
+          ApplyLocalHooks($local_hook, $module, $args);
+          $context->{'local_hooks'}->{$local_hook}->{'reverted'} = 1;
+        };
+        if ($@) {
+          $failed = 1;
+        }
+      }
+    }
+    print "  ..." . ($failed ? 'Failed' : 'OK') . ".\n";
+
+    # Restore backups.
+    Restore('operation');
+  }
+}
+
+=pod
+
+=head2 EndOperations
+
+B<Description>: Restore GenoRing system after a successfull or unsuccessfull
+operation.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $context: (hash ref) (R)
+
+The operation context.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub EndOperations {
+
+  my ($context) = @_;
+
+  my ($mode, $current_mode, $local_hooks, $container_hooks, $module) = (
+    $context->{'operation_mode'},
+    $context->{'current_mode'},
+    $context->{'local_hooks'},
+    $context->{'container_hooks'},
+    $context->{'module'},
+  );
+
+  # Restart as needed.
+  if ('running' eq $current_mode) {
+    print "- Restarting GenoRing...\n";
+    StartGenoring('online');
+    print "  ...OK.\n";
+  }
+  elsif (('backend' ne $current_mode) && ('offline' ne $current_mode)) {
+    # Stop containers.
+    print "- Stopping Genoring...\n";
+    StopGenoring();
+    print "  ...OK.\n";
+  }
+  print "Operation done.\n";
+}
+
+=pod
+
 =head2 Update
 
 B<Description>: Updates the GenoRing system or the specified module.
@@ -1174,62 +1471,19 @@ sub Update {
     print "Updating GenoRing...\n";
   }
 
-  my $mode = 'backend';
-  # Check if genoring is running and if so, we need to set "offline" mode
-  # and restart it properly after the update.
-  if ('running' eq GetState()) {
-    $mode = 'backoff';
-  }
-
-  # Stop if running.
-  print "- Make sure GenoRing is stopped\n";
-  StopGenoring();
-
-  # @todo Make an update backup.
-  eval {
-    # Apply global update hooks (modules/*/hooks/update.pl).
-    print "- Updating modules...\n";
-    ApplyLocalHooks('update', $module);
-    print "  Modules updated on local system, updating services...\n";
-
-    # Start containers in backend mode.
-    print "- Starting GenoRing backend for update...\n";
-    StartGenoring($mode);
-    print "  OK.\n";
-
-    # Check modules are ready.
-    print "- Waiting for all services to be operational...\n";
-    WaitModulesReady();
-    print "  OK.\n";
-
-    # Apply docker update hooks of each enabled module service for each
-    # enabled module service (ie. modules/"svc1"/hooks/update_"svc2".sh).
-    print "  - Applying service update hooks...\n";
-    ApplyContainerHooks('update', $module);
-    print "  ...Services updated.\n";
-
-    # Stop containers.
-    print "- Stopping backend.\n";
-    StopGenoring();
-
-    # Restart if needed.
-    if ('backoff' eq $mode) {
-      print "- Restart GenoRing...\n";
-      StartGenoring('normal');
-      print "  OK.\n";
-      # Check modules are ready.
-      print "- Waiting for all services to be operational...\n";
-      WaitModulesReady();
-      print "  OK.\n";
-    }
-
-    print "Update done.\n";
+  my $context = PrepareOperations();
+  $context->{'module'} = $module;
+  $context->{'local_hooks'} = {
+    'update' => {},
+  };
+  $context->{'container_hooks'} = {
+    'update' => {},
   };
 
-  if ($@) {
-    print "ERROR: Update failed!\n$@\n";
-    # @todo If failed, restore backup.
-  }
+  PerformLocalOperations($context);
+  PerformContainerOperations($context);
+  CleanupOperations($context);
+  EndOperations($context);
 }
 
 =pod
@@ -1267,60 +1521,143 @@ sub InstallModule {
     warn "WARNING: InstallModule: Module '$module' already installed!\n";
     return;
   }
-  # Clear caches.
-  ClearCache();
 
-  # Check if the system is running and stop it.
-  my $mode = 'backend';
-  # Check if genoring is running and if so, we need to set "offline" mode
-  # and restart it properly after the update.
-  if ('running' eq GetState()) {
-    $mode = 'backoff';
-  }
+  my $context = PrepareOperations();
+  $context->{'module'} = $module;
+  $context->{'local_hooks'} = {
+    'init' => {
+      'revert' => 'uninstall',
+    },
+  };
+  $context->{'container_hooks'} = {
+    'enable' => {
+      'revert' => 'disable',
+    },
+  };
 
-  # Stop if running.
-  StopGenoring();
-
-  # Enable module.
-  SetModuleConf($module, {'status' => 'enabled'});
-  $enabled_volumes{$module} = $module;
-  my ($init_ok, $enable_ok);
+  # Setup environment files.
   eval {
-    # Setup environment files.
+    # Enable module.
+    SetModuleConf($module, {'status' => 'enabled'});
+
+    # Setup new environment variables.
     SetupGenoringEnvironment();
 
-    # Apply module init hook.
-    ApplyLocalHooks('init', $module);
-    $init_ok = 1;
+    PerformLocalOperations($context);
 
     # Update Docker Compose config.
     GenerateDockerComposeFile();
 
-    # Set maintenance mode.
-    StartGenoring($mode);
-    WaitModulesReady();
-    ApplyContainerHooks('enable', $module, 1);
-    $enable_ok = 1;
-    StopGenoring();
+    PerformContainerOperations($context);
   };
-  # If installation failed, cleanup things.
+  # Check if an intermediate operation failed.
   if ($@) {
-    warn "ERROR: Failed to install module '$module'.\n$@\n";
+    $context->{'failed'} = $@;
+  }
+  
+  CleanupOperations($context);
+
+  if ($context->{'failed'}) {
     eval {
-      ApplyLocalHooks('uninstall', $module);
-    } if ($init_ok);
-    # Remove module from modules.yml if installation fails.
-    RemoveModuleConf($module);
-    # Update Docker Compose config.
-    GenerateDockerComposeFile();
-    StopGenoring();
+      # Remove module from modules.yml if installation failed.
+      RemoveModuleConf($module);
+    };
+    warn "WARNING: $@\n" if $@;
+    eval {
+      # Update Docker Compose config.
+      GenerateDockerComposeFile();
+    };
+    warn "WARNING: $@\n" if $@;
   }
 
-  # Restart if needed.
-  if ('backoff' eq $mode) {
-    StartGenoring('normal');
-    WaitModulesReady();
+  EndOperations($context);
+}
+
+=pod
+
+=head2 EnableModule
+
+B<Description>: Installs and enables the given module.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub EnableModule {
+  my ($module) = @_;
+  if (!$module) {
+    die "ERROR: EnableModule: Missing module name!\n";
   }
+
+  if (! -d "$MODULE_DIR/$module") {
+    die "ERROR: EnableModule: Module '$module' not found!\n";
+  }
+
+  my %enabled_volumes = map { $_ => $_ } @{GetModules(1)};
+  if (exists($enabled_volumes{$module})) {
+    die "ERROR: EnableModule: Module '$module' already enabled!\n";
+  }
+  my %disabled_volumes = map { $_ => $_ } @{GetModules(0)};
+  if (!exists($disabled_volumes{$module})) {
+    die "ERROR: EnableModule: Module '$module' not installed!\n";
+  }
+
+  my $context = PrepareOperations();
+  $context->{'module'} = $module;
+  $context->{'local_hooks'} = {
+    'enable' => {
+      'revert' => 'disable',
+    },
+  };
+  $context->{'container_hooks'} = {
+    'enable' => {
+      'revert' => 'disable',
+    },
+  };
+
+  # Setup environment files.
+  eval {
+    # Enable module.
+    SetModuleConf($module, {'status' => 'enabled'});
+
+    PerformLocalOperations($context);
+
+    # Update Docker Compose config.
+    GenerateDockerComposeFile();
+
+    PerformContainerOperations($context);
+  };
+  # Check if an intermediate operation failed.
+  if ($@) {
+    $context->{'failed'} = $@;
+  }
+
+  CleanupOperations($context);
+
+  if ($context->{'failed'}) {
+    eval {
+      # Disable module if failed.
+      SetModuleConf($module, {'status' => 'disabled'});
+    };
+    warn "WARNING: $@\n" if $@;
+    eval {
+      # Update Docker Compose config.
+      GenerateDockerComposeFile();
+    };
+    warn "WARNING: $@\n" if $@;
+  }
+
+  EndOperations($context);
 }
 
 =pod
@@ -1365,67 +1702,54 @@ sub DisableModule {
       exit(0);
     }
   }
-  # Clear caches.
-  ClearCache();
 
-  # Check if the system is running and stop it.
-  my $mode = 'backend';
-  # Check if genoring is running and if so, we need to set "offline" mode
-  # and restart it properly after the changes.
-  if ('running' eq GetState()) {
-    $mode = 'backoff';
-  }
-
-  # Stop if running.
-  eval {StopGenoring();};
-  if ($@) {
-    die "ERROR: Failed to stop GenoRing. Unable to uninstall module '$module'.\n$@\n";
-  }
-
-  # Disable or uninstall module.
+  my $context = PrepareOperations();
+  $context->{'module'} = $module;
+  $context->{'local_hooks'} = {
+    'disable' => {
+      'revert' => 'enable',
+      'order' => 1,
+    },
+  };
+  $context->{'container_hooks'} = {
+    'disable' => {
+      'revert' => 'enable',
+      'related' => 1,
+      'order' => 1,
+    },
+  };
   if ($uninstall) {
-    RemoveModuleConf($module);
-  }
-  else {
-    SetModuleConf($module, {'status' => 'disabled'});
+    $context->{'local_hooks'}->{'uninstall'} = {'order' => 2,};
+    $context->{'container_hooks'}->{'uninstall'} = {'related' => 1, 'order' => 2,};
   }
 
-  # Update Docker Compose config.
-  eval {GenerateDockerComposeFile();};
-  if ($@) {
-    warn $@;
-  }
-
-  # Set maintenance mode to apply disabling hooks.
-  my $disable_hook_ok;
   eval {
-    StartGenoring($mode);
-    WaitModulesReady();
-    ApplyContainerHooks('disable', $module, 1);
-    $disable_hook_ok = 1;
-    StopGenoring();
+    # Disable or uninstall module.
+    if ($uninstall) {
+      RemoveModuleConf($module);
+    }
+    else {
+      SetModuleConf($module, {'status' => 'disabled'});
+    }
+    # Update Docker Compose config.
+    GenerateDockerComposeFile();
+
+    # Set maintenance mode to apply disabling hooks.
+    PerformContainerOperations($context);
+
+    # Perform local hooks if needed.
+    PerformLocalOperations($context);
+
+    if ($uninstall) {
+      # Remove module environment files.
+      RemoveEnvFiles($module);
+    }
   };
   if ($@) {
-    warn "WARNING: Failed to apply disable hooks!\n$@\n";
+    $context->{'failed'} = $@;
   }
-
-  if ($uninstall) {
-    # Apply module uninstall hook.
-    eval {ApplyLocalHooks('uninstall', $module);};
-    if ($@) {
-      warn "WARNING: Failed to apply uninstall hooks!\n$@\n";
-    }
-
-    # Remove module environment files.
-    RemoveEnvFiles($module);
-  }
-
-  # Restart if needed.
-  if ('backoff' eq $mode) {
-    StartGenoring('normal');
-    WaitModulesReady();
-  }
-
+  CleanupOperations($context);
+  EndOperations($context);
 }
 
 =pod
@@ -1475,6 +1799,392 @@ sub UninstallModule {
     }
   }
   DisableModule($module, 1, 1);
+}
+
+=pod
+
+=head2 ListAlternatives
+
+B<Description>: Lists module alternatives.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module of interest.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ListAlternatives {
+  my ($module) = @_;
+
+  if (!$module) {
+    # Die on logic error.
+    die "ERROR: ListAlternatives: Missing module name!\n";
+  }
+
+  my $alternatives = GetModuleAlternatives($module);
+  if (%$alternatives) {
+    print "Alternatives for module '$module':\n";
+    foreach my $alternative_name (sort keys(%$alternatives)) {
+      my $alternative = $alternatives->{$alternative_name};
+      print "- $alternative_name:\n";
+      if ($alternative->{'substitue'}) {
+        foreach my $substitued (keys(%{$alternative->{'substitue'}})) {
+          print "    - service '$substitued' is replaced by service '" . $alternative->{'substitue'}->{$substitued} . "'\n";
+        }
+      }
+      if ($alternative->{'add'}) {
+        foreach my $added (@{$alternative->{'add'}}) {
+          print "    - new service '$added' is added\n";
+        }
+      }
+      if ($alternative->{'remove'}) {
+        foreach my $removed (@{$alternative->{'remove'}}) {
+          print "    - service '$removed' is removed\n";
+        }
+      }
+    }
+  }
+  else {
+    print "No alternatives for module '$module'.\n";
+  }
+}
+
+=pod
+
+=head2 EnableAlternative
+
+B<Description>: Enables a module alternative.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module of interest.
+
+=item $alternative_name: (string) (R)
+
+The alternative to enable.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub EnableAlternative {
+  my ($module, $alternative_name) = @_;
+
+  if (!$module) {
+    # Die on logic error.
+    die "ERROR: EnableAlternative: Missing module name!\n";
+  }
+  my $alternatives = GetModuleAlternatives($module);
+  if (!defined($alternative_name)) {
+    die "ERROR: No alternative name provided for module '$module'. You must provide the name of the alternative to enable.\n";
+  }
+  elsif (%$alternatives && $alternatives->{$alternative_name}) {
+    # Make sure the module has not been installed yet.
+    my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
+    if (exists($enabled_modules{$module})) {
+      die "ERROR: Cannot enable an alternative on an already installed module ($module). You must uninstall the module first.\n";
+    }
+
+    # Ensure directory permissions.
+    if (!-w "$MODULE_DIR/$module/services") {
+      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': the service directory ($MODULE_DIR/$module/services) is write-protected.\n";
+    }
+
+    # Make sure services have not been already altered.
+    my $alternative = $alternatives->{$alternative_name};
+    my (@missing_services, @disabled_services);
+    foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
+      if (-e "$MODULE_DIR/$module/services/$old_service.yml.dis") {
+        push(@disabled_services, $old_service);
+      }
+      if (!-e "$MODULE_DIR/$module/services/alt/$old_service.yml") {
+        push(@missing_services, $old_service);
+      }
+    }
+    if (@disabled_services) {
+      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some impacted services have already been changed by another alteration (services: " . join(', ', @disabled_services) . ").\n";
+    }
+    my @added_services;
+    foreach my $new_service (keys(%{$alternative->{'add'} || {}})) {
+      if (-e "$MODULE_DIR/$module/services/$new_service.yml") {
+        push(@added_services, $new_service);
+      }
+      if (!-e "$MODULE_DIR/$module/services/alt/$new_service.yml") {
+        push(@missing_services, $new_service);
+      }
+    }
+    if (@added_services) {
+      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some new services have already been added by another alteration (services: " . join(', ', @added_services) . ").\n";
+    }
+    if (@missing_services) {
+      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some new service definitions are missing (services: " . join(', ', @missing_services) . ").\n";
+    }
+
+    # Change service files and keep track of change made.
+    my (@renamed, @copied);
+    eval {
+      foreach my $to_rename (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
+        if (!rename("$MODULE_DIR/$module/services/$to_rename.yml", "$MODULE_DIR/$module/services/$to_rename.yml.dis")) {
+          die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': service '$to_rename' could not be replaced/removed.\n$!";
+        }
+        push(@renamed, $to_rename);
+      }
+      foreach my $to_add (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'add'} || {}})) {
+        if (!copy("$MODULE_DIR/$module/services/alt/$to_add.yml", "$MODULE_DIR/$module/services/$to_add.yml")) {
+          die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': service '$to_add' could not be added/replaced.\n$!";
+        }
+        push(@copied, $to_add);
+      }
+    };
+    if ($@) {
+      # Undo changes.
+      foreach my $to_remove (@copied) {
+        # Remove added files.
+        unlink("$MODULE_DIR/$module/services/$to_remove.yml");
+      }
+      foreach my $to_restore (@renamed) {
+        # Revert renaming.
+        rename("$MODULE_DIR/$module/services/$to_restore.yml.dis", "$MODULE_DIR/$module/services/$to_restore.yml");
+      }
+      die $@;
+    }
+  }
+  else {
+    die "ERROR: alternative '$alternative_name' not found for module '$module'.\n";
+  }
+
+}
+
+=pod
+
+=head2 DisableAlternative
+
+B<Description>: Disables a module alternative.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module of interest.
+
+=item $alternative_name: (string) (R)
+
+The alternative to disable.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub DisableAlternative {
+  my ($module, $alternative_name) = @_;
+  my $alternatives = GetModuleAlternatives($module);
+  if (!defined($alternative_name)) {
+    die "ERROR: No alternative name provided for module '$module'. You must provide the name of the alternative to disable.\n";
+  }
+  elsif (%$alternatives && $alternatives->{$alternative_name}) {
+    # Make sure the module is not installed.
+    my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
+    if (exists($enabled_modules{$module})) {
+      die "ERROR: Cannot disable an alternative on an already installed module ($module). You must uninstall the module first.\n";
+    }
+
+    # Ensure directory permissions.
+    if (!-w "$MODULE_DIR/$module/services") {
+      die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': the service directory ($MODULE_DIR/$module/services) is write-protected.\n";
+    }
+
+    # Make sure services have already been altered.
+    my $alternative = $alternatives->{$alternative_name};
+    my @missing_services;
+    foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
+      if (!-e "$MODULE_DIR/$module/services/alt/$old_service.yml.dis") {
+        push(@missing_services, $old_service);
+      }
+    }
+    if (@missing_services) {
+      die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': some previous service definitions are missing (services: " . join(', ', @missing_services) . ").\n";
+    }
+
+    # Change service files and keep track of change made.
+    my (@renamed);
+    eval {
+      foreach my $to_remove (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'add'} || {}})) {
+        if (-e "$MODULE_DIR/$module/services/$to_remove.yml"
+          && !unlink("$MODULE_DIR/$module/services/$to_remove.yml")
+        ) {
+          die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': altered service '$to_remove' could not be removed.\n$!";
+        }
+      }
+      foreach my $to_rename (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
+        if (!rename("$MODULE_DIR/$module/services/$to_rename.yml.dis", "$MODULE_DIR/$module/services/$to_rename.yml")) {
+          die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': service '$to_rename' could not be put back.\n$!";
+        }
+        push(@renamed, $to_rename);
+      }
+    };
+    if ($@) {
+      # Undo changes.
+      foreach my $to_restore (@renamed) {
+        # Revert renaming.
+        rename("$MODULE_DIR/$module/services/$to_restore.yml", "$MODULE_DIR/$module/services/$to_restore.yml.dis");
+      }
+      die $@;
+    }
+  }
+  else {
+    die "ERROR: alternative '$alternative_name' not found for module '$module'.\n";
+  }
+}
+
+=pod
+
+=head2 ToLocalService
+
+B<Description>: Turns a docker service into a local service.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $service: (string) (R)
+
+The service name.
+
+=item $ip: (string) (R)
+
+The IP running the service.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ToLocalService {
+  my ($service, $ip) = @_;
+  if (!$service) {
+    die "ERROR: Turn docker service into local service: no service name provided!\n";
+  }
+  if (!$ip
+    || ($ip !~ m/
+      (
+        # IP v4.
+        (^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$)
+        # IP v6.
+        | (^
+            (?:
+              # One of those syntaxes:
+              (?:(?:[0-9a-f]{1,4}:){7}(?:[0-9a-f]{1,4}|:))
+              | (?:(?:[0-9a-f]{1,4}:){6}(?::[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))
+              | (?:(?:[0-9a-f]{1,4}:){5}(?:(?:(?::[0-9a-f]{1,4}){1,2})|:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))
+              | (?:(?:[0-9a-f]{1,4}:){4}(?:(?:(?::[0-9a-f]{1,4}){1,3})|(?:(?::[0-9a-f]{1,4})?:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+              | (?:(?:[0-9a-f]{1,4}:){3}(?:(?:(?::[0-9a-f]{1,4}){1,4})|(?:(?::[0-9a-f]{1,4}){0,2}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+              | (?:(?:[0-9a-f]{1,4}:){2}(?:(?:(?::[0-9a-f]{1,4}){1,5})|(?:(?::[0-9a-f]{1,4}){0,3}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+              | (?:(?:[0-9a-f]{1,4}:){1}(?:(?:(?::[0-9a-f]{1,4}){1,6})|(?:(?::[0-9a-f]{1,4}){0,4}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+              | (?::(?:(?:(?::[0-9a-f]{1,4}){1,7})|(?:(?::[0-9a-f]{1,4}){0,5}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
+            )
+            # Optional zone index.
+            (?:%.+)?
+          $)
+      )
+    /ix)
+  ) {
+    die "ERROR: Turn docker service into local service: no valid replacing IP provided!\n";
+  }
+  my $services = GetServices();
+  if (!$services->{$service}) {
+    die "ERROR: Turn docker service into local service: the given service does not exist or is not enabled!\n";
+  }
+  my $module = $services->{$service};
+  # Disable the service.
+  if (-e "$MODULE_DIR/$module/services/alt/$service.yml.dis") {
+    # Using an alternative, remove it.
+    if (!unlink("$MODULE_DIR/$module/services/$service.yml")) {
+      die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
+    }
+  }
+  else {
+    if (!rename("$MODULE_DIR/$module/services/$service.yml", "$MODULE_DIR/$module/services/$service.yml.dis")) {
+      die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
+    }
+  }
+  # Append replacing host to "extra_hosts".
+  my $extra_fh;
+  if (open($extra_fh, '>>:utf8', $EXTRA_HOSTS)) {
+    print {$extra_fh} "$service: \"$ip\"\n";
+    close($extra_fh);
+  }
+  else {
+    die "ERROR: failed to open extra hosts file '$EXTRA_HOSTS' to add replacing host ($service: \"$ip\")\n$!\n";
+  }
+  GenerateDockerComposeFile();
+}
+
+=pod
+
+=head2 ToDockerService
+
+B<Description>: Turns back a local service into a docker service.
+
+B<ArgsCount>: 1-2
+
+=over 4
+
+=item $service: (string) (R)
+
+The service name.
+
+=item $alternative_name: (string) (O)
+
+The service alternative to enable if needed.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ToDockerService {
+  my ($service, $alternative_name) = @_;
+  if (!$service) {
+    die "ERROR: Turn back local service into docker service: no service name provided!\n";
+  }
+  my $services = GetServices();
+  if ($services->{$service}) {
+    die "ERROR: Turn local service into docker service: the given service already exist as a docker service!\n";
+  }
+  
+  my $module = $services->{$service};
+
+  die "ERROR: Turn back local service into docker service: not implemented yet!\n";
+  # @todo Check if an alternative service should be used.
+  
+  if ($alternative_name) {
+    my $alternatives = GetModuleAlternatives($module);
+    
+  }
+
+  # Rename service to its original name or copy alt service.
+  # Remove service from extra_hosts.
+  # GenerateDockerComposeFile();
 }
 
 =pod
@@ -1535,52 +2245,48 @@ sub Backup {
   # @todo Backup GenoRing config as well (docker-compose.yml, module.conf, env/).
   print "Backuping GenoRing...\n";
 
-  my $mode = 'backend';
-  # Check if genoring is running and if so, we need to set "offline" mode
-  # and restart it properly after the update.
-  if ('running' eq GetState()) {
-    $mode = 'backoff';
+  # Check if GenoRing is running or not.
+  my $current_mode = GetState();
+  my $mode = 'offline';
+  if (('running' eq $current_mode)
+    || ('backend' eq $current_mode)
+  ) {
+    $mode = 'backend';
   }
 
-  # Stop if running.
-  print "- Make sure GenoRing is stopped\n";
-  StopGenoring();
-
   eval {
+    # Stop if running.
+    print "- Stopping GenoRing...\n";
+    StopGenoring();
+    print "  ...OK.\n";
+
     # Launch backup hooks (modules/*/hooks/backup.pl).
     print "- Backuping modules data...\n";
     ApplyLocalHooks('backup', $module, $backup_name);
-    print "  Modules backuped on local system, backuping services data...\n";
+    print "  ...Modules backuped on local system, backuping services data...\n";
 
     # Start containers in backend mode.
-    print "- Starting GenoRing backend for backup...\n";
+    print "  - Starting GenoRing backend for backup...\n";
     StartGenoring($mode);
-    print "  OK.\n";
-
-    # Check modules are ready.
-    print "- Waiting for all services to be operational...\n";
-    WaitModulesReady();
-    print "  OK.\n";
+    print "    ...OK.\n";
 
     # Apply docker backup hooks of each enabled module service for each
     # enabled module service (ie. modules/"svc1"/hooks/backup_"svc2".sh).
-    print "  - Call service backup hooks...\n";
+    print "  - Calling service backup hooks...\n";
     ApplyContainerHooks('backup', $module, 1, $backup_name);
     print "  ...Services backuped.\n";
 
-    # Stop containers.
-    print "- Stopping backend.\n";
-    StopGenoring();
-
-    # Restart if needed.
-    if ('backoff' eq $mode) {
-      print "- Restart GenoRing...\n";
-      StartGenoring('normal');
-      print "  OK.\n";
-      # Check modules are ready.
-      print "- Waiting for all services to be operational...\n";
-      WaitModulesReady();
-      print "  OK.\n";
+    # Restart as needed.
+    if ('running' eq $current_mode) {
+      print "- Restarting GenoRing...\n";
+      StartGenoring('online');
+      print "  ...OK.\n";
+    }
+    elsif (('backend' ne $current_mode) && ('offline' ne $current_mode)) {
+      # Stop containers.
+      print "- Stopping Genoring...\n";
+      StopGenoring();
+      print "  ...OK.\n";
     }
 
     print "Backup done.\n";
@@ -1624,52 +2330,48 @@ sub Restore {
   print "Restore GenoRing...\n";
   # @todo Also restore GenoRing config files.
 
-  my $mode = 'backend';
-  # Check if genoring is running and if so, we need to set "offline" mode
-  # and restart it properly after the update.
-  if ('running' eq GetState()) {
-    $mode = 'backoff';
+  # Check if GenoRing is running or not.
+  my $current_mode = GetState();
+  my $mode = 'offline';
+  if (('running' eq $current_mode)
+    || ('backend' eq $current_mode)
+  ) {
+    $mode = 'backend';
   }
 
-  # Stop if running.
-  print "- Make sure GenoRing is stopped\n";
-  StopGenoring();
-
   eval {
-    # Launch backup hooks (modules/*/hooks/backup.pl).
+    # Stop if running.
+    print "- Stopping GenoRing...\n";
+    StopGenoring();
+    print "  ...OK.\n";
+
+    # Launch restore hooks (modules/*/hooks/restore.pl).
     print "- Restoring modules data...\n";
     ApplyLocalHooks('restore', $module, $backup_name);
-    print "  Modules restored on local system, restoring services data...\n";
+    print "  ...Modules restored on local system, restoring services data...\n";
 
     # Start containers in backend mode.
-    print "- Starting GenoRing backend for backup...\n";
+    print "  - Starting GenoRing backend for backup restoration...\n";
     StartGenoring($mode);
-    print "  OK.\n";
-
-    # Check modules are ready.
-    print "- Waiting for all services to be operational...\n";
-    WaitModulesReady();
-    print "  OK.\n";
+    print "    ...OK.\n";
 
     # Apply docker restore hooks of each enabled module service for each
     # enabled module service (ie. modules/"svc1"/hooks/restore_"svc2".sh).
-    print "  - Call service restore hooks...\n";
+    print "  - Calling service restore hooks...\n";
     ApplyContainerHooks('restore', $module, 1, $backup_name);
     print "  ...Services restored.\n";
 
-    # Stop containers.
-    print "- Stopping backend.\n";
-    StopGenoring();
-
-    # Restart if needed.
-    if ('backoff' eq $mode) {
-      print "- Restart GenoRing...\n";
-      StartGenoring('normal');
-      print "  OK.\n";
-      # Check modules are ready.
-      print "- Waiting for all services to be operational...\n";
-      WaitModulesReady();
-      print "  OK.\n";
+    # Restart as needed.
+    if ('running' eq $current_mode) {
+      print "- Restarting GenoRing...\n";
+      StartGenoring('online');
+      print "  ...OK.\n";
+    }
+    elsif (('backend' ne $current_mode) && ('offline' ne $current_mode)) {
+      # Stop containers.
+      print "- Stopping Genoring...\n";
+      StopGenoring();
+      print "  ...OK.\n";
     }
 
     print "Restore done.\n";
@@ -1697,6 +2399,7 @@ List of supported local hooks:
 - init: called just before a module is enabled, in order to setup the file
   system (ie. create local data directories, generate, download or copy files,
   etc.).
+- disable: perform actions on file system to disable the module.
 - uninstall: cleanup local file system and remove data files and directories
   generated by the module.
 - update: update local file system for the given module.
@@ -1807,6 +2510,8 @@ instance).
 List of supported container hooks:
 - enable: called for a module on services when one of them is enabled.
 - disable: called for a module on services when one of them is disabled.
+- offline: called for GenoRing is set offline.
+- online: called for is set online.
 - update: called for a module on services when one of them is updated.
 - backup: called for a module on services when one of them must perform backups
   with the backup name as first argument.
@@ -1829,7 +2534,7 @@ related to this module will be run as well if $related is set to 1.
 
 =item $related: (bool) (O)
 
-Will also run hook scripts of other modules targetting one service of
+Will also run hook scripts of other modules targeting one service of
 $en_module.
 
 =item $args: (string) (O)
@@ -1895,19 +2600,25 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
             Run(
-              "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service mkdir -p /genoring",
+              "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
               "Failed to prepare module file copy in $service ($module $hook hook)"
             );
             Run(
-              "docker cp \$(pwd)/$MODULE_DIR/ $service:/genoring/$MODULE_DIR/",
+              "docker cp \$(pwd)/$MODULE_DIR/ $service:/genoring/$MODULE_DIR",
               "Failed to copy module files in $service ($module $hook hook)"
             );
             $initialized_containers{$service} = 1;
           }
-          Run(
-            "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
-            "Failed to run hook of $module in $service (hook $hook)"
-          );
+          # Make sure script is executable.
+          if (-x "$MODULE_DIR/$module/hooks/$hook") {
+            Run(
+              "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
+              "Failed to run hook of $module in $service (hook $hook)"
+            );
+          }
+          else {
+            warn "WARNING: could not execute containe hook '$hook': script is not executable.\n";
+          }
         }
       }
     }
@@ -2781,6 +3492,11 @@ if (!defined($ENV{'COMPOSE_PROFILES'})) {
   $ENV{'COMPOSE_PROFILES'} = '';
 }
 
+# Set default port.
+if (!defined($ENV{'GENORING_PORT'})) {
+  $ENV{'GENORING_PORT'} = '8080';
+}
+
 # Options processing.
 my ($man, $help) = (0, 0);
 
@@ -2920,257 +3636,19 @@ elsif ($command =~ m/^services$/i) {
   }
 }
 elsif ($command =~ m/^alt(?:ernatives?)?$/i) {
-  my ($module) = (@arguments);
-  my $alternatives = GetModuleAlternatives($module);
-  if (%$alternatives) {
-    print "Alternatives for module '$module':\n";
-    foreach my $alternative_name (sort keys(%$alternatives)) {
-      my $alternative = $alternatives->{$alternative_name};
-      print "- $alternative_name:\n";
-      if ($alternative->{'substitue'}) {
-        foreach my $substitued (keys(%{$alternative->{'substitue'}})) {
-          print "    - service '$substitued' is replaced by service '" . $alternative->{'substitue'}->{$substitued} . "'\n";
-        }
-      }
-      if ($alternative->{'add'}) {
-        foreach my $added (@{$alternative->{'add'}}) {
-          print "    - new service '$added' is added\n";
-        }
-      }
-      if ($alternative->{'remove'}) {
-        foreach my $removed (@{$alternative->{'remove'}}) {
-          print "    - service '$removed' is removed\n";
-        }
-      }
-    }
-  }
-  else {
-    print "No alternatives for module '$module'.\n";
-  }
+  ListAlternatives(@arguments);
 }
 elsif ($command =~ m/^enalt$/i) {
-  my ($module, $alternative_name) = (@arguments);
-  my $alternatives = GetModuleAlternatives($module);
-  if (!defined($alternative_name)) {
-    die "ERROR: No alternative name provided for module '$module'. You must provide the name of the alternative to enable.\n";
-  }
-  elsif (%$alternatives && $alternatives->{$alternative_name}) {
-    # Make sure the module has not been installed yet.
-    my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
-    if (exists($enabled_modules{$module})) {
-      die "ERROR: Cannot enable an alternative on an already installed module ($module). You must uninstall the module first.\n";
-    }
-
-    # Ensure directory permissions.
-    if (!-w "$MODULE_DIR/$module/services") {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': the service directory ($MODULE_DIR/$module/services) is write-protected.\n";
-    }
-
-    # Make sure services have not been already altered.
-    my $alternative = $alternatives->{$alternative_name};
-    my (@missing_services, @disabled_services);
-    foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-      if (-e "$MODULE_DIR/$module/services/$old_service.yml.dis") {
-        push(@disabled_services, $old_service);
-      }
-      if (!-e "$MODULE_DIR/$module/services/alt/$old_service.yml") {
-        push(@missing_services, $old_service);
-      }
-    }
-    if (@disabled_services) {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some impacted services have already been changed by another alteration (services: " . join(', ', @disabled_services) . ").\n";
-    }
-    my @added_services;
-    foreach my $new_service (keys(%{$alternative->{'add'} || {}})) {
-      if (-e "$MODULE_DIR/$module/services/$new_service.yml") {
-        push(@added_services, $new_service);
-      }
-      if (!-e "$MODULE_DIR/$module/services/alt/$new_service.yml") {
-        push(@missing_services, $new_service);
-      }
-    }
-    if (@added_services) {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some new services have already been added by another alteration (services: " . join(', ', @added_services) . ").\n";
-    }
-    if (@missing_services) {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some new service definitions are missing (services: " . join(', ', @missing_services) . ").\n";
-    }
-
-    # Change service files and keep track of change made.
-    my (@renamed, @copied);
-    eval {
-      foreach my $to_rename (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-        if (!rename("$MODULE_DIR/$module/services/$to_rename.yml", "$MODULE_DIR/$module/services/$to_rename.yml.dis")) {
-          die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': service '$to_rename' could not be replaced/removed.\n$!";
-        }
-        push(@renamed, $to_rename);
-      }
-      foreach my $to_add (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'add'} || {}})) {
-        if (!copy("$MODULE_DIR/$module/services/alt/$to_add.yml", "$MODULE_DIR/$module/services/$to_add.yml")) {
-          die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': service '$to_add' could not be added/replaced.\n$!";
-        }
-        push(@copied, $to_add);
-      }
-    };
-    if ($@) {
-      # Undo changes.
-      foreach my $to_remove (@copied) {
-        # Remove added files.
-        unlink("$MODULE_DIR/$module/services/$to_remove.yml");
-      }
-      foreach my $to_restore (@renamed) {
-        # Revert renaming.
-        rename("$MODULE_DIR/$module/services/$to_restore.yml.dis", "$MODULE_DIR/$module/services/$to_restore.yml");
-      }
-      die $@;
-    }
-  }
-  else {
-    die "ERROR: alternative '$alternative_name' not found for module '$module'.\n";
-  }
+  EnableAlternative(@arguments);
 }
 elsif ($command =~ m/^disalt$/i) {
-  my ($module, $alternative_name) = (@arguments);
-  my $alternatives = GetModuleAlternatives($module);
-  if (!defined($alternative_name)) {
-    die "ERROR: No alternative name provided for module '$module'. You must provide the name of the alternative to disable.\n";
-  }
-  elsif (%$alternatives && $alternatives->{$alternative_name}) {
-    # Make sure the module is not installed.
-    my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
-    if (exists($enabled_modules{$module})) {
-      die "ERROR: Cannot disable an alternative on an already installed module ($module). You must uninstall the module first.\n";
-    }
-
-    # Ensure directory permissions.
-    if (!-w "$MODULE_DIR/$module/services") {
-      die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': the service directory ($MODULE_DIR/$module/services) is write-protected.\n";
-    }
-
-    # Make sure services have already been altered.
-    my $alternative = $alternatives->{$alternative_name};
-    my @missing_services;
-    foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-      if (!-e "$MODULE_DIR/$module/services/alt/$old_service.yml.dis") {
-        push(@missing_services, $old_service);
-      }
-    }
-    if (@missing_services) {
-      die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': some previous service definitions are missing (services: " . join(', ', @missing_services) . ").\n";
-    }
-
-    # Change service files and keep track of change made.
-    my (@renamed);
-    eval {
-      foreach my $to_remove (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'add'} || {}})) {
-        if (-e "$MODULE_DIR/$module/services/$to_remove.yml"
-          && !unlink("$MODULE_DIR/$module/services/$to_remove.yml")
-        ) {
-          die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': altered service '$to_remove' could not be removed.\n$!";
-        }
-      }
-      foreach my $to_rename (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-        if (!rename("$MODULE_DIR/$module/services/$to_rename.yml.dis", "$MODULE_DIR/$module/services/$to_rename.yml")) {
-          die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': service '$to_rename' could not be put back.\n$!";
-        }
-        push(@renamed, $to_rename);
-      }
-    };
-    if ($@) {
-      # Undo changes.
-      foreach my $to_restore (@renamed) {
-        # Revert renaming.
-        rename("$MODULE_DIR/$module/services/$to_restore.yml", "$MODULE_DIR/$module/services/$to_restore.yml.dis");
-      }
-      die $@;
-    }
-  }
-  else {
-    die "ERROR: alternative '$alternative_name' not found for module '$module'.\n";
-  }
+  DisableAlternative(@arguments);
 }
 elsif ($command =~ m/^tolocal$/i) {
-  my ($service, $ip) = @arguments;
-  if (!$service) {
-    die "ERROR: Turn docker service into local service: no service name provided!\n";
-  }
-  if (!$ip
-    || ($ip !~ m/
-      (
-        # IP v4.
-        (^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$)
-        # IP v6.
-        | (^
-            (?:
-              # One of those syntaxes:
-              (?:(?:[0-9a-f]{1,4}:){7}(?:[0-9a-f]{1,4}|:))
-              | (?:(?:[0-9a-f]{1,4}:){6}(?::[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))
-              | (?:(?:[0-9a-f]{1,4}:){5}(?:(?:(?::[0-9a-f]{1,4}){1,2})|:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))
-              | (?:(?:[0-9a-f]{1,4}:){4}(?:(?:(?::[0-9a-f]{1,4}){1,3})|(?:(?::[0-9a-f]{1,4})?:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
-              | (?:(?:[0-9a-f]{1,4}:){3}(?:(?:(?::[0-9a-f]{1,4}){1,4})|(?:(?::[0-9a-f]{1,4}){0,2}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
-              | (?:(?:[0-9a-f]{1,4}:){2}(?:(?:(?::[0-9a-f]{1,4}){1,5})|(?:(?::[0-9a-f]{1,4}){0,3}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
-              | (?:(?:[0-9a-f]{1,4}:){1}(?:(?:(?::[0-9a-f]{1,4}){1,6})|(?:(?::[0-9a-f]{1,4}){0,4}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
-              | (?::(?:(?:(?::[0-9a-f]{1,4}){1,7})|(?:(?::[0-9a-f]{1,4}){0,5}:(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))
-            )
-            # Optional zone index.
-            (?:%.+)?
-          $)
-      )
-    /ix)
-  ) {
-    die "ERROR: Turn docker service into local service: no valid replacing IP provided!\n";
-  }
-  my $services = GetServices();
-  if (!$services->{$service}) {
-    die "ERROR: Turn docker service into local service: the given service does not exist or is not enabled!\n";
-  }
-  my $module = $services->{$service};
-  # Disable the service.
-  if (-e "$MODULE_DIR/$module/services/alt/$service.yml.dis") {
-    # Using an alternative, remove it.
-    if (!unlink("$MODULE_DIR/$module/services/$service.yml")) {
-      die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
-    }
-  }
-  else {
-    if (!rename("$MODULE_DIR/$module/services/$service.yml", "$MODULE_DIR/$module/services/$service.yml.dis")) {
-      die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
-    }
-  }
-  # Append replacing host to "extra_hosts".
-  my $extra_fh;
-  if (open($extra_fh, '>>:utf8', $EXTRA_HOSTS)) {
-    print {$extra_fh} "$service: \"$ip\"\n";
-    close($extra_fh);
-  }
-  else {
-    die "ERROR: failed to open extra hosts file '$EXTRA_HOSTS' to add replacing host ($service: \"$ip\")\n$!\n";
-  }
-  GenerateDockerComposeFile();
+  ToLocalService(@arguments);
 }
 elsif ($command =~ m/^todocker$/i) {
-  my ($service, $alternative_name) = @arguments;
-  if (!$service) {
-    die "ERROR: Turn back local service into docker service: no service name provided!\n";
-  }
-  my $services = GetServices();
-  if ($services->{$service}) {
-    die "ERROR: Turn local service into docker service: the given service already exist as a docker service!\n";
-  }
-  
-  my $module = $services->{$service};
-
-  die "ERROR: Turn back local service into docker service: not implemented yet!\n";
-  # @todo Check if an alternative service should be used.
-  
-  if ($alternative_name) {
-    my $alternatives = GetModuleAlternatives($module);
-    
-  }
-
-  # Rename service to its original name or copy alt service.
-  # Remove service from extra_hosts.
-  # GenerateDockerComposeFile();
+  ToDockerService(@arguments);
 }
 elsif ($command =~ m/^shell$/i) {
   Run(

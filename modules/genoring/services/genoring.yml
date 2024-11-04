@@ -1,6 +1,6 @@
 # v1.0
 image: genoring
-profiles: ["prod","staging","dev","backend"]
+profiles: ["prod","staging","dev","backend","offline"]
 env_file:
   - ${PWD}/env/genoring_genoring.env
   - ${PWD}/env/genoring_db.env
@@ -9,6 +9,7 @@ volumes:
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
   - genoring-backups-volume:/backups
+  - ${PWD}/volumes/offline:/opt/offline
 depends_on:
   - genoring-db
 restart: unless-stopped

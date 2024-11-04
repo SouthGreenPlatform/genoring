@@ -5,9 +5,12 @@
 # name). It should be adapted to the container it supposed to run on. The
 # service could be either a service of this module as well as a service of
 # another module.
-# The 'disable' container hook is called when an enabled module is disabled,
-# to perform the required actions. All the 'disable' hooks of the module
+# The 'online' container hook is called when GenoRing is set to 'online' mode,
+# to perform the required actions. All the 'online' hooks of the module
 # will be called on the corresponding (enabled) services as well as all
-# 'disable' hooks targeting a service of the disabled module.
+# 'online' hooks targeting a service of this module.
+# If your module needs to perform a task on a service of another module when
+# GenoRing is set online, it is possible by creating a hook targeting that
+# service.
 
-# Some update tasks to perform on the service...
+# Some tasks to perform on the service...
