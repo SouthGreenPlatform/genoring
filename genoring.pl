@@ -265,7 +265,7 @@ sub StartGenoring {
     ApplyLocalHooks('start');
     # Not running, start it.
     Run(
-      "docker compose up -d" . (exists($g_flags->{'arm'}) ? ' --platform linux/amd64 2>&1' : ''),
+      "docker compose up -d" . ($g_flags->{'arm'} ? ' --platform linux/amd64 2>&1' : ''),
       "Failed to start GenoRing ($mode mode)!",
       1
     );
@@ -755,7 +755,7 @@ sub SetupGenoring {
   # Process environment variables and ask user for inputs for variables with
   # tags SET and OPT.
   print "- Setup environment...\n";
-  SetupGenoringEnvironment($module);
+  SetupGenoringEnvironment(undef, $module);
   print "  ...Environment setup done.\n";
 
   # Generate docker-compose.yml...
@@ -790,7 +790,7 @@ B<ArgsCount>: 0-2
 
 =over 4
 
-=item $reset: (boolean) (R)
+=item $reset: (boolean) (U)
 
 Force environment file re-generation.
 
@@ -919,31 +919,47 @@ ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
           }
           foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
             my $next_envvar = 0;
+            my @options = ('s', 'h');
             print "* " . ($envvar->{'name'} || $envvar->{'var'}) . "\n";
             if (defined($envvar->{'default'})) {
               print "  Default value: " . $envvar->{'default'} . "\n";
+              push(@options, 'd');
             }
             if (defined($envvar->{'current'})) {
               print "  Current value: " . $envvar->{'current'} . "\n";
+              push(@options, 'k');
+            }
+            # Check if optional settings should be skipped.
+            if (defined($g_flags->{'minimal'}) && ($envvar->{'is_optional'})) {
+              if (!defined($envvar->{'current'})) {
+                $envvar->{'current'} = $envvar->{'default'};
+              }
+              $next_envvar = 1;
+            }
+            elsif (defined($g_flags->{'auto'})) {
+              if (!defined($envvar->{'current'})) {
+                $envvar->{'current'} = $envvar->{'default'};
+              }
+              $next_envvar = 1;
             }
             while (!$next_envvar) {
-              print "  Hit 'S' to set a new value, 'K' to keep current value, 'D' to use default value\n  and 'H' to display help and this prompt again (S/K/D/H): ";
+              print "  Hit 'S' to set a new value, 'K' to keep current value, 'D' to use default value\n  and 'H' to display help and this prompt again (" . join('/', @options) . "): ";
               $user_input = <STDIN>;
-              if ($user_input =~ m/S/i)  {
+              if ($user_input =~ m/s/i)  {
                 print "  Enter a new value:\n";
                 $user_input = <STDIN>;
                 chomp $user_input;
                 $envvar->{'current'} = $user_input;
                 $next_envvar = 1;
               }
-              elsif ($user_input =~ m/K/i)  {
+              elsif (defined($envvar->{'current'}) && ($user_input =~ m/k/i))  {
                 $next_envvar = 1;
               }
-              elsif ($user_input =~ m/D/i)  {
+              elsif (defined($envvar->{'default'}) && ($user_input =~ m/d/i))  {
                 $envvar->{'current'} = $envvar->{'default'};
                 $next_envvar = 1;
               }
-              elsif ($user_input =~ m/H/i)  {
+              elsif ($user_input =~ m/h/i)  {
                 if ($envvar->{'description'}) {
                   print
                     "\nDESCRIPTION:\n============\n"
@@ -2609,7 +2625,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
             Run(
-              "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
+              "docker exec " . ($g_flags->{'arm'} ? '--platform linux/amd64 ' : '') . "-it $service sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
               "Failed to prepare module file copy in $service ($module $hook hook)"
             );
             Run(
@@ -2621,7 +2637,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Make sure script is executable.
           if (-x "$MODULE_DIR/$module/hooks/$hook") {
             Run(
-              "docker exec " . (exists($g_flags->{'arm'}) ? '--platform linux/amd64 ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
+              "docker exec " . ($g_flags->{'arm'} ? '--platform linux/amd64 ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
               "Failed to run hook of $module in $service (hook $hook)"
             );
           }
@@ -2685,15 +2701,104 @@ sub Compile {
   }
 
   # Get service sub-directory for sources (take into account ARM support).
-  my $service_subdir = $service . (exists($g_flags->{'arm'}) ? '-arm' : '');
-
-  if (!-d "$MODULE_DIR/$module/src/$service_subdir") {
+  if (!-d "$MODULE_DIR/$module/src/$service") {
     die "ERROR: Compile: The given service (${module}[$service]) does not have sources!";
   }
-  elsif (!-r "$MODULE_DIR/$module/src/$service_subdir/Dockerfile") {
+  elsif ((!-r "$MODULE_DIR/$module/src/$service/Dockerfile")
+    && (!-r "$MODULE_DIR/$module/src/$service/Dockerfile.amd64")
+    && (!-r "$MODULE_DIR/$module/src/$service/Dockerfile.arm")
+  ) {
     die "ERROR: Compile: Unable to access the Dockerfile of the given service (${module}[$service])!";
   }
 
+  # ARM support.
+  if ($g_flags->{'arm'}) {
+    my $arm_arch = $g_flags->{'arm'};
+
+    # Make sure we got an amd64 version.
+    if (!-e "$MODULE_DIR/$module/src/$service/Dockerfile.amd64") {
+      # No amd64 version.
+      if (-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
+        # Got a Dockerfile, assume current version is amd64.
+        if (!rename("$MODULE_DIR/$module/src/$service/Dockerfile", "$MODULE_DIR/$module/src/$service/Dockerfile.amd64")) {
+          die "ERROR: Cannot rename '$MODULE_DIR/$module/src/$service/Dockerfile'.\n$!";
+        }
+      }
+      else {
+        # No Dockerfile, generate an amd64 version from ARM version.
+        # Replace "FROM ***/xxx:yyy" by "FROM xxx:yyy"
+        my $dockerfile_fh;
+        if (open($dockerfile_fh, '<:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.arm")) {
+          my $docker_source = do { local $/; <$dockerfile_fh> };
+          close($dockerfile_fh);
+          # We don't change "FROM" when a platform is hardcoded.
+          $docker_source =~ s~^FROM\s+(\S+?/)([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM $2$3$4~mg;
+          if (open($dockerfile_fh, '>:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.amd64")) {
+            print {$dockerfile_fh} $docker_source;
+            close($dockerfile_fh);
+          }
+        }
+      }
+    }
+    # Here we got a 'Dockerfile.amd64'.
+    
+    # Now generate an arm version if needed.
+    if (!-e "$MODULE_DIR/$module/src/$service/Dockerfile.arm") {
+      # We got a 'Dockerfile.amd64' but no 'Dockerfile.arm', generate one.
+      # Replace "FROM xxx:yyy" by "FROM arm***/xxx:yyy".
+      my $dockerfile_fh;
+      if (open($dockerfile_fh, '<:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.amd64")) {
+        my $docker_source = do { local $/; <$dockerfile_fh> };
+        close($dockerfile_fh);
+        # We don't change "FROM" when a platform is hardcoded.
+        $docker_source =~ s~^FROM ([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM $arm_arch/$1$2$3~mg;
+        if (open($dockerfile_fh, '>:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.arm")) {
+          print {$dockerfile_fh} $docker_source;
+          close($dockerfile_fh);
+        }
+      }
+    }
+    # Here, we got an arm version (and and amd64 version), remove 'Dockerfile'.
+    if (-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
+      # Remove 'Dockerfile'.
+      unlink("$MODULE_DIR/$module/src/$service/Dockerfile");
+    }
+
+    # Copy arm version to 'Dockerfile'.
+    if (!copy("$MODULE_DIR/$module/src/$service/Dockerfile.arm", "$MODULE_DIR/$module/src/$service/Dockerfile")) {
+      die "ERROR: Cannot copy '$MODULE_DIR/$module/src/$service/Dockerfile.arm'.\n$!";
+    }
+  }
+  elsif (-e "$MODULE_DIR/$module/src/$service/Dockerfile.amd64" || !-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
+    # Compiling for amd64, make sure we got a 'Dockerfile' in amd64 version.
+    # Note: only get here if either we got a 'Dockerfile.amd64' which means the
+    # '-arm' compile flag has been used before and may have changed the
+    # 'Dockerfile' or because we don't have any 'Dockerfile' at all but we got a
+    # 'Dockerfile.arm'.
+    if (-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
+      # Remove current 'Dockerfile'.
+      unlink("$MODULE_DIR/$module/src/$service/Dockerfile");
+      # Copy amd64 Dockerfile.
+      if (!copy("$MODULE_DIR/$module/src/$service/Dockerfile.amd64", "$MODULE_DIR/$module/src/$service/Dockerfile")) {
+        die "ERROR: Cannot copy '$MODULE_DIR/$module/src/$service/Dockerfile.amd64'.\n$!";
+      }
+    }
+    else {
+      # No Dockerfile, generate an amd64 version from ARM version.
+      # Replace "FROM ***/xxx:yyy" by "FROM xxx:yyy"
+      my $dockerfile_fh;
+      if (open($dockerfile_fh, '<:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.arm")) {
+        my $docker_source = do { local $/; <$dockerfile_fh> };
+        close($dockerfile_fh);
+        # We don't change "FROM" when a platform is hardcoded.
+        $docker_source =~ s~^FROM\s+(\S+?/)([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM $2$3$4~mg;
+        if (open($dockerfile_fh, '>:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile")) {
+          print {$dockerfile_fh} $docker_source;
+          close($dockerfile_fh);
+        }
+      }
+    }
+  }
   print "Compiling service ${module}[$service]...\n";
 
   # Check if container is running and stop it unless it is not running the same
@@ -2719,7 +2824,7 @@ sub Compile {
     1
   );
   Run(
-    "docker build -t $service $MODULE_DIR/$module/src/$service_subdir/",
+    "docker build -t $service $MODULE_DIR/$module/src/$service/",
     "Failed to compile container (service ${module}[$service])",
     1
   );
@@ -3519,10 +3624,11 @@ sub Confirm {
 
 =head1 OPTIONS
 
-genoring.pl [help | man | start | stop | online | offline | backend | logs
-  | status | reset | update | enable | disable | uninstall | setup | modules
-  | services | volumes | backup | restore | compile | tolocal | todocker
-  | shell] [-debug] [-arm]
+genoring.pl [help | man | start | stop | online | offline | backend
+  | logs [-f] | status | update | enable | disable | uninstall
+  | setup [-auto | -minimal] [-reset] | reset [-f] [-delete-containers]
+  | modules | services | volumes | backup | restore | compile | shell
+  | tolocal | todocker] [-port=<HTTP_PORT>] [-debug] [-arm[=<ARCH>]] [-help]
 
 =over 4
 
@@ -3561,7 +3667,7 @@ if (!defined($ENV{'COMPOSE_PROFILES'})) {
   $ENV{'COMPOSE_PROFILES'} = '';
 }
 
-# Set default port.
+# Set default port (can be modified by "-port" flag later).
 if (!defined($ENV{'GENORING_PORT'})) {
   $ENV{'GENORING_PORT'} = '8080';
 }
@@ -3608,6 +3714,18 @@ if ($man) {pod2usage('-verbose' => 2, '-exitval' => 0);}
 
 # Change debug mode if requested/forced.
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
+
+# Check for HTTP port.
+if ($g_flags->{'port'} && ($g_flags->{'port'} =~ m/^\d{2,}$/)) {
+  $ENV{'GENORING_PORT'} = $g_flags->{'port'};
+}
+
+# Check for ARM achitecture.
+if (exists($g_flags->{'arm'})) {
+  if ((1 == $g_flags->{'arm'}) || (!$g_flags->{'arm'})) {
+    $g_flags->{'arm'} = 'arm64v8';
+  }
+}
 
 if ($command =~ m/^(?:start|online|offline|backend)$/i) {
   # Compile missing containers with sources.
@@ -3662,7 +3780,7 @@ elsif ($command =~ m/^update$/i) {
 }
 elsif ($command =~ m/^setup$/i) {
   # (Re)run environment setup and docker-compose.yml generation.
-  SetupGenoringEnvironment($g_flags->{'f'}, @arguments);
+  SetupGenoringEnvironment($g_flags->{'reset'}, @arguments);
   GenerateDockerComposeFile();
 }
 elsif ($command =~ m/^enable$/i) {
