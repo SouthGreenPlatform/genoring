@@ -3453,7 +3453,10 @@ sub Confirm {
 
 =head1 OPTIONS
 
-genoring.pl [help | man | start | stop | logs | status | reset | update | enable | disable | uninstall | setup | modules | services | volumes | backup | restore | compile | tolocal | todocker] [-debug] [-arm]
+genoring.pl [help | man | start | stop | online | offline | backend | logs
+  | status | reset | update | enable | disable | uninstall | setup | modules
+  | services | volumes | backup | restore | compile | tolocal | todocker
+  | shell] [-debug] [-arm]
 
 =over 4
 
@@ -3540,7 +3543,7 @@ if ($man) {pod2usage('-verbose' => 2, '-exitval' => 0);}
 # Change debug mode if requested/forced.
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
 
-if ($command =~ m/^start$/i) {
+if ($command =~ m/^(?:start|online|offline|backend)$/i) {
   # Compile missing containers with sources.
   CompileMissingContainers();
 
@@ -3550,7 +3553,10 @@ if ($command =~ m/^start$/i) {
     print "GenoRing needs to be setup...\n";
     SetupGenoring();
   }
-
+  # Add requested mode.
+  if ($command !~ m/^start$/i) {
+    unshift(@arguments, lc($command));
+  }
   print "Starting GenoRing...\n";
   StartGenoring(@arguments);
   print "...GenoRing started.\n";
@@ -3683,7 +3689,7 @@ Valentin GUIGNON (Bioversity), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 23/10/2024
+Date 05/11/2024
 
 =head1 SEE ALSO
 
