@@ -73,7 +73,7 @@ $all_roles = Role::loadMultiple([
 ]);
 
 $all_permissions = [
-  'use brapi',
+//  'use brapi',
 ];
 
 foreach ($all_permissions as $permission) {
