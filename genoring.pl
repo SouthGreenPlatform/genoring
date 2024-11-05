@@ -2742,7 +2742,7 @@ sub Compile {
       }
     }
     # Here we got a 'Dockerfile.amd64'.
-    
+
     # Now generate an arm version if needed.
     if (!-e "$MODULE_DIR/$module/src/$service/Dockerfile.arm") {
       # We got a 'Dockerfile.amd64' but no 'Dockerfile.arm', generate one.
@@ -3680,20 +3680,6 @@ if (!-e "agreed.txt") {
   }
 }
 
-# Check requirements.
-if (system('docker 1>/dev/null 2>&1')) {
-  die "ERROR: 'docker' command not available!\n";
-}
-my $docker_compose_version = `docker compose version`;
-if ($?) {
-  die "ERROR: 'docker compose' command not available!\n";
-}
-elsif ($docker_compose_version !~ m/\sv(?:[2-9]\.|\d{2,}\.)/) {
-  $docker_compose_version =~ m/\sv([\d\.]+)/;
-  $1 ||= 'unknown version';
-  die "ERROR: 'docker compose' does not meet minimal version requirement ($1 < v2)!\n";
-}
-
 # Prepare environment.
 $ENV{'COMPOSE_PROJECT_NAME'} = 'genoring';
 # Set COMPOSE_PROFILES to an empty string to prevent warning 'The
@@ -3749,6 +3735,21 @@ if ($man) {pod2usage('-verbose' => 2, '-exitval' => 0);}
 
 # Change debug mode if requested/forced.
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
+
+# Check Docker requirements.
+if (!$g_flags->{'bypass'}) {
+  if (system('docker 1>/dev/null 2>&1')) {
+    die "ERROR: 'docker' command not available!\n";
+  }
+  my $docker_compose_version = `docker compose version`;
+  if ($?) {
+    die "ERROR: 'docker compose' command not available!\n";
+  }
+  elsif ($docker_compose_version !~ m/\sv(?:[2-9]\.|\d{2,}\.)/) {
+    $docker_compose_version =~ m/\sv([\d\.]+)/;
+    die "ERROR: 'docker compose' does not meet minimal version requirement (" . ($1 || 'unknown version') . " < v2)!\n";
+  }
+}
 
 # Check for HTTP port.
 if ($g_flags->{'port'} && ($g_flags->{'port'} =~ m/^\d{2,}$/)) {
