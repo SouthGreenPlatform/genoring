@@ -22,6 +22,7 @@ GenoRing module containers.
 
 =cut
 
+require 5.8.0;
 use strict;
 use warnings;
 use utf8;
@@ -3659,8 +3660,42 @@ architectures.
 
 # Change working directory to where the script is to later use relative paths.
 chdir $BASEDIR;
-$ENV{'COMPOSE_PROJECT_NAME'} = 'genoring';
 
+# Test license agreement.
+if (!-e "agreed.txt") {
+  my $message = "License Agreement\n=================\nGenoRing is under *MIT License*. It is free and open-source software that will *always remain free to use*. Please read the provided LICENSE file for details.\nDo you agree with those conditions?";
+  if (Confirm($message)) {
+    my $agreed_fh;
+    if (open($agreed_fh, '>:utf8', "agreed.txt")) {
+      print {$agreed_fh} "License agreed on the " . localtime->strftime('%Y-%m-%d') . "\n";
+      close($agreed_fh);
+    }
+    else {
+      print "WARNING: Unable to create 'agreed.txt' file.\n$!\n";
+    }
+    print "\n";
+  }
+  else {
+    die "You must agree to the MIT License conditions to use GenoRing.\n";
+  }
+}
+
+# Check requirements.
+if (system('docker 1>/dev/null 2>&1')) {
+  die "ERROR: 'docker' command not available!\n";
+}
+my $docker_compose_version = `docker compose version`;
+if ($?) {
+  die "ERROR: 'docker compose' command not available!\n";
+}
+elsif ($docker_compose_version !~ m/\sv(?:[2-9]\.|\d{2,}\.)/) {
+  $docker_compose_version =~ m/\sv([\d\.]+)/;
+  $1 ||= 'unknown version';
+  die "ERROR: 'docker compose' does not meet minimal version requirement ($1 < v2)!\n";
+}
+
+# Prepare environment.
+$ENV{'COMPOSE_PROJECT_NAME'} = 'genoring';
 # Set COMPOSE_PROFILES to an empty string to prevent warning 'The
 # "COMPOSE_PROFILES" variable is not set. Defaulting to a blank string.'.
 if (!defined($ENV{'COMPOSE_PROFILES'})) {
