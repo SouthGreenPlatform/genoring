@@ -1,55 +1,25 @@
-#!/bin/bash
+#!/bin/sh
 
 cd /opt/drupal/
 
-modules=(
-  "tripal"
-  "token"
-  "geofield"
-  "leaflet"
-  "dbxschema"
-  "external_entities"
-  "xnttexif-xnttexif"
-  "xnttjson"
-  "xnttmanager"
-  "xnttstrjp"
-  "xntttsv"
-  "xnttxml"
-  "xnttyaml"
-  "chadol"
-  "gbif2"
-  "eu_cookie_compliance"
-  "bibcite"
-  "honeypot"
-)
-enabled_modules=(
-  "token"
-  "dbxschema_pgsql"
-  "dbxschema_mysql"
-  "chadol"
-  "xnttjson"
-  "xntttsv"
-  "xnttxml"
-  "xnttmanager"
-  "layout_builder"
-)
+modules="tripal token geofield leaflet dbxschema external_entities xnttexif-xnttexif xnttjson xnttmanager xnttstrjp xntttsv xnttxml xnttyaml chadol gbif2 eu_cookie_compliance bibcite honeypot"
+enabled_modules="token dbxschema_pgsql dbxschema_mysql chadol xnttjson xntttsv xnttxml xnttmanager layout_builder"
 
 # Check if Drupal should be installed.
 if [ ! -e ./web/index.php ]; then
   echo "Drupal downloads..."
   echo "* Downloading Drupal $DRUPAL_VERSION core..."
-	composer create-project --no-interaction "drupal/recommended-project:$DRUPAL_VERSION" .
+  composer create-project --no-interaction "drupal/recommended-project:$DRUPAL_VERSION" .
   mkdir private config
-	chown -R www-data:www-data web/sites web/modules web/themes private config
-	rmdir /var/www/html
-	ln -sf /opt/drupal/web /var/www/html
+  chown -R www-data:www-data web/sites web/modules web/themes private config
+  rm -rf /var/www/html && ln -sf /opt/drupal/web /var/www/html
   echo "   OK"
 
   echo "* Downloading Drupal extensions..."
   # Install Drupal extensions.
   composer config minimum-stability dev && composer -n require drush/drush
   # Disabled: "gigwa rdf_entity".
-  composer -n require $(printf "drupal/%s " "${modules[@]}")
+  composer -n require $(echo $modules | sed "s/ / drupal\//g")
   echo "   OK"
   # Setup cron.
   echo "* Setup Drupal cron..."
@@ -68,31 +38,31 @@ if [ ! -z "$POSTGRES_PASSWORD" ]; then
   echo "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$POSTGRES_PASSWORD" >~/.pgpass && chmod go-rwx ~/.pgpass
 fi
 loop_count=0
-while ! pg_isready -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER && [[ "$loop_count" -lt 180 ]]; do
+while ! pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" && [ "$loop_count" -lt 180 ]; do
   echo -n "."
-  loop_count=$((loop_count+1))
+  loop_count=$((loop_count + 1))
   sleep 1
 done
-if [[ "$loop_count" -ge 180 ]]; then
+if [ "$loop_count" -ge 180 ]; then
   >&2 echo "ERROR: Failed to wait for PostgreSQL database. Stopping here."
   exit 1
 fi
 echo "...Database server seems ready."
-test_drupal_db=$( psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -XtAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DRUPAL_DB';" )
+test_drupal_db=$( psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -XtAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DRUPAL_DB';" )
 test_drupal_db_error=$?
 if [ '1' = "$test_drupal_db" ]; then
   # Database already initialized.
   echo "Database already initialized."
 else
-  if [ $test_drupal_db_error -ne 0 ]; then
+  if [ "$test_drupal_db_error" -ne 0 ]; then
     >&2 echo "ERROR: Failed to connect to PostgreSQL database. Stopping here."
     exit 1
   fi
   # Initialize database...
   echo "Setup database..."
   # Setup PostgreSQL.
-  psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER --command="CREATE DATABASE $POSTGRES_DRUPAL_DB WITH OWNER $POSTGRES_USER;"
-  psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER $POSTGRES_DRUPAL_DB --command="CREATE EXTENSION pg_trgm;CREATE EXTENSION fuzzystrmatch;"
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" --command="CREATE DATABASE $POSTGRES_DRUPAL_DB WITH OWNER $POSTGRES_USER;"
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$POSTGRES_DRUPAL_DB" --command="CREATE EXTENSION pg_trgm;CREATE EXTENSION fuzzystrmatch;"
   echo "...database setup done."
 
   echo "Setup Drupal..."
@@ -152,7 +122,9 @@ else
 
   echo "Setup Drupal extensions..."
   # Enable modules.
-  ./vendor/drush/drush/drush -y pm-enable "${enabled_modules[@]}"
+  for module in $enabled_modules; do
+    ./vendor/drush/drush/drush -y pm-enable "$module"
+  done
   echo "...Drupal extensions setup done."
 
   echo "Setup GenoRing site..."
@@ -164,14 +136,14 @@ else
 fi
 
 echo "Process extensions scrips..."
-if [[ -d /opt/genoring/init/ ]] && [[ -z "$( find /opt/genoring/init/ -maxdepth 0 -type f -not -empty -name '*.sh' )" ]]; then
+if [ -d /opt/genoring/init/ ] && [ -z "$( find /opt/genoring/init/ -maxdepth 0 -type f -not -empty -name '*.sh' )" ]; then
   /opt/genoring/init/*.sh
 fi
 echo "..processing extensions scrips done."
 
 echo "Synchronizing host config..."
 # Synchronize PHP config.
-if [[ ! -e ./php ]] || [[ ! -e ./php/php.ini ]]; then
+if [ ! -e ./php ] || [ ! -e ./php/php.ini ]; then
   # First time, copy PHP settings on a mountable volume.
   mkdir -p ./php
   cp "$PHP_INI_DIR/php.ini" ./php/php.ini
@@ -182,7 +154,7 @@ fi
 echo "... done synchronizing host."
 
 # Update Drupal and modules.
-if [ $DRUPAL_UPDATE -gt 0 ]; then
+if [ "$DRUPAL_UPDATE" -gt 0 ]; then
   echo "Updating Drupal..."
   # Check if updates could run well.
   # @todo Maybe check free disk space as well?

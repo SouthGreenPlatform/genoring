@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/bin/sh
 
-# This hook is a bash (-or shell by changing the header-) script that is called
-# inside the specified docker container service called 'SERVICE' (cf. hook file
-# name). It should be adapted to the container it supposed to run on with a
-# backup (machine) name as first argument. The service could be either a service
-# of this module as well as a service of another module.
+# This hook is a shell script that is called inside the specified docker
+# container service called 'SERVICE' (cf. hook file name). It should be adapted
+# to the container it supposed to run on with a backup (machine) name as first
+# argument. The service could be either a service of this module as well as a
+# service of another module.
 # The 'backup' container hook is called when backup operation is needed.
 # The task of the hook script is to copy, dump or export the data to backup in
 # a given file/directory which name is based on the first parameter given to
