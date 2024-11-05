@@ -668,25 +668,32 @@ sub Reinitialize {
   }
 
   # Stop genoring.
-  print "Stop GenoRing...\n";
+  print "- Stop GenoRing...\n";
   eval{StopGenoring();};
   if ($@) {
-    print "  Failed.\n$@\n";
+    print "  ...Failed.\n$@\n";
   }
   else {
-    print "  OK.\n";
+    print "  ...OK.\n";
   }
 
   # Cleanup containers.
-  print "Pruning stopped containers...\n";
+  print "- Pruning stopped containers...\n";
   Run(
     "docker container prune -f",
     "Failed to prune containers!"
   );
-  print "  Done.\n";
+  print "  ...Done.\n";
+
+  # Remove docker images if needed.
+  if (exists($g_flags->{'delete-containers'})) {
+    print "- Removing all containers...\n";
+    DeleteAllContainers();
+    print "  ...Done.\n";
+  }
 
   # Remove all GenoRing volumes.
-  print "Removing all GenoRing volumes...\n";
+  print "- Removing all GenoRing volumes...\n";
   my $modules = GetModules();
   foreach my $module (@$modules) {
     my $volumes = GetModuleVolumes($module);
@@ -697,21 +704,21 @@ sub Reinitialize {
       );
     }
   }
-  print "  OK.\n";
+  print "  ...OK.\n";
 
   # Uninstall all modules.
-  print "Uninstall all modules...\n";
+  print "- Uninstall all modules...\n";
   foreach my $module (@$modules) {
     ApplyLocalHooks('uninstall', $module);
   }
   unlink $MODULE_FILE;
-  print "  OK.\n";
+  print "  ...OK.\n";
 
   # Clear config.
-  print "Clearing config...\n";
+  print "- Clearing config...\n";
   unlink $DOCKER_COMPOSE_FILE;
   unlink $EXTRA_HOSTS;
-  print "  OK.\n";
+  print "  ...OK.\n";
 
   # Clear environment files.
   RemoveEnvFiles();
@@ -1117,7 +1124,7 @@ sub GenerateDockerComposeFile {
       print {$dc_fh} $volumes{$volume}->{'definition'};
       print {$dc_fh} "    name: \"$volume\"\n";
     }
-    
+
     # Check for extra hosts to add.
     if (-e $EXTRA_HOSTS) {
       my $extra_fh;
@@ -1140,7 +1147,7 @@ sub GenerateDockerComposeFile {
         warn "WARNING: failed to open extra hosts file '$EXTRA_HOSTS'.\n$!\n";
       }
     }
-    
+
     close($dc_fh);
   }
   else {
@@ -1554,7 +1561,7 @@ sub InstallModule {
   if ($@) {
     $context->{'failed'} = $@;
   }
-  
+
   CleanupOperations($context);
 
   if ($context->{'failed'}) {
@@ -2171,15 +2178,15 @@ sub ToDockerService {
   if ($services->{$service}) {
     die "ERROR: Turn local service into docker service: the given service already exist as a docker service!\n";
   }
-  
+
   my $module = $services->{$service};
 
   die "ERROR: Turn back local service into docker service: not implemented yet!\n";
   # @todo Check if an alternative service should be used.
-  
+
   if ($alternative_name) {
     my $alternatives = GetModuleAlternatives($module);
-    
+
   }
 
   # Rename service to its original name or copy alt service.
@@ -2749,6 +2756,63 @@ sub CompileMissingContainers {
   }
 }
 
+
+=pod
+
+=head2 DeleteAllContainers
+
+B<Description>: Remove all containers to recompile or reload them.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub DeleteAllContainers {
+
+  # Get module services.
+  my %services;
+  my $modules = GetModules();
+  foreach my $module (@$modules) {
+    foreach my $service (@{GetModuleServices($module)}) {
+      $services{$service} = $module;
+    }
+  }
+
+
+  # Check missing containers.
+  foreach my $service (keys(%services)) {
+    my $image_id = `docker images -q $service:latest`;
+    if ($image_id) {
+      print "  - Removing container '$service'...\n";
+      # Check if container is running and stop it unless it is not running the
+      # same image.
+      my ($id, $state, $name, $image) = IsContainerRunning($service);
+      if ($id) {
+        if ($image && ($image ne $service)) {
+          die "ERROR: DeleteAllContainers: A container with the same name ($service) but a different image ($image) is currently running. Please stop it manually.";
+        }
+        Run(
+          "docker stop $id",
+          "Failed to stop container '$service' (image $image)!"
+        );
+        Run(
+          "docker container prune -f",
+          "Failed to prune containers!"
+        );
+      }
+      my $module = $services{$service};
+      Run(
+        "docker image rm -f $service",
+        "Failed to remove image (service ${module}[$service])!",
+        1
+      );
+      print "    ...OK.\n";
+    }
+  }
+}
+
 =pod
 
 =head2 GetModuleConfig
@@ -2854,7 +2918,7 @@ sub GetModules {
       $modules = $_g_modules->{'enabled'} || [];
     }
   }
-  
+
   # Filter ALL CAPS example modules. Valid names only contain alpha-numeric
   # characters and underscores, don't start by a number and must contain at
   # least one lower case letter.
