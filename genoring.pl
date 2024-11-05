@@ -749,6 +749,8 @@ sub SetupGenoring {
       $modules = GetModules(1);
     }
   }
+  # Compile missing containers with sources.
+  CompileMissingContainers();
 
   # Process environment variables and ask user for inputs for variables with
   # tags SET and OPT.
