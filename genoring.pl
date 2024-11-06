@@ -53,6 +53,7 @@ use Env;
 use File::Basename;
 use File::Copy;
 use Pod::Usage;
+use Sys::Hostname;
 use Time::Piece;
 
 ++$|; #no buffering
@@ -991,9 +992,7 @@ ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
             foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
                print "* " . ($envvar->{'name'} || $envvar->{'var'}) . ": " . $envvar->{'current'} . "\n";
             }
-            print "Validate these settings? (y/n)";
-            $user_input = <STDIN>;
-            if ($user_input =~ m/y/) {
+            if ($g_flags->{'auto'} || Confirm('Validate these settings?')) {
               # Save changes.
               if (open($env_fh, '>:utf8', "env/${module}_$env_file")) {
                 foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
@@ -3934,6 +3933,8 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
   my $modules = GetModules(1);
   WaitModulesReady(@$modules);
   print "...GenoRing is ready to accept client connections.\n";
+  my $host = hostname();
+  print "\n  --> http://$host:" . $ENV{'GENORING_PORT'} . "/\n";
 }
 elsif ($command =~ m/^stop$/i) {
   # Check if installed.

@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 use File::Copy;
+use File::Path qw(make_path);
 
 ++$|; #no buffering
 if (!-d './volumes/') {
@@ -21,16 +22,12 @@ else {
   }
 }
 
-if (!-d './volumes/proxy') {
-  mkdir './volumes/proxy';
+if (!-d './volumes/proxy/nginx/includes') {
+  make_path('./volumes/proxy/nginx/includes');
 }
 
-if (!-d './volumes/proxy/nginx') {
-  mkdir './volumes/proxy/nginx';
-}
-
-if (!-e './volumes/proxy/genoring-fpm.conf') {
-  copy('./modules/genoring/res/nginx/genoring-fpm.conf', './volumes/proxy/genoring-fpm.conf');
+if (!-e './volumes/proxy/nginx/genoring-fpm.conf') {
+  copy('./modules/genoring/res/nginx/genoring-fpm.conf', './volumes/proxy/nginx/genoring-fpm.conf');
 }
 
 if (!-d './volumes/offline') {

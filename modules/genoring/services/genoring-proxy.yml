@@ -7,9 +7,9 @@ ports:
   - ${GENORING_PORT}:80
 volumes:
   - type: bind
-    source: ${PWD}/volumes/proxy/genoring-fpm.conf
+    source: ${PWD}/volumes/proxy/nginx/genoring-fpm.conf
     target: /etc/nginx/templates/default.conf.template
-  - ${PWD}/volumes/proxy/nginx:/etc/nginx/genoring
+  - ${PWD}/volumes/proxy/nginx/includes:/etc/nginx/genoring
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
 restart: always
