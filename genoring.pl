@@ -8,7 +8,20 @@ genoring.pl - Manages GenoRing platform.
 
 =head1 SYNOPSIS
 
-    ./genoring.pl start
+  ./genoring.pl start
+  ./genoring.pl stop
+
+Syntax:
+
+  perl genoring.pl [help | man | start | stop | online | offline | backend
+  | logs [-f] | status | modules | services | volumes | alternatives <MODULE>
+  | setup [-auto | -minimal] [-reset] | reset [-f] [-delete-containers]
+  | enable <MODULE> | disable <MODULE> | uninstall <MODULE>
+  | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
+  | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
+  | update | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
+  | shell [SERVICE] [-cmd=COMMAND] ]
+  [-port=<HTTP_PORT>] [-arm[=<ARCH>]] [-debug]
 
 =head1 REQUIRES
 
@@ -3625,11 +3638,7 @@ sub Confirm {
 
 =head1 OPTIONS
 
-genoring.pl [help | man | start | stop | online | offline | backend
-  | logs [-f] | status | update | enable | disable | uninstall
-  | setup [-auto | -minimal] [-reset] | reset [-f] [-delete-containers]
-  | modules | services | volumes | backup | restore | compile | shell
-  | tolocal | todocker] [-port=<HTTP_PORT>] [-debug] [-arm[=<ARCH>]] [-help]
+* Commands:
 
 =over 4
 
@@ -3638,17 +3647,156 @@ genoring.pl [help | man | start | stop | online | offline | backend
 Display help and exits.
 
 =item B<man>:
-
+->
 Prints the manual page and exits.
+
+=item B<start>:
+
+Starts GenoRing. For the first start, GenoRing is installed and initialized.
+
+=item B<stop>:
+
+Stops GenoRing.
+
+=item B<online>:
+
+Alias for "start". Starts GenoRing in "online" mode.
+
+=item B<offline>:
+
+Starts GenoRing in "offline" mode, meaning that the web site displays a
+maintenance message and returns a 503 HTTP status code. The administration
+interface is not accessible and no web services are available.
+
+=item B<backend>:
+
+Starts GenoRing in "backend" mode, meaning that the site is accessible but
+displays a maintenance page and no services are available. The admin users can
+still login and access the administration interface.
+
+=item B<logs [-f]>:
+
+Display container logs. If the "-f" flag is used, logs are displayed in "follow"
+mode (updated live until the GenoRing script is stopped).
+
+=item B<status>:
+
+Display current GenoRing status (ie. "running", "not running", "offline mode",
+...).
+
+=item B<modules [0|1]>:
+
+Displays all available modules by default. If 0 is used, only disabled modules
+are listed and if 1 is used, only enabled modules are listed.
+
+=item B<services>:
+
+Displays the list of GenoRing services with their corresponding (enabled)
+modules.
+
+=item B<volumes>:
+
+Displays the list of GenoRing volumes with their corresponding (enabled)
+modules.
+
+=item B<alternatives MODULE>:
+
+Displays the list of service alternatives for a given module.
+
+=item B<setup [-auto | -minimal] [-reset]>:
+
+Setups GenoRing environment and regenerates Docker Compose file.
+If '-auto' flag is used, all current or default settings are used. If '-minimal'
+flag is used, only non-optional environment values will be asked. If '-reset'
+flag is used, current environment files are removed and need to be fully
+regenerated.
+
+=item B<reset [-f] [-delete-containers]>:
+
+Reinitializes GenoRing system and removes everything (except backups) to restart
+GenoRing from scratch. If the '-f' flag is used, no confirmation is asked. If
+the '-delete-containers' flag is used, compiled containers are also removed.
+
+=item B<enable MODULE>:
+
+Installs and enables the given GenoRing module.
+
+=item B<disable MODULE>:
+
+Disables the given GenoRing module.
+
+=item B<uninstall MODULE>:
+
+Uninstalls the given GenoRing module.
+
+=item B<enalt MODULE SERVICE>:
+
+Enables the given GenoRing module service alternative.
+
+=item B<disalt MODULE SERVICE>:
+
+Disables the given GenoRing module service alternative and put back the default
+service.
+
+=item B<tolocal SERVICE IP>:
+
+Turns a Docker service SERVICE into a local service provided by the given IP.
+
+=item B<todocker SERVICE [ALTERNATIVE]>:
+
+Puts back the given Docker service that was replaced by a local service. If
+ALTERNATIVE is specified, the given service alternative will be used.
+
+=item B<backup [BACKUP_NAME [MODULE]]>:
+
+Performs a general backup of the GenoRing system into a backup directory
+(volumes/backups/[BACKUP_NAME]/) or a backup of the given module data and config
+(in volumes/backups/[BACKUP_NAME]/[MODULE]/).
+
+=item B<restore [BACKUP_NAME [MODULE]]>:
+
+Restores a general backup of the GenoRing system from the backup directory
+(volumes/backups/[BACKUP_NAME]/) or from a backup of the given module
+(in volumes/backups/[BACKUP_NAME]/[MODULE]/).
+
+=item B<update>:
+
+Updates GenoRing modules.
+
+=item B<compile MODULE SERVICE [-arm[=ARCH]]>:
+
+Compiles the Docker container corresponding to the given module service if
+sources are available. For ARM systems, you must use the "-arm" flag. It is also
+possible to provide a specific ARM architecture (ARCH). If a source
+"Dockerfile.arm" is provided, it will be used (regardless the specified ARCH
+parameter) and if not, it will be generated (either using the ARCH architecture
+or the default 'arm64v8' architecture).
+
+=item B<shell [SERVICE] [-cmd=COMMAND]>:
+
+Launches a bash shell in the main GenoRing container (the CMS container). If
+SERVICE is specified, the corresponding service container will be used instead.
+If COMMAND is specified, that command will be used instead of "bash".
+
+=back
+
+* Global flags:
+
+=over 4
+
+=item B<-port=HTTP_PORT>:
+
+Specifies the HTTP port to use. Default: 8080.
+
+=item B<-arm[=ARCH]>:
+
+Use ARM versions for Docker compilation when available or run on ARM
+architectures. You may specify an architecture, for example: "-arm=arm64v8".
+Default architecture is "arm64v8".
 
 =item B<-debug>:
 
 Enables debug mode.
-
-=item B<-arm>:
-
-Use ARM versions for Docker compilation when available or run on ARM
-architectures.
 
 =back
 
@@ -3723,7 +3871,7 @@ if (exists($g_flags->{'help'})) {
 if ($help) {
   if (1 == $help) {
     # Display main help.
-    pod2usage('-verbose' => 1, '-exitval' => 0);
+    pod2usage('-verbose' => 0, '-exitval' => 0);
   }
   else {
     # @todo Display command-specific help.
@@ -3731,7 +3879,7 @@ if ($help) {
     pod2usage('-verbose' => 1, '-exitval' => 0);
   }
 }
-if ($man) {pod2usage('-verbose' => 2, '-exitval' => 0);}
+if ($man) {pod2usage('-verbose' => 1, '-exitval' => 0);}
 
 # Change debug mode if requested/forced.
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
@@ -3877,11 +4025,32 @@ elsif ($command =~ m/^todocker$/i) {
   ToDockerService(@arguments);
 }
 elsif ($command =~ m/^shell$/i) {
-  Run(
-    "docker exec -it genoring bash",
-    "Failed to open a GenoRing shell!",
-    1
-  );
+  my ($service) = (@arguments);
+  if (!$service) {
+    $service = 'genoring';
+  }
+
+  my $message = "Failed to open a '$service' shell!";
+
+  my $command = 'bash';
+  if ($g_flags->{'cmd'} && ($g_flags->{'cmd'} =~ m/[a-zA-Z]/)) {
+    $command = $g_flags->{'cmd'};
+    $message = "Failed to run '$command' in '$service' container!";
+  }
+
+
+  my ($id, $state, $name, $image) = IsContainerRunning($service);
+  if ($state && ($state =~ m/running/)) {
+    Run(
+      "docker exec -it $service $command",
+      $message,
+      1
+    );
+  }
+  else {
+    warn "ERROR: '$service' container is not running.\n";
+    exit(1);
+  }
 }
 elsif ($command =~ m/^volumes$/i) {
   my $volumes = GetVolumes(@arguments);
@@ -3890,7 +4059,8 @@ elsif ($command =~ m/^volumes$/i) {
   }
 }
 else {
-  pod2usage('-verbose' => 1, '-exitval' => 1);
+  warn "ERROR: Invalid command '$command'.\n\n" if $command;
+  pod2usage('-verbose' => 0, '-exitval' => 1);
 }
 
 exit(0);
