@@ -97,6 +97,10 @@ B<$STATE_MAX_TRIES>: (integer)
 
 Maximum number of seconds to wait for a service to be ready (running).
 
+B<$DEFAULT_ARCHITECTURE>: (string)
+
+Default architecture to use.
+
 B<$DEFAULT_ARM_ARCHITECTURE>: (string)
 
 Default ARM architecture to use.
@@ -110,6 +114,7 @@ our $MODULE_FILE = 'modules.yml';
 our $MODULE_DIR = 'modules';
 our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $STATE_MAX_TRIES = 120;
+our $DEFAULT_ARCHITECTURE = 'linux/amd64';
 our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';
 
 
@@ -2732,7 +2737,7 @@ sub Compile {
   }
 
   # Other platform support.
-  if ($g_flags->{'platform'} && ($g_flags->{'platform'} !~ m~^linux/amd64$~)) {
+  if ($g_flags->{'platform'} && ($g_flags->{'platform'} !~ m~^$DEFAULT_ARCHITECTURE$~)) {
     my $platform_arch = $g_flags->{'platform'};
 
     # Make sure we got a linux/amd64 version.
