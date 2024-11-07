@@ -19,7 +19,7 @@ if [ ! -e ./web/index.php ]; then
   # Install Drupal extensions.
   composer config minimum-stability dev && composer -n require drush/drush
   # Disabled: "gigwa rdf_entity".
-  composer -n require $(printf "$modules\n" | sed "s/ / drupal\//g")
+  composer -n require drupal/$(printf "$modules" | sed "s/ / drupal\//g")
   printf "   OK\n"
   # Setup cron.
   printf "* Setup Drupal cron...\n"
