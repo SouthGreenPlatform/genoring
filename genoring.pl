@@ -20,8 +20,8 @@ Syntax:
   | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
   | update | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
-  | shell [SERVICE] [-cmd=COMMAND] ]
-  [-port=<HTTP_PORT>] [-arm[=<ARCH>]] [-debug]
+  | shell [SERVICE] [-cmd=COMMAND] ] [-debug]
+  [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
 
 =head1 REQUIRES
 
@@ -280,7 +280,6 @@ sub StartGenoring {
     ApplyLocalHooks('start');
     # Not running, start it.
     Run(
-      # "docker compose up -d" . ($g_flags->{'arm'} ? ' --platform ' . $g_flags->{'arm'} . ' 2>&1' : ''),
       "docker compose up -d",
       "Failed to start GenoRing ($mode mode)!",
       1
@@ -527,7 +526,7 @@ sub GetModuleRealState {
 
   my $state = '';
   if (-e "$MODULE_DIR/$module/hooks/state.pl") {
-    my $tries = $STATE_MAX_TRIES;
+    my $tries = $g_flags->{'wait-ready'};
     $state = `perl $MODULE_DIR/$module/hooks/state.pl`;
     if ($?) {
       die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
@@ -654,7 +653,7 @@ sub WaitModulesReady {
           $logs .= "==> $service:\n" . `docker logs -n 10 $service 2>&1` . "\n\n";
         }
       }
-      die sprintf("\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min (state $state)!\n", $STATE_MAX_TRIES/60)
+      die sprintf("\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min (state $state)!\n", $g_flags->{'wait-ready'}/60)
         . "LOGS: $logs";
     }
   }
@@ -2639,7 +2638,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
             Run(
-              "docker exec " . ($g_flags->{'arm'} ? '--platform ' . $g_flags->{'arm'} . ' ' : '') . "-it $service sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
+              "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
               "Failed to prepare module file copy in $service ($module $hook hook)"
             );
             Run(
@@ -2651,7 +2650,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Make sure script is executable.
           if (-x "$MODULE_DIR/$module/hooks/$hook") {
             Run(
-              "docker exec " . ($g_flags->{'arm'} ? '--platform ' . $g_flags->{'arm'} . ' ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
+              "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
               "Failed to run hook of $module in $service (hook $hook)"
             );
           }
@@ -2719,98 +2718,57 @@ sub Compile {
     die "ERROR: Compile: The given service (${module}[$service]) does not have sources!";
   }
   elsif ((!-r "$MODULE_DIR/$module/src/$service/Dockerfile")
-    && (!-r "$MODULE_DIR/$module/src/$service/Dockerfile.amd64")
-    && (!-r "$MODULE_DIR/$module/src/$service/Dockerfile.arm")
+    && (!-r "$MODULE_DIR/$module/src/$service/Dockerfile.default")
   ) {
     die "ERROR: Compile: Unable to access the Dockerfile of the given service (${module}[$service])!";
   }
 
-  # ARM support.
-  if ($g_flags->{'arm'}) {
-    my $arm_arch = $g_flags->{'arm'};
+  # Other platform support.
+  if ($g_flags->{'platform'} && ($g_flags->{'platform'} !~ m~^linux/amd64$~)) {
+    my $platform_arch = $g_flags->{'platform'};
 
-    # Make sure we got an amd64 version.
-    if (!-e "$MODULE_DIR/$module/src/$service/Dockerfile.amd64") {
-      # No amd64 version.
-      if (-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
-        # Got a Dockerfile, assume current version is amd64.
-        if (!rename("$MODULE_DIR/$module/src/$service/Dockerfile", "$MODULE_DIR/$module/src/$service/Dockerfile.amd64")) {
-          die "ERROR: Cannot rename '$MODULE_DIR/$module/src/$service/Dockerfile'.\n$!";
-        }
-      }
-      else {
-        # No Dockerfile, generate an amd64 version from ARM version.
-        # Replace "FROM ***/xxx:yyy" by "FROM xxx:yyy"
-        my $dockerfile_fh;
-        if (open($dockerfile_fh, '<:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.arm")) {
-          my $docker_source = do { local $/; <$dockerfile_fh> };
-          close($dockerfile_fh);
-          # We don't change "FROM" when a platform is hardcoded.
-          $docker_source =~ s~^FROM\s+(\S+?/)([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM $2$3$4~mg;
-          if (open($dockerfile_fh, '>:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.amd64")) {
-            print {$dockerfile_fh} $docker_source;
-            close($dockerfile_fh);
-          }
-        }
+    # Make sure we got a linux/amd64 version.
+    if (!-e "$MODULE_DIR/$module/src/$service/Dockerfile.default") {
+      # No linux/amd64 version, assume current one is.
+      if (!rename("$MODULE_DIR/$module/src/$service/Dockerfile", "$MODULE_DIR/$module/src/$service/Dockerfile.default")) {
+        die "ERROR: Cannot rename '$MODULE_DIR/$module/src/$service/Dockerfile'.\n$!";
       }
     }
-    # Here we got a 'Dockerfile.amd64'.
+    # Here we got a 'Dockerfile.default'.
 
-    # Now generate an arm version if needed.
-    if (!-e "$MODULE_DIR/$module/src/$service/Dockerfile.arm") {
-      # We got a 'Dockerfile.amd64' but no 'Dockerfile.arm', generate one.
-      # Replace "FROM xxx:yyy" by "FROM arm***/xxx:yyy".
-      my $dockerfile_fh;
-      if (open($dockerfile_fh, '<:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.amd64")) {
-        my $docker_source = do { local $/; <$dockerfile_fh> };
-        close($dockerfile_fh);
-        # We don't change "FROM" when a platform is hardcoded.
-        $docker_source =~ s~^FROM ([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM --platform=$arm_arch $1$2$3~mg;
-        if (open($dockerfile_fh, '>:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.arm")) {
-          print {$dockerfile_fh} $docker_source;
-          close($dockerfile_fh);
-        }
-      }
-    }
-    # Here, we got an arm version (and and amd64 version), remove 'Dockerfile'.
-    if (-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
-      # Remove 'Dockerfile'.
-      unlink("$MODULE_DIR/$module/src/$service/Dockerfile");
-    }
-
-    # Copy arm version to 'Dockerfile'.
-    if (!copy("$MODULE_DIR/$module/src/$service/Dockerfile.arm", "$MODULE_DIR/$module/src/$service/Dockerfile")) {
-      die "ERROR: Cannot copy '$MODULE_DIR/$module/src/$service/Dockerfile.arm'.\n$!";
-    }
-  }
-  elsif (-e "$MODULE_DIR/$module/src/$service/Dockerfile.amd64" || !-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
-    # Compiling for amd64, make sure we got a 'Dockerfile' in amd64 version.
-    # Note: only get here if either we got a 'Dockerfile.amd64' which means the
-    # '-arm' compile flag has been used before and may have changed the
-    # 'Dockerfile' or because we don't have any 'Dockerfile' at all but we got a
-    # 'Dockerfile.arm'.
+    # Now generate a new platform version.
     if (-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
       # Remove current 'Dockerfile'.
       unlink("$MODULE_DIR/$module/src/$service/Dockerfile");
-      # Copy amd64 Dockerfile.
-      if (!copy("$MODULE_DIR/$module/src/$service/Dockerfile.amd64", "$MODULE_DIR/$module/src/$service/Dockerfile")) {
-        die "ERROR: Cannot copy '$MODULE_DIR/$module/src/$service/Dockerfile.amd64'.\n$!";
+    }
+    # Replace "FROM xxx:yyy" by "FROM --platform=*** xxx:yyy".
+    my $dockerfile_fh;
+    if (open($dockerfile_fh, '<:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.default")) {
+      my $docker_source = do { local $/; <$dockerfile_fh> };
+      close($dockerfile_fh);
+      $docker_source =~ s~^FROM\s+(?:--platform=\S+\s+)?([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM --platform=$platform_arch $1$2$3~mg;
+      if (open($dockerfile_fh, '>:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile")) {
+        print {$dockerfile_fh} $docker_source;
+        close($dockerfile_fh);
       }
     }
-    else {
-      # No Dockerfile, generate an amd64 version from ARM version.
-      # Replace "FROM ***/xxx:yyy" by "FROM xxx:yyy"
-      my $dockerfile_fh;
-      if (open($dockerfile_fh, '<:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.arm")) {
-        my $docker_source = do { local $/; <$dockerfile_fh> };
-        close($dockerfile_fh);
-        # We don't change "FROM" when a platform is hardcoded.
-        $docker_source =~ s~^FROM\s+(\S+?/)([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM $2$3$4~mg;
-        if (open($dockerfile_fh, '>:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile")) {
-          print {$dockerfile_fh} $docker_source;
-          close($dockerfile_fh);
-        }
-      }
+  }
+  elsif (-e "$MODULE_DIR/$module/src/$service/Dockerfile.default"
+    || !-e "$MODULE_DIR/$module/src/$service/Dockerfile"
+  ) {
+    # Compiling for linux/amd64, make sure we got a 'Dockerfile' in linux/amd64
+    # version.
+    # Note: only get here if either we got a 'Dockerfile.default' which means a
+    # '-arm' or '--platform' compile flag were used before and may have changed
+    # the 'Dockerfile' or because we don't have any 'Dockerfile' at all but we
+    # got a 'Dockerfile.default'.
+    if (-e "$MODULE_DIR/$module/src/$service/Dockerfile") {
+      # Remove current 'Dockerfile'.
+      unlink("$MODULE_DIR/$module/src/$service/Dockerfile");
+    }
+    # Copy linux/amd64 Dockerfile.
+    if (!copy("$MODULE_DIR/$module/src/$service/Dockerfile.default", "$MODULE_DIR/$module/src/$service/Dockerfile")) {
+      die "ERROR: Cannot copy '$MODULE_DIR/$module/src/$service/Dockerfile.default'.\n$!";
     }
   }
   print "Compiling service ${module}[$service]...\n";
@@ -3792,7 +3750,26 @@ Specifies the HTTP port to use. Default: 8080.
 
 Use ARM versions for Docker compilation when available or run on ARM
 architectures. You may specify an architecture, for example: "-arm=linux/arm64".
-Default architecture is "linux/arm64".
+Default architecture is "linux/arm64". Using this flag excludes the "-platform"
+flag.
+
+=item B<-platform=ARCH>:
+
+Use the given architecture for Docker compilation and execution. This flag can
+not be used in conjunction with the "-arm" flag.
+
+
+=item B<-wait-ready=DELAYSEC>:
+
+Maximum waiting time in seconds to wait for system to be ready. If the system is
+not ready during this time, genoring.pl script will just stop and let know the
+system might be still loading, which is ok. Default to 120 (seconds = 2minutes).
+Some systems may require more than 2 minutes to be started, especially when
+installing or enabling modules or during updates, so that delay may need to be
+increased according to the machine running GenoRing. It can be set high but
+sometimes, some docker services are never ready because of an error and the
+given delay ensure GenoRing ends gracefully and gives back the hand to the admin
+in such cases in reasonable time.
 
 =item B<-debug>:
 
@@ -3904,11 +3881,27 @@ if ($g_flags->{'port'} && ($g_flags->{'port'} =~ m/^\d{2,}$/)) {
   $ENV{'GENORING_PORT'} = $g_flags->{'port'};
 }
 
-# Check for ARM achitecture.
+# Check for a specific platform architecture.
 if (exists($g_flags->{'arm'})) {
-  if ((1 == $g_flags->{'arm'}) || (!$g_flags->{'arm'})) {
+  # Use a default ARM platform if needed.
+  if ((!$g_flags->{'arm'}) || (1 == $g_flags->{'arm'})) {
     $g_flags->{'arm'} = 'linux/arm64';
   }
+  # Set platform to ARM.
+  $g_flags->{'platform'} = $g_flags->{'arm'};
+}
+elsif ($g_flags->{'platform'} && (1 == $g_flags->{'platform'})) {
+  # If the platform flag is used without specifying a platform, clear it.
+  delete($g_flags->{'platform'});
+}
+# Only set default platform if needed.
+if ($g_flags->{'platform'}) {
+  $ENV{'DOCKER_DEFAULT_PLATFORM'} = $g_flags->{'platform'};
+}
+
+# Set waiting time.
+if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {
+  $g_flags->{'wait-ready'} = $STATE_MAX_TRIES;
 }
 
 if ($command =~ m/^(?:start|online|offline|backend)$/i) {
