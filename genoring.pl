@@ -280,7 +280,8 @@ sub StartGenoring {
     ApplyLocalHooks('start');
     # Not running, start it.
     Run(
-      "docker compose up -d" . ($g_flags->{'arm'} ? ' --platform linux/amd64 2>&1' : ''),
+      # "docker compose up -d" . ($g_flags->{'arm'} ? ' --platform ' . $g_flags->{'arm'} . ' 2>&1' : ''),
+      "docker compose up -d",
       "Failed to start GenoRing ($mode mode)!",
       1
     );
@@ -2638,7 +2639,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
             Run(
-              "docker exec " . ($g_flags->{'arm'} ? '--platform linux/amd64 ' : '') . "-it $service sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
+              "docker exec " . ($g_flags->{'arm'} ? '--platform ' . $g_flags->{'arm'} . ' ' : '') . "-it $service sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
               "Failed to prepare module file copy in $service ($module $hook hook)"
             );
             Run(
@@ -2650,7 +2651,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Make sure script is executable.
           if (-x "$MODULE_DIR/$module/hooks/$hook") {
             Run(
-              "docker exec " . ($g_flags->{'arm'} ? '--platform linux/amd64 ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
+              "docker exec " . ($g_flags->{'arm'} ? '--platform ' . $g_flags->{'arm'} . ' ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
               "Failed to run hook of $module in $service (hook $hook)"
             );
           }
