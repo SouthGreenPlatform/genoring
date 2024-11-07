@@ -11,7 +11,7 @@ my $failed = system(
 );
 
 if ($failed) {
-  my $error_message;
+  my $error_message = '';
   if ($? == -1) {
     $error_message = "$error_message (error $?)\n$!";
   }

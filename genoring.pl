@@ -2764,7 +2764,7 @@ sub Compile {
         my $docker_source = do { local $/; <$dockerfile_fh> };
         close($dockerfile_fh);
         # We don't change "FROM" when a platform is hardcoded.
-        $docker_source =~ s~^FROM ([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM $arm_arch/$1$2$3~mg;
+        $docker_source =~ s~^FROM ([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM --platform=$arm_arch $1$2$3~mg;
         if (open($dockerfile_fh, '>:utf8', "$MODULE_DIR/$module/src/$service/Dockerfile.arm")) {
           print {$dockerfile_fh} $docker_source;
           close($dockerfile_fh);
@@ -3769,7 +3769,7 @@ sources are available. For ARM systems, you must use the "-arm" flag. It is also
 possible to provide a specific ARM architecture (ARCH). If a source
 "Dockerfile.arm" is provided, it will be used (regardless the specified ARCH
 parameter) and if not, it will be generated (either using the ARCH architecture
-or the default 'arm64v8' architecture).
+or the default 'linux/arm64' architecture).
 
 =item B<shell [SERVICE] [-cmd=COMMAND]>:
 
@@ -3790,8 +3790,8 @@ Specifies the HTTP port to use. Default: 8080.
 =item B<-arm[=ARCH]>:
 
 Use ARM versions for Docker compilation when available or run on ARM
-architectures. You may specify an architecture, for example: "-arm=arm64v8".
-Default architecture is "arm64v8".
+architectures. You may specify an architecture, for example: "-arm=linux/arm64".
+Default architecture is "linux/arm64".
 
 =item B<-debug>:
 
@@ -3906,7 +3906,7 @@ if ($g_flags->{'port'} && ($g_flags->{'port'} =~ m/^\d{2,}$/)) {
 # Check for ARM achitecture.
 if (exists($g_flags->{'arm'})) {
   if ((1 == $g_flags->{'arm'}) || (!$g_flags->{'arm'})) {
-    $g_flags->{'arm'} = 'arm64v8';
+    $g_flags->{'arm'} = 'linux/arm64';
   }
 }
 
