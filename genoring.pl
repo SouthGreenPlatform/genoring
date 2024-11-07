@@ -113,7 +113,7 @@ our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
 our $MODULE_FILE = 'modules.yml';
 our $MODULE_DIR = 'modules';
 our $EXTRA_HOSTS = 'extra_hosts.yml';
-our $STATE_MAX_TRIES = 120;
+our $STATE_MAX_TRIES = 300;
 our $DEFAULT_ARCHITECTURE = 'linux/amd64';
 our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';
 
@@ -296,7 +296,12 @@ sub StartGenoring {
     );
   }
   # Apply container hooks.
-  WaitModulesReady();
+  eval {
+    WaitModulesReady();
+  };
+  if ($@) {
+    warn "$@\nWARNING: GenoRing does not seem to have been initialized in allowed time. Applying container hooks may failed...\n";
+  }
   if (!$mode || ($mode eq 'online')) {
     ApplyContainerHooks('online');
   }
@@ -663,8 +668,9 @@ sub WaitModulesReady {
           $logs .= "==> $service:\n" . `docker logs -n 10 $service 2>&1` . "\n\n";
         }
       }
-      die sprintf("\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min (state $state)!\n", $g_flags->{'wait-ready'}/60)
-        . "LOGS: $logs";
+      die sprintf(
+        "LOGS: %s\n\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min (state $state)!\n", $logs, $g_flags->{'wait-ready'}/60
+      );
     }
   }
 }
@@ -3777,8 +3783,8 @@ not be used in conjunction with the "-arm" flag.
 
 Maximum waiting time in seconds to wait for system to be ready. If the system is
 not ready during this time, genoring.pl script will just stop and let know the
-system might be still loading, which is ok. Default to 120 (seconds = 2minutes).
-Some systems may require more than 2 minutes to be started, especially when
+system might be still loading, which is ok. Default to 300 (seconds = 5minutes).
+Some systems may require more than 5 minutes to be started, especially when
 installing or enabling modules or during updates, so that delay may need to be
 increased according to the machine running GenoRing. It can be set high but
 sometimes, some docker services are never ready because of an error and the
@@ -3939,7 +3945,12 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
   print "Ensuring services are ready...\n";
   # Get enabled modules.
   my $modules = GetModules(1);
-  WaitModulesReady(@$modules);
+  eval {
+    WaitModulesReady(@$modules);
+  };
+  if ($@) {
+    die $@ . "\nIt might be possible GenoRing needs more time to get ready. You may check GenoRing logs using 'perl genoring.pl logs -f' to watch for errors.";
+  }
   print "...GenoRing is ready to accept client connections.\n";
   my $host = hostname();
   print "\n  --> http://$host:" . $ENV{'GENORING_PORT'} . "/\n";
