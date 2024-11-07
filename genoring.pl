@@ -97,6 +97,10 @@ B<$STATE_MAX_TRIES>: (integer)
 
 Maximum number of seconds to wait for a service to be ready (running).
 
+B<$DEFAULT_ARM_ARCHITECTURE>: (string)
+
+Default ARM architecture to use.
+
 =cut
 
 our $GENORING_VERSION = '1.0';
@@ -106,6 +110,7 @@ our $MODULE_FILE = 'modules.yml';
 our $MODULE_DIR = 'modules';
 our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $STATE_MAX_TRIES = 120;
+our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';
 
 
 
@@ -3889,7 +3894,7 @@ if ($g_flags->{'port'} && ($g_flags->{'port'} =~ m/^\d{2,}$/)) {
 if (exists($g_flags->{'arm'})) {
   # Use a default ARM platform if needed.
   if ((!$g_flags->{'arm'}) || (1 == $g_flags->{'arm'})) {
-    $g_flags->{'arm'} = 'linux/arm64';
+    $g_flags->{'arm'} = $DEFAULT_ARM_ARCHITECTURE;
   }
   # Set platform to ARM.
   $g_flags->{'platform'} = $g_flags->{'arm'};
