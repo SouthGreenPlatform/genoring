@@ -1040,6 +1040,9 @@ B<Return>: (nothing)
 =cut
 
 sub GenerateDockerComposeFile {
+  # Clear cache.
+  ClearCache();
+
   # Get enabled modules.
   my $modules = GetModules(1);
 
@@ -3500,7 +3503,8 @@ sub RemoveModuleConf {
 
   if ($_g_modules->{'config'}->{$module}) {
     delete($_g_modules->{'config'}->{$module});
-    my $yaml_text = $_g_modules->{'config'}->write_string()
+    my $yaml = CPAN::Meta::YAML->new($_g_modules->{'config'});
+    my $yaml_text = $yaml->write_string()
       or die "ERROR: failed to generate module config!\n"
       . CPAN::Meta::YAML->errstr;
     my $module_fh;
