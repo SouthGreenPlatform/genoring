@@ -129,7 +129,7 @@ else
 
   printf "Setup GenoRing site...\n"
   cp /opt/genoring/logo-genoring.png /opt/drupal/web/sites/default/files/
-  ./vendor/drush/drush/drush config-import --partial --source=/opt/genoring/config/
+  # ./vendor/drush/drush/drush config-import --partial --source=/opt/genoring/config/
   ./vendor/drush/drush/drush -y php:script /opt/genoring/init_site.php
   printf "...GenoRing site setup done.\n"
 
