@@ -562,7 +562,9 @@ sub GetModuleRealState {
       # For line breaks.
       --$terminal_width;
     }
-    while (--$tries && ($state !~ m/running/i)) {
+    while ((--$tries || (Confirm("The process appears to be longer than expected. Continue?") && ($tries = $g_flags->{'wait-ready'})))
+      && ($state !~ m/running/i)
+    ) {
       if ($progress) {
         my @log_lines = split(/\n/, $logs);
         my $line_count = scalar(@log_lines);
