@@ -329,7 +329,7 @@ B<Return>: (nothing)
 
 sub StopGenoring {
   Run(
-    "docker compose --profile '*' down --remove-orphans",
+    "docker compose --profile \"*\" down --remove-orphans",
     "Failed to stop GenoRing!",
     1
   );
@@ -351,7 +351,7 @@ B<Return>: (nothing)
 sub GetLogs {
   if (exists($g_flags->{'f'})) {
     Run(
-      "docker compose --profile '*' logs -f",
+      "docker compose --profile \"*\" logs -f",
       "Failed to get GenoRing logs!",
     );
   }
@@ -2686,15 +2686,10 @@ APPLYCONTAINERHOOKS_HOOKS:
             $initialized_containers{$service} = 1;
           }
           # Make sure script is executable.
-          if (-x "$MODULE_DIR/$module/hooks/$hook") {
-            Run(
-              "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service /genoring/$MODULE_DIR/$module/hooks/$hook $args",
-              "Failed to run hook of $module in $service (hook $hook)"
-            );
-          }
-          else {
-            warn "WARNING: could not execute containe hook '$hook': script is not executable.\n";
-          }
+          Run(
+            "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service sh -c \"chmod +x /genoring/$MODULE_DIR/$module/hooks/$hook && /genoring/$MODULE_DIR/$module/hooks/$hook $args\"",
+            "Failed to run hook of $module in $service (hook $hook)"
+          );
         }
       }
     }

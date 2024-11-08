@@ -25,8 +25,10 @@ Local hooks are perl scripts with the following recommandations:
   that your module has extra-dependencies and handle the case when those
   dependencies are not met.
 - avoid the use of shell commands (ie. system(), qx(), and such) unless you are
-  the command used are available on all OS (including Windows and Mac
+  sure the command used are available on all OS (including Windows and Mac
   platforms).
+- if using shell commands, use double quotes instead of simple quotes for
+  argument quoting as single quotes are not supported by Windows system.
 - when using file path, make sure function used support automatic path
   conversion, otherwise, use File::Spec->catfile() for compatibility with
   Windows.
