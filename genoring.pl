@@ -49,6 +49,7 @@ use utf8;
 # be more easily integrated into other projects).
 # For our uses here, the CPAN YAML parser should be enough.
 use CPAN::Meta::YAML;
+use Cwd qw();
 use Env;
 use File::Basename;
 use File::Copy;
@@ -110,6 +111,7 @@ Default ARM architecture to use.
 
 our $GENORING_VERSION = '1.0';
 our $BASEDIR = dirname(__FILE__);
+$BASEDIR = Cwd::cwd() if ('.' eq $BASEDIR);
 our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
 our $MODULE_FILE = 'modules.yml';
 our $MODULE_DIR = 'modules';
@@ -2676,7 +2678,7 @@ APPLYCONTAINERHOOKS_HOOKS:
               "Failed to prepare module file copy in $service ($module $hook hook)"
             );
             Run(
-              "docker cp $BASEDIR/$MODULE_DIR/ $service:/genoring/$MODULE_DIR",
+              "docker cp ./$MODULE_DIR/ $service:/genoring/$MODULE_DIR",
               "Failed to copy module files in $service ($module $hook hook)"
             );
             $initialized_containers{$service} = 1;
