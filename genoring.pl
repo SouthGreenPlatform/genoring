@@ -3934,7 +3934,7 @@ if (exists($g_flags->{'arm'})) {
   # Set platform to ARM.
   $g_flags->{'platform'} = $g_flags->{'arm'};
 }
-elsif ($g_flags->{'platform'} && (1 == $g_flags->{'platform'})) {
+elsif ($g_flags->{'platform'} && ('1' ne $g_flags->{'platform'})) {
   # If the platform flag is used without specifying a platform, clear it.
   delete($g_flags->{'platform'});
 }
