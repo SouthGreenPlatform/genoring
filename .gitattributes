@@ -1,2 +1,2 @@
 # Prevent EOL changes on Windows platform for Docker Linux scripts.
-* text eol=lf
+*.sh text eol=lf
