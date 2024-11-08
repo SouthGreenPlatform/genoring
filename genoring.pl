@@ -3621,6 +3621,14 @@ B<Return>: (bool)
 
 sub Confirm {
   my ($message) = @_;
+
+  if ($g_flags->{'yes'}) {
+    return 1;
+  }
+  elsif ($g_flags->{'no'}) {
+    return 0;
+  }
+  
   print "$message (y/n) ";
   my $user_input = <STDIN>;
   if ($user_input !~ m/^y/i) {
