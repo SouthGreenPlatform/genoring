@@ -4,6 +4,35 @@ use strict;
 use warnings;
 use File::Copy;
 use File::Path qw(make_path);
+use File::Spec;
+
+# Recursive function to copy directories.
+sub dircopy {
+  my ($source, $target) = @_;
+  if (opendir(my $dh, $source)) {
+    foreach my $item (readdir($dh)) {
+      # Skip "." and "..".
+      if ($item =~ m/^\.\.?$/) {
+        next;
+      }
+      if (-d "$source/$item") {
+        # Sub-directory.
+        if (!-e "$target/$item") {
+          mkdir "$target/$item";
+        }
+        dircopy("$source/$item", "$target/$item");
+      }
+      else {
+        # File.
+        copy("$source/$item", "$target/$item");
+      }
+    }
+    closedir($dh);
+  }
+  else {
+    warn "WARNING: Failed to access '$source' directory!\n$!";
+  }
+}
 
 ++$|; #no buffering
 if (!-d './volumes/') {
@@ -31,7 +60,9 @@ if (!-e './volumes/proxy/nginx/genoring-fpm.conf') {
 }
 
 if (!-d './volumes/offline') {
-  system('cp -r ./modules/genoring/res/offline ./volumes/offline');
+  my $offline_src_path = File::Spec->catfile('.', 'modules', 'genoring', 'res', 'offline');
+  my $offline_vol_path = File::Spec->catfile('.', 'volumes', 'offline');
+  qx(cp -r $offline_src_path $offline_vol_path);
 }
 
 if (!-d './volumes/data') {

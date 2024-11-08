@@ -9,13 +9,14 @@
 use strict;
 use warnings;
 use File::Copy;
+use File::Spec;
 
 ++$|; #no buffering
 
 # The purpose of this script is generally to make sure directories that will be
 # mounted by docker exist. Ex.:
 if (!-e './volumes/my_module') {
-  mkdir './volumes/my_module'
+  mkdir './volumes/my_module';
 }
 
 # It can also be used to copy files from the module resource directory (res) to

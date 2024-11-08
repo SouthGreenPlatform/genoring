@@ -3,15 +3,17 @@
 use strict;
 use warnings;
 use File::Path;
+use File::Spec;
 
 ++$|; #no buffering
 
 # Remove Gigwa config.
-my $failed = system(
-  "docker run --rm -v ./volumes:/genoring -w / --platform linux/amd64 alpine rm -rf /genoring/gigwa /genoring/mongodb"
+my $volume_path = File::Spec->catfile('.', 'volumes');
+my $output = qx(
+  docker run --rm -v $volume_path:/genoring -w / --platform linux/amd64 alpine rm -rf /genoring/gigwa /genoring/mongodb
 );
 
-if ($failed) {
+if ($?) {
   my $error_message = 'ERROR';
   if ($? == -1) {
     $error_message = "ERROR $?\n$!";

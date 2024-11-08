@@ -30,7 +30,7 @@ use warnings;
 
 # Example: checks if php-fpm is running in the genoring docker container. If
 # not, it means the system is still initializing.
-my $is_running = `docker exec -it genoring pidof php-fpm  2>/dev/null`;
+my $is_running = qx(docker exec -it genoring pidof php-fpm);
 if ($is_running && ($is_running =~ m/^[\d\s]+$/)) {
   print 'running';
 }

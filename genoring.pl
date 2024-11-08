@@ -52,6 +52,7 @@ use CPAN::Meta::YAML;
 use Env;
 use File::Basename;
 use File::Copy;
+use File::Spec;
 use Pod::Usage;
 use Sys::Hostname;
 use Time::Piece;
@@ -214,10 +215,9 @@ sub Run {
   $error_message = ($fatal_error ? 'ERROR: ' : 'WARNING: ')
     . $subroutine
     . $error_message;
+  my $output = qx($command);
 
-  my $failed = system($command);
-
-  if ($failed) {
+  if ($?) {
     if ($? == -1) {
       $error_message = "$error_message (error $?)\n$!";
     }
@@ -435,7 +435,7 @@ sub GetState {
     (undef, $state) = IsContainerRunning($container);
   }
   else {
-    my $states = `docker compose ps --all --format '{{.Names}} {{.State}}'`;
+    my $states = qx(docker compose ps --all --format "{{.Names}} {{.State}}");
     $state = $states ? 'running' : '';
     foreach my $line (split(/\n+/, $states)) {
       if ($line !~ m/\srunning$/) {
@@ -490,7 +490,7 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return '';
   }
-  my $ps_all = `docker ps --all --filter name=$container --format '{{.ID}} {{.State}} {{.Names}} {{.Image}}'`;
+  my $ps_all = qx(docker ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}");
   my @ps = split(/\n+/, $ps_all);
   foreach my $ps (@ps) {
     my @status = split(/\s+/, $ps);
@@ -540,16 +540,17 @@ sub GetModuleRealState {
   }
 
   my $state = '';
-  if (-e "$MODULE_DIR/$module/hooks/state.pl") {
+  my $state_hook = File::Spec->catfile($MODULE_DIR, $module, 'hooks', 'state.pl');
+  if (-e $state_hook) {
     my $tries = $g_flags->{'wait-ready'};
-    $state = `perl $MODULE_DIR/$module/hooks/state.pl`;
+    $state = qx(perl $state_hook);
     if ($?) {
       die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
     }
     print "Checking if $module module is ready (see logs below for errors)...\n" if $progress;
     my $logs = '';
     # Does not work on Windows.
-    my $terminal_width = `tput cols`;
+    my $terminal_width = qx(tput cols 2>&1);
     my $fixed_width = 0;
     if ($? || !$terminal_width || ($terminal_width !~ m/^\d+/)) {
       $terminal_width = 0;
@@ -574,7 +575,7 @@ sub GetModuleRealState {
         $logs = '';
         foreach my $service (@{GetModuleServices($module)}) {
           if (IsContainerRunning($service)) {
-            $logs .= "==> $service:\n" . `docker logs -n 4 $service 2>&1` . "\n";
+            $logs .= "==> $service:\n" . qx(docker logs -n 4 $service 2>&1) . "\n";
           }
         }
         # Remove non-printable characters (but keep line breaks).
@@ -621,7 +622,7 @@ sub GetModuleRealState {
         }
       }
       sleep(1);
-      $state = `perl $MODULE_DIR/$module/hooks/state.pl`;
+      $state = qx(perl $state_hook);
       if ($?) {
         die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
       }
@@ -665,7 +666,7 @@ sub WaitModulesReady {
       foreach my $service (@{GetModuleServices($module)}) {
         my $service_state = GetState($service);
         if ($service_state && ($service_state !~ m/running/)) {
-          $logs .= "==> $service:\n" . `docker logs -n 10 $service 2>&1` . "\n\n";
+          $logs .= "==> $service:\n" . qx(docker logs -n 10 $service 2>&1) . "\n\n";
         }
       }
       die sprintf(
@@ -1578,6 +1579,13 @@ sub InstallModule {
     warn "WARNING: InstallModule: Module '$module' already installed!\n";
     return;
   }
+  
+  my $errors = ApplyLocalHooks('requirements', $module);
+  if (scalar(values(%$errors))) {
+    die
+      "ERROR: Could not install module '$module': some requirements were not met.\n"
+      . $errors->{$module};
+  }
 
   my $context = PrepareOperations();
   $context->{'module'} = $module;
@@ -2453,6 +2461,8 @@ are called when dockers are stopped except for the "state" hook.
 Hook file name sructure: "<hook_name>.pl"
 
 List of supported local hooks:
+- requirements: called before a module is installed to check for its local
+  requirements.
 - init: called just before a module is enabled, in order to setup the file
   system (ie. create local data directories, generate, download or copy files,
   etc.).
@@ -2487,13 +2497,17 @@ Additional arguments to transmit to the hook script in command line.
 
 =back
 
-B<Return>: (nothing)
+B<Return>: (hash ref)
+A reference to a hash which keys are module name and values are error messages
+of each hook execution if a failure occurred. The hash is empty if no error
+occurred.
 
 =cut
 
 sub ApplyLocalHooks {
   my ($hook_name, $module, $args) = @_;
   $args ||= '';
+  my $errors = {};
 
   if (!$hook_name) {
     die "ERROR: ApplyLocalHooks: Missing hook name!\n";
@@ -2509,19 +2523,19 @@ sub ApplyLocalHooks {
     $modules = GetModules(1);
   }
 
-  my @errors;
   foreach $module (@$modules) {
     if (-e "$MODULE_DIR/$module/hooks/$hook_name.pl") {
       print "  Processing $module module hook $hook_name...";
+      my $hook_script = File::Spec->catfile($MODULE_DIR, $module, 'hooks', "$hook_name.pl");
       eval {
         Run(
-          "perl $MODULE_DIR/$module/hooks/$hook_name.pl $args",
+          "perl $hook_script $args",
           "Failed to process $module module hook $hook_name!",
           1
         );
       };
       if ($@) {
-        push(@errors, $@);
+        $errors->{$module} = $@;
         print "  Failed.\n";
       }
       else {
@@ -2529,9 +2543,10 @@ sub ApplyLocalHooks {
       }
     }
   }
-  if (@errors) {
-    warn "ERROR: ApplyLocalHooks:\n" . join("\n", @errors) . "\n";
+  if (scalar(values(%$errors))) {
+    warn "ERROR: ApplyLocalHooks:\n" . join("\n", values(%$errors)) . "\n";
   }
+  return $errors;
 }
 
 =pod
@@ -2661,7 +2676,7 @@ APPLYCONTAINERHOOKS_HOOKS:
               "Failed to prepare module file copy in $service ($module $hook hook)"
             );
             Run(
-              "docker cp \$(pwd)/$MODULE_DIR/ $service:/genoring/$MODULE_DIR",
+              "docker cp $BASEDIR/$MODULE_DIR/ $service:/genoring/$MODULE_DIR",
               "Failed to copy module files in $service ($module $hook hook)"
             );
             $initialized_containers{$service} = 1;
@@ -2814,8 +2829,9 @@ sub Compile {
     "Failed to remove previous image (service ${module}[$service])!",
     1
   );
+  my $service_src_path = File::Spec->catfile($MODULE_DIR, $module, 'src' , $service);
   Run(
-    "docker build -t $service $MODULE_DIR/$module/src/$service/",
+    "docker build -t $service $service_src_path",
     "Failed to compile container (service ${module}[$service])",
     1
   );
@@ -2841,7 +2857,7 @@ sub CompileMissingContainers {
 
   # Check missing containers.
   foreach my $service (keys(%$services)) {
-    my $image_id = `docker images -q $service:latest`;
+    my $image_id = qx(docker images -q $service:latest 2>&1);
     if (!$image_id) {
       # Check if we got sources
       my $module = $services->{$service};
@@ -2881,7 +2897,7 @@ sub DeleteAllContainers {
 
   # Check missing containers.
   foreach my $service (keys(%services)) {
-    my $image_id = `docker images -q $service:latest`;
+    my $image_id = qx(docker images -q $service:latest 2>&1);
     if ($image_id) {
       print "  - Removing container '$service'...\n";
       # Check if container is running and stop it unless it is not running the
@@ -3838,6 +3854,11 @@ if (!defined($ENV{'GENORING_PORT'})) {
   $ENV{'GENORING_PORT'} = '8080';
 }
 
+# For Windows env.
+if (!defined($ENV{'PWD'})) {
+  $ENV{'PWD'} = $BASEDIR;
+}
+
 # Options processing.
 my ($man, $help) = (0, 0);
 
@@ -3883,10 +3904,11 @@ $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
 
 # Check Docker requirements.
 if (!$g_flags->{'bypass'}) {
-  if (system('docker 1>/dev/null 2>&1')) {
-    die "ERROR: 'docker' command not available!\n";
+  my $output = qx(docker 2>&1);
+  if ($?) {
+    die "ERROR: 'docker' command not available!\n$output\n";
   }
-  my $docker_compose_version = `docker compose version`;
+  my $docker_compose_version = qx(docker compose version 2>&1);
   if ($?) {
     die "ERROR: 'docker compose' command not available!\n";
   }

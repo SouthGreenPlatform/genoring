@@ -22,8 +22,8 @@ ENV DRUPAL_AUTO_UPDATE=1
 # https://github.com/composer/composer/issues/11839
 # https://github.com/composer/composer/issues/11854
 # https://github.com/composer/composer/blob/94fe2945456df51e122a492b8d14ac4b54c1d2ce/src/Composer/Console/Application.php#L217-L218
-ENV COMPOSER_ALLOW_SUPERUSER 1
-ENV COMPOSER_HOME /root/.composer
+ENV COMPOSER_ALLOW_SUPERUSER=1
+ENV COMPOSER_HOME=/root/.composer
 ENV PATH=${PATH}:/opt/drupal/vendor/bin
 
 # Setup libraries and PHP
@@ -107,4 +107,4 @@ RUN chmod u+rx /opt/genoring/init.sh
 RUN mkdir -p /opt/drupal
 WORKDIR /opt/drupal
 
-CMD /opt/genoring/init.sh
+CMD ["/opt/genoring/init.sh"]

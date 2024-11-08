@@ -3,11 +3,13 @@
 use strict;
 use warnings;
 use File::Copy;
+use File::Spec;
 
 ++$|; #no buffering
 
 # Install Gigwa config.
-system("docker run -it -v ./volumes/gigwa:/copy --entrypoint=/bin/cp guilhemsempere/gigwa:2.8-RELEASE -r /usr/local/tomcat/config /copy");
+my $gigwa_volume_path = File::Spec->catfile('.', 'volumes', 'gigwa');
+my $output = qx(docker run -it -v $gigwa_volume_path:/copy --entrypoint=/bin/cp guilhemsempere/gigwa:2.8-RELEASE -r /usr/local/tomcat/config /copy);
 
 # Add proxy configs.
 if (-d './volumes/proxy/nginx') {

@@ -8,6 +8,7 @@
 
 use strict;
 use warnings;
+use File::Spec;
 
 ++$|; #no buffering
 
@@ -20,12 +21,15 @@ use warnings;
 # perform a "rm -rf" on the directory we want.
 
 # Remove all the content of data/my_module directory.
-my $failed = system(
-  "docker run --rm -v ./volumes:/genoring -w / --platform linux/amd64 alpine rm -rf /genoring/my_module"
+# Note: we use File::Spec to be Windows-compatible and "--platform linux/amd64"
+# to be ARM compatible.
+my $volumes_path = File::Spec->catfile('.', 'volumes');
+my $output = qx(
+  docker run --rm -v $volumes_path:/genoring -w / --platform linux/amd64 alpine rm -rf /genoring/my_module 2>&1
 );
 
 # Then we need to report any problem encountered to the user.
-if ($failed) {
+if ($?) {
   my $error_message = 'ERROR';
   if ($? == -1) {
     $error_message = "ERROR $?\n$!";
