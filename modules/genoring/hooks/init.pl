@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+use Cwd qw();
 use File::Copy;
 use File::Path qw(make_path);
 use File::Spec;
@@ -60,9 +61,9 @@ if (!-e './volumes/proxy/nginx/genoring-fpm.conf') {
 }
 
 if (!-d './volumes/offline') {
-  my $offline_src_path = File::Spec->catfile('.', 'modules', 'genoring', 'res', 'offline');
-  my $offline_vol_path = File::Spec->catfile('.', 'volumes', 'offline');
-  qx(cp -r $offline_src_path $offline_vol_path);
+  my $offline_src_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'modules', 'genoring', 'res', 'offline');
+  my $offline_vol_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'offline');
+  dircopy($offline_src_path, $offline_vol_path);
 }
 
 if (!-d './volumes/data') {

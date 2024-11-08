@@ -102,7 +102,7 @@ RUN { \
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
 # Drupal pre-setup
-COPY ./res /opt/genoring
+COPY res /opt/genoring
 RUN chmod u+rx /opt/genoring/init.sh
 RUN mkdir -p /opt/drupal
 WORKDIR /opt/drupal
