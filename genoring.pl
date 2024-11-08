@@ -3941,9 +3941,10 @@ elsif ($g_flags->{'platform'} && ('1' ne $g_flags->{'platform'})) {
   delete($g_flags->{'platform'});
 }
 # Only set default platform if needed.
-if ($g_flags->{'platform'}) {
-  $ENV{'DOCKER_DEFAULT_PLATFORM'} = $g_flags->{'platform'};
-}
+# Disabled as it does not work as expected.
+# if ($g_flags->{'platform'}) {
+#   $ENV{'DOCKER_DEFAULT_PLATFORM'} = $g_flags->{'platform'};
+# }
 
 # Set waiting time.
 if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {

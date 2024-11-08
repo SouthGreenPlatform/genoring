@@ -1,5 +1,6 @@
 # v1.0
 image: mongo:4.2.24
+platform: linux/amd64
 env_file:
   - ${PWD}/env/gigwa_gigwa.env
 ports:
