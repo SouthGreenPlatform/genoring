@@ -119,7 +119,17 @@ our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $STATE_MAX_TRIES = 300;
 our $DEFAULT_ARCHITECTURE = 'linux/amd64';
 our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';
-
+our %OS = (
+  ''        => 'Unix',
+  'MSWin32' => 'Win32',
+  'os2'     => 'Win32',
+  'VMS'     => 'unsup',
+  'NetWare' => 'Win32',
+  'symbian' => 'Win32',
+  'dos'     => 'Win32',
+  'cygwin'  => 'Unix',
+  'amigaos' => 'unsup',
+);
 
 
 
@@ -1140,6 +1150,9 @@ sub GenerateDockerComposeFile {
           'module' => $module,
           'definition' => '    ' . join('    ', <$vl_fh>),
         };
+      }
+      if ($g_flags->{'no-exposed-volumes'}) {
+        $volumes{$volume}->{'definition'} =~ s/^(\s+)driver[^\n]+\n?(?:\g1 [^\n]+\n?)*//gms;
       }
       close($vl_fh);
     }
@@ -3801,7 +3814,6 @@ flag.
 Use the given architecture for Docker compilation and execution. This flag can
 not be used in conjunction with the "-arm" flag.
 
-
 =item B<-wait-ready=DELAYSEC>:
 
 Maximum waiting time in seconds to wait for system to be ready. If the system is
@@ -3813,6 +3825,11 @@ increased according to the machine running GenoRing. It can be set high but
 sometimes, some docker services are never ready because of an error and the
 given delay ensure GenoRing ends gracefully and gives back the hand to the admin
 in such cases in reasonable time.
+
+=item B<-no-exposed-volumes>:
+
+Disables Docker exposed volumes. Must be used at installation time and each time
+the Docker Compose file is regenerated (module/service changes).
 
 =item B<-debug>:
 
@@ -3848,12 +3865,21 @@ if (!-e "agreed.txt") {
   }
 }
 
+# Detect os.
+my $os = $OS{$^O} || $OS{''};
+
 # Prepare environment.
 $ENV{'COMPOSE_PROJECT_NAME'} = 'genoring';
 # Set COMPOSE_PROFILES to an empty string to prevent warning 'The
 # "COMPOSE_PROFILES" variable is not set. Defaulting to a blank string.'.
 if (!defined($ENV{'COMPOSE_PROFILES'})) {
-  $ENV{'COMPOSE_PROFILES'} = '';
+  if ('Win32' eq $os) {
+    # Windows does not detect COMPOSE_PROFILES if set to an empty string.
+    $ENV{'COMPOSE_PROFILES'} = ' ';
+  }
+  else {
+    $ENV{'COMPOSE_PROFILES'} = '';
+  }
 }
 
 # Set default port (can be modified by "-port" flag later).
@@ -3861,7 +3887,7 @@ if (!defined($ENV{'GENORING_PORT'})) {
   $ENV{'GENORING_PORT'} = '8080';
 }
 
-# For Windows env.
+# For Windows env, add PWD.
 if (!defined($ENV{'PWD'})) {
   $ENV{'PWD'} = $BASEDIR;
 }
@@ -3948,6 +3974,13 @@ elsif ($g_flags->{'platform'} && ('1' ne $g_flags->{'platform'})) {
 # if ($g_flags->{'platform'}) {
 #   $ENV{'DOCKER_DEFAULT_PLATFORM'} = $g_flags->{'platform'};
 # }
+
+# For Windows FS, we can't use exposed FS as it crashes so we force set the
+# appropriate flag.
+if (('Win32' eq $os) && (!defined($g_flags->{'no-exposed-volumes'}))) {
+  print "WARNING: Exposed volumes are disabled in Windows system to avoid issues.\n";
+  $g_flags->{'no-exposed-volumes'} = 1;
+}
 
 # Set waiting time.
 if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {
