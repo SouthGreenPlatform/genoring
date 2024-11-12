@@ -3876,11 +3876,12 @@ flag is used, only non-optional environment values will be asked. If '-reset'
 flag is used, current environment files are removed and need to be fully
 regenerated.
 
-=item B<reset [-f] [-delete-containers]>:
+=item B<reset [-f] [-delete-containers] [-keep-env]>:
 
 Reinitializes GenoRing system and removes everything (except backups) to restart
 GenoRing from scratch. If the '-f' flag is used, no confirmation is asked. If
 the '-delete-containers' flag is used, compiled containers are also removed.
+If '-keep-env' is used, current environment files are kept.
 
 =item B<enable MODULE>:
 
@@ -3986,6 +3987,11 @@ the Docker Compose file is regenerated (module/service changes).
 
 Disables the use of automatic backups when performing site operations such as
 modifying modules.
+
+=item B<-yes | -no>:
+
+Automatically answers confirmations with the selected answer (ie. 'yes' or
+'no').
 
 =item B<-debug>:
 
