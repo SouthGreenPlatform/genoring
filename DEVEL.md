@@ -101,6 +101,8 @@ be write-protected.
 
 A GenoRing module template can be found in the GenoRing "modules/TEMPLATE"
 directory. A GenoRing module is a directory with the following structure:
+- the directory name must only contain lowercase alpha-numeric characters and
+  underscores and must start by a letter.
 - "README.md": a README file explaining the puprose of the module and how it
   works.
 - "TOLOCAL.md": a file explaining how to turn Docker service containers into

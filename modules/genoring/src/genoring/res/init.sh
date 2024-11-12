@@ -76,8 +76,8 @@ else
     # escaping in env file, especially for "\E".
     echo "$DRUPAL_TRUSTED_HOST" >>./web/sites/default/settings.php
     printf "];\n\n" >>./web/sites/default/settings.php
-    # Append auto-include for external databases settings in "external_databases.php".
-    printf "\n\nif (file_exists(\$app_root . '/' . \$site_path . '/external_databases.php')) {\n  include \$app_root . '/' . \$site_path . '/external_databases.php';\n}\n\n" >>./web/sites/default/settings.php
+    # Append auto-include for external databases settings in "db_settings.php".
+    printf "\n\nif (file_exists(\$app_root . '/' . \$site_path . '/db_settings.php')) {\n  include \$app_root . '/' . \$site_path . '/db_settings.php';\n}\n\n" >>./web/sites/default/settings.php
     printf "   OK\n"
   fi
   # Allow setting update by Drupal installation process.
@@ -97,9 +97,9 @@ else
     printf "   OK\n"
   fi
 
-  if [ ! -e ./web/sites/default/external_databases.php ]; then
-    printf "* external_databases.php\n"
-    cp /opt/genoring/external_databases.template.php ./web/sites/default/external_databases.php
+  if [ ! -e ./web/sites/default/db_settings.php ]; then
+    printf "* db_settings.php\n"
+    cp /opt/genoring/db_settings.template.php ./web/sites/default/db_settings.php
     printf "   OK\n"
   fi
 
@@ -113,6 +113,10 @@ else
     --site-mail="$DRUPAL_SITE_MAIL" \
     --site-name="$DRUPAL_SITE_NAME"
   printf "   OK\n"
+  
+  # Externalize database credentials.
+  perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' ./web/sites/default/settings.php >> ./web/sites/default/db_settings.php
+  perl -pi -e 'BEGIN{undef $/;} s/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)//smig' ./web/sites/default/settings.php
 
   # Other config stuff.
   chown -R www-data:www-data ./web/sites/default/files

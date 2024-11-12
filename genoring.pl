@@ -20,7 +20,7 @@ Syntax:
   | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
   | update | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
-  | shell [SERVICE] [-cmd=COMMAND] ] [-debug]
+  | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
 
 =head1 REQUIRES
@@ -1262,7 +1262,9 @@ sub PrepareOperations {
   print "  ...OK.\n";
 
   # Make a backup.
-  Backup('operation');
+  if (!$g_flags->{'no-backup'}) {
+    Backup('operation', undef, 1);
+  }
 
   return $context;
 }
@@ -1464,7 +1466,9 @@ sub CleanupOperations {
     print "  ..." . ($failed ? 'Failed' : 'OK') . ".\n";
 
     # Restore backups.
-    Restore('operation');
+    if (!$g_flags->{'no-backup'}) {
+      Restore('operation');
+    }
   }
 }
 
@@ -2276,18 +2280,24 @@ sub ToDockerService {
 B<Description>: Performs a general backup of the GenoRing system into an archive
 file or a backup of the given module data and config.
 
-B<ArgsCount>: 0-2
+B<ArgsCount>: 0-3
 
 =over 4
 
 =item $backup_name: (string) (U)
 
-The backup name. If not set, a default one is provided. Default backups can be
-overriden without check while named backups can not.
+The backup name. If not set, a default one is provided. Backup names must only
+contain letters, numbers, dots, underscores and dashes and must begin with a
+letter.
 
-=item $module: (string) (O)
+=item $module: (string) (U)
 
 Module machine name if only one module should be backuped.
+
+=item $no_confirm: (bool) (U)
+
+If set to a TRUE value, existing backup would be overwritten without
+confirmation.
 
 =back
 
@@ -2296,36 +2306,61 @@ B<Return>: (nothing)
 =cut
 
 sub Backup {
-  my ($backup_name, $module) = @_;
+  my ($backup_name, $module, $no_confirm) = @_;
   if (!$backup_name) {
     # No name provided, use a default one.
     $backup_name = localtime->strftime('backup_%Y%d%mT%H%M');
-    my $backupdir = "volumes/backups/$backup_name";
-    # In the case of automatic names, we allow backup override.
-    if (!-d $backupdir) {
-      mkdir $backupdir;
-      if ($!) {
-        die "ERROR: Backup: Failed to create backup directory '$backupdir'.\n";
-      }
-    }
   }
-  else {
-    my $backupdir = "volumes/backups/$backup_name";
-    if ($module) {
-      $backupdir .= "/$module";
-    }
-    if (-d $backupdir) {
-      # Check if directory is not empty as we don't allow backup override in
-      # case of named backups.
-      opendir(my $dh, $backupdir) or die "ERROR: Backup: Failed to open backup directory '$backupdir'.";
-      if (scalar(grep { $_ ne "." && $_ ne ".." } readdir($dh)) != 0) {
+  elsif ($backup_name !~ m/^[a-z][\w._\-]*$/i) {
+    die "ERROR: Backup: Invalid back name '$backup_name'. Only letters, numbers, dots, underscores and dashes are allowed and the name must begin with a letter.\n";
+  }
+
+  my $backupdir = "volumes/backups/$backup_name";
+  if (-d $backupdir) {
+    # Check if directory is not empty.
+    opendir(my $dh, $backupdir)
+      or die "ERROR: Backup: Failed to open backup directory '$backupdir'.";
+    if (scalar(grep { $_ ne "." && $_ ne ".." } readdir($dh)) != 0) {
+      if (!$no_confirm && !Confirm("WARNING: The backup directory '$backupdir' is not empty! Overwrite existing backups?")) {
         die "ERROR: Backup: Backup directory '$backupdir' is not empty. Aborting.";
       }
     }
   }
+  else {
+    if (!mkdir $backupdir) {
+      die "ERROR: Backup: Failed to create backup directory '$backupdir'.\n";
+    }
+  }
 
-  # @todo Backup GenoRing config as well (docker-compose.yml, module.conf, env/).
   print "Backuping GenoRing...\n";
+  # Backup GenoRing config.
+  if (!$module) {
+    print "- Backuping GenoRing config...\n";
+    if (!-d "$backupdir/config" && !mkdir "$backupdir/config") {
+      warn "WARNING: Backup: Failed to create config backup directory '$backupdir/config'.\n";
+    }
+    if (-e $DOCKER_COMPOSE_FILE
+      && !copy($DOCKER_COMPOSE_FILE, "$backupdir/config/$DOCKER_COMPOSE_FILE")
+    ) {
+      warn "WARNING: Failed to backup $DOCKER_COMPOSE_FILE.\n$!";
+    }
+    if (-e $MODULE_FILE
+      && !copy($MODULE_FILE, "$backupdir/config/$MODULE_FILE")
+    ) {
+      warn "WARNING: Failed to backup $MODULE_FILE.\n$!";
+    }
+    if (-e $EXTRA_HOSTS
+      && !copy($EXTRA_HOSTS, "$backupdir/config/$EXTRA_HOSTS")
+    ) {
+      warn "WARNING: Failed to backup $EXTRA_HOSTS.\n$!";
+    }
+    if (-d './env'
+      && !DirCopy('env', "$backupdir/config/env")
+    ) {
+      warn "WARNING: Failed to backup 'env' directory.\n$!";
+    }
+    print "  ...OK.\n";
+  }
 
   # Check if GenoRing is running or not.
   my $current_mode = GetState();
@@ -2371,7 +2406,7 @@ sub Backup {
       print "  ...OK.\n";
     }
 
-    print "Backup done.\n";
+    print "Backup done. Backup created in 'backups/$backup_name/'.\n";
   };
 
   if ($@) {
@@ -2410,7 +2445,32 @@ sub Restore {
   }
 
   print "Restore GenoRing...\n";
-  # @todo Also restore GenoRing config files.
+  # Restore GenoRing config.
+  my $backupdir = "volumes/backups/$backup_name";
+  if (!$module) {
+    print "- Restoring GenoRing config...\n";
+    if (-e "$backupdir/config/$DOCKER_COMPOSE_FILE"
+      && !copy("$backupdir/config/$DOCKER_COMPOSE_FILE", $DOCKER_COMPOSE_FILE)
+    ) {
+      warn "WARNING: Failed to restore $DOCKER_COMPOSE_FILE.\n$!";
+    }
+    if (-e "$backupdir/config/$MODULE_FILE"
+      && !copy("$backupdir/config/$MODULE_FILE", $MODULE_FILE)
+    ) {
+      warn "WARNING: Failed to restore $MODULE_FILE.\n$!";
+    }
+    if (-e "$backupdir/config/$EXTRA_HOSTS"
+      && !copy("$backupdir/config/$EXTRA_HOSTS", $EXTRA_HOSTS)
+    ) {
+      warn "WARNING: Failed to restore $EXTRA_HOSTS.\n$!";
+    }
+    if (-d "$backupdir/config/env"
+      && !DirCopy("$backupdir/config/env", 'env')
+    ) {
+      warn "WARNING: Failed to restore 'env' directory.\n$!";
+    }
+    print "  ...OK.\n";
+  }
 
   # Check if GenoRing is running or not.
   my $current_mode = GetState();
@@ -2542,6 +2602,9 @@ sub ApplyLocalHooks {
 
   foreach $module (@$modules) {
     if (-e "$MODULE_DIR/$module/hooks/$hook_name.pl") {
+      if ($g_debug) {
+        print "DEBUG: Applying '$module' local hook '$MODULE_DIR/$module/hooks/$hook_name.pl'...\n";
+      }
       print "  Processing $module module hook $hook_name...";
       my $hook_script = File::Spec->catfile($MODULE_DIR, $module, 'hooks', "$hook_name.pl");
       eval {
@@ -2660,6 +2723,9 @@ sub ApplyContainerHooks {
   my %initialized_containers;
 APPLYCONTAINERHOOKS_MODULES:
   foreach my $module (@$modules) {
+    if ($g_debug) {
+      print "DEBUG: Processing '$module' container '$hook_name' hooks...\n";
+    }
     if (-d "$MODULE_DIR/$module/hooks/") {
       # Read directory and filter on services.
       opendir(my $dh, "$MODULE_DIR/$module/hooks")
@@ -2670,6 +2736,9 @@ APPLYCONTAINERHOOKS_HOOKS:
       foreach my $hook (@hooks) {
         if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($services->{$1})) {
           my $service = $1;
+          if ($g_debug) {
+            print "DEBUG: Applying container hook '$MODULE_DIR/$module/hooks/$hook' in '$service' container.\n";
+          }
           # Check if a module has been specified and only process its hooks.
           # ie. process any hook of current module or any hook of another module
           # that targets a service of the specified module, and skip others.
@@ -2705,6 +2774,9 @@ APPLYCONTAINERHOOKS_HOOKS:
           );
         }
       }
+    }
+    if ($g_debug) {
+      print "DEBUG: ...OK.\n";
     }
   }
 }
@@ -3005,7 +3077,7 @@ sub GetModules {
       # Get all available modules.
       opendir(my $dh, "$MODULE_DIR")
         or die "ERROR: GetModules: Failed to list '$MODULE_DIR' directory!\n$!";
-      $_g_modules->{'all'} = [ sort grep { $_ !~ m/^\./ && -d "$MODULE_DIR/$_" } readdir($dh) ];
+      $_g_modules->{'all'} = [ sort grep { $_ =~ m/^[a-z][a-z0-9_]*$/ && -d "$MODULE_DIR/$_" } readdir($dh) ];
     }
     $modules = $_g_modules->{'all'};
   }
@@ -3251,11 +3323,13 @@ sub GetModuleVolumes {
 
   # Get all available volumes.
   my @volumes;
-  if (opendir(my $dh, "$MODULE_DIR/$module/volumes")) {
-    @volumes = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/volumes/$_" } readdir($dh));
-  }
-  else {
-    warn "WARNING: GetModuleVolumes: Failed to list '$MODULE_DIR/$module/volumes' directory!\n$!";
+  if (-d "$MODULE_DIR/$module/volumes") {
+    if (opendir(my $dh, "$MODULE_DIR/$module/volumes")) {
+      @volumes = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/volumes/$_" } readdir($dh));
+    }
+    else {
+      warn "WARNING: GetModuleVolumes: Failed to list '$MODULE_DIR/$module/volumes' directory!\n$!";
+    }
   }
 
   return \@volumes;
@@ -3606,6 +3680,79 @@ sub ClearCache {
 
 =pod
 
+=head2 Dircopy
+
+B<Description>: Copy a directory content into another recursively.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $source: (string) (R)
+
+The source directory.
+
+=item $target: (string) (R)
+
+The target directory.
+
+=back
+
+B<Return>: (bool)
+
+1 if all was copied without errors.
+
+=cut
+
+sub DirCopy {
+  my ($source, $target) = @_;
+  my $success = 1;
+  if (opendir(my $dh, $source)) {
+    if (!-e $target) {
+      if (!mkdir $target) {
+        warn "WARNING: Failed to create '$target' directory!\n$!";
+        $success = 0;
+      }
+    }
+    elsif (!-d $target) {
+      warn "WARNING: Target '$target' is not a directory!\n$!";
+      $success = 0;
+    }
+    foreach my $item (readdir($dh)) {
+      # Skip "." and "..".
+      if ($item =~ m/^\.\.?$/) {
+        next;
+      }
+      if (-d "$source/$item") {
+        # Sub-directory.
+        if (!-e "$target/$item") {
+          if (!mkdir "$target/$item") {
+            warn "WARNING: Failed to create '$target/$item' directory!\n$!";
+            $success = 0;
+          }
+        }
+        if (!DirCopy("$source/$item", "$target/$item")) {
+          $success = 0;
+        }
+      }
+      else {
+        # File.
+        if (!copy("$source/$item", "$target/$item")) {
+          $success = 0;
+        }
+      }
+    }
+    closedir($dh);
+  }
+  else {
+    warn "WARNING: Failed to access '$source' directory!\n$!";
+    $success = 0;
+  }
+  return $success;
+}
+
+=pod
+
 =head2 Confirm
 
 B<Description>: Ask a question and get user confirmation.
@@ -3831,6 +3978,11 @@ in such cases in reasonable time.
 Disables Docker exposed volumes. Must be used at installation time and each time
 the Docker Compose file is regenerated (module/service changes).
 
+=item B<-no-backup>:
+
+Disables the use of automatic backups when performing site operations such as
+modifying modules.
+
 =item B<-debug>:
 
 Enables debug mode.
@@ -3934,6 +4086,11 @@ if ($man) {pod2usage('-verbose' => 1, '-exitval' => 0);}
 
 # Change debug mode if requested/forced.
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
+
+# Allow alternative syntax.
+if ($g_flags->{'no-backups'}) {
+  $g_flags->{'no-backup'} = $g_flags->{'no-backups'};
+}
 
 # Check Docker requirements.
 if (!$g_flags->{'bypass'}) {
