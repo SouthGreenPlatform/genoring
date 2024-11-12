@@ -876,17 +876,22 @@ ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
     $modules = GetModules(1);
   }
   my %env_vars;
+SETUPGENORINGENVIRONMENT_MODULES:
   foreach my $module (@$modules) {
     $env_vars{$module} = {};
     # List module env files.
+    if (!-d "$MODULE_DIR/$module/env") {
+      next SETUPGENORINGENVIRONMENT_MODULES;
+    }
     opendir(my $dh, "$MODULE_DIR/$module/env")
       or die "ERROR: SetupGenoringEnvironment: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
     my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
     closedir($dh);
+SETUPGENORINGENVIRONMENT_ENV_FILES:
     foreach my $env_file (@env_files) {
       # Check if environment file already set.
       if (!$reset && (-s "env/${module}_$env_file")) {
-        next;
+        next SETUPGENORINGENVIRONMENT_ENV_FILES;
       }
       # Parse each env file to get parametrable elements.
       my $env_fh;
@@ -3495,19 +3500,21 @@ sub RemoveEnvFiles {
   my ($module) = @_;
   if ($module) {
     # Remove module environment files.
-    # List module env files.
-    if (opendir(my $dh, "$MODULE_DIR/$module/env")) {
-      my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
-      closedir($dh);
-      foreach my $env_file (@env_files) {
-        # Check if environment file exist.
-        if (-e "env/${module}_$env_file") {
-          unlink "env/${module}_$env_file";
+    if (-d "$MODULE_DIR/$module/env") {
+      # List module env files.
+      if (opendir(my $dh, "$MODULE_DIR/$module/env")) {
+        my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$MODULE_DIR/$module/env/$_" } readdir($dh));
+        closedir($dh);
+        foreach my $env_file (@env_files) {
+          # Check if environment file exist.
+          if (-e "env/${module}_$env_file") {
+            unlink "env/${module}_$env_file";
+          }
         }
       }
-    }
-    else {
-      warn "WARNING: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
+      else {
+        warn "WARNING: Failed to access '$MODULE_DIR/$module/env' directory!\n$!";
+      }
     }
   }
   elsif (-d 'env') {
