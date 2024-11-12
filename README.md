@@ -287,6 +287,21 @@ It is possible to later switch back to container service using:
 
 ## Support
 
+### Known issues
+
+- ARM support is not fully functional yet.
+- For Windows platform support, exposed GenoRing volumes are disabled. Due to a
+  large amount of files generated, it often crashes Docker Desktop and prevents
+  GenoRing from functionning. Since named Docker volumes can still be accessed
+  through Docker Desktop, having those also shared as local files in local file
+  system is not necessary and is automatically disabled. To force the use of
+  such exposed volumes on Windows system (and face associated issues), you can
+  however use the flag "--no-exposed-volumes=0". And in reverse, you can disable
+  the use of exposed volumes on local file system using "--no-exposed-volumes"
+  on any system.
+
+### Report
+
 Report issues or support request on GenoRing Git issue queue at:
 
 https://gitlab.cirad.fr/agap/genoring/-/issues

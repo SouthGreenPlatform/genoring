@@ -3978,7 +3978,7 @@ elsif ($g_flags->{'platform'} && ('1' ne $g_flags->{'platform'})) {
 # For Windows FS, we can't use exposed FS as it crashes so we force set the
 # appropriate flag.
 if (('Win32' eq $os) && (!defined($g_flags->{'no-exposed-volumes'}))) {
-  print "WARNING: Exposed volumes are disabled in Windows system to avoid issues.\n";
+  print "NOTE: Exposed volumes are disabled in Windows system to avoid issues.\n";
   $g_flags->{'no-exposed-volumes'} = 1;
 }
 
