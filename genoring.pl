@@ -15,13 +15,15 @@ Syntax:
 
   perl genoring.pl [help | man | start | stop | online | offline | backend
   | logs [-f] | status | modules | services | volumes | alternatives <MODULE>
-  | setup [-auto | -minimal] [-reset] | reset [-f] [-delete-containers]
+  | setup [-auto | -minimal] [-reset]
+  | reset [-f] [-delete-containers] [-keep-env]
   | enable <MODULE> | disable <MODULE> | uninstall <MODULE>
   | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
   | update | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
   | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
+  [-yes|-no]
 
 =head1 REQUIRES
 
@@ -767,7 +769,9 @@ sub Reinitialize {
   print "  ...OK.\n";
 
   # Clear environment files.
-  RemoveEnvFiles();
+  if (!$g_flags->{'keep-env'}) {
+    RemoveEnvFiles();
+  }
 
   print "Reinitialization done!\n";
 }
