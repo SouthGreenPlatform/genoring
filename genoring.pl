@@ -385,12 +385,16 @@ sub GetLogs {
     Run(
       "docker compose --profile \"*\" logs -f",
       "Failed to get GenoRing logs!",
+      undef,
+      1
     );
   }
   else {
     Run(
       "docker compose logs",
       "Failed to get GenoRing logs!",
+      undef,
+      1
     );
   }
 }
@@ -2946,6 +2950,7 @@ sub Compile {
   Run(
     "docker build -t $service $service_src_path",
     "Failed to compile container (service ${module}[$service])",
+    1,
     1
   );
 }
