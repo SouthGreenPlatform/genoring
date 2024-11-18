@@ -1,4 +1,4 @@
-# v1.0
+# v1.1
 image: nginx
 profiles: ["prod","staging","dev","backend","offline"]
 env_file:
@@ -9,7 +9,8 @@ volumes:
   - type: bind
     source: ${PWD}/volumes/proxy/nginx/genoring-fpm.conf
     target: /etc/nginx/templates/default.conf.template
-  - ${PWD}/volumes/proxy/nginx/includes:/etc/nginx/genoring
+  - ${PWD}/volumes/proxy/nginx/includes:/etc/nginx/includes
+  - ${PWD}/volumes/proxy/nginx/genoring:/etc/nginx/genoring
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
 restart: always

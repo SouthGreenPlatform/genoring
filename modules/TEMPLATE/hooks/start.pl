@@ -8,6 +8,9 @@
 use strict;
 use warnings;
 
-++$|; #no buffering
+++$|; # No buffering.
 
 # This type of hook can be used to manage external services or log events.
+
+# Returns 1 when called by "require".
+1;

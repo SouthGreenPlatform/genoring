@@ -10,7 +10,7 @@ use File::Spec;
 # Windows)
 my $volumes_path = File::Spec->catfile(' .', 'volumes');
 my $output = qx(
-  docker run --rm -v $volumes_path:/genoring -w / --platform linux/amd64 alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data
+  docker run --rm -v $volumes_path:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data
 );
 
 if ($?) {

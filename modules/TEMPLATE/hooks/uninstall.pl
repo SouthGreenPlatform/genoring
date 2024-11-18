@@ -10,7 +10,7 @@ use strict;
 use warnings;
 use File::Spec;
 
-++$|; #no buffering
+++$|; # No buffering.
 
 # Since files created in docker volumes are created by a docker container run by
 # the docker daemon, current user running genoring.pl to uninstall a module may
@@ -45,3 +45,6 @@ if ($?) {
   }
   warn($error_message);
 }
+
+# Returns 1 when called by "require".
+1;

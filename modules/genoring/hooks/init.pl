@@ -65,6 +65,10 @@ if (!-d './volumes/proxy/nginx/includes') {
   make_path('./volumes/proxy/nginx/includes');
 }
 
+if (!-d './volumes/proxy/nginx/genoring') {
+  make_path('./volumes/proxy/nginx/genoring');
+}
+
 if (!-e './volumes/proxy/nginx/genoring-fpm.conf') {
   copy('./modules/genoring/res/nginx/genoring-fpm.conf', './volumes/proxy/nginx/genoring-fpm.conf');
 }

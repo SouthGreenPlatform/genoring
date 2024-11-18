@@ -36,3 +36,6 @@ if ($is_running && ($is_running =~ m/^[\d\s]+$/)) {
 }
 # Nothing is returned otherwise as we don't know the state of the container but
 # it could be improved by checking what docker says about this container.
+
+# Returns 1 when called by "require".
+1;

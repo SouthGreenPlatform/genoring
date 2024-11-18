@@ -13,3 +13,6 @@ use warnings;
 
 # This script might adjust the local file system before container updates are
 # run.
+
+# Returns 1 when called by "require".
+1;

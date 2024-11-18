@@ -9,7 +9,7 @@
 use strict;
 use warnings;
 
-++$|; #no buffering
+++$|; # No buffering.
 
 # This script is often not needed unless it has specific needs (a given non-core
 # PERL module, an external non-GenoRing service, some specific hardware, etc.).
@@ -17,3 +17,6 @@ use warnings;
 # in case requirements are not met.
 warn "ERROR: it seems some unnecessary hook scripts were not removed!\n";
 exit(1);
+
+# Returns 1 when called by "require".
+1;

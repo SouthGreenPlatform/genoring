@@ -10,10 +10,13 @@ use strict;
 use warnings;
 use File::Spec;
 
-++$|; #no buffering
+++$|; # No buffering.
 my ($backup) = @ARGV;
 $backup ||= 'default';
 my $backup_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'backups', $backup, 'MODULE');
 
 # This script might work on backup data provided by container backup hooks to
 # create a global archive of serveral services for instance.
+
+# Returns 1 when called by "require".
+1;

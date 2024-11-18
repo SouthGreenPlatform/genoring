@@ -11,7 +11,7 @@ use warnings;
 use File::Copy;
 use File::Spec;
 
-++$|; #no buffering
+++$|; # No buffering.
 
 # The purpose of this script is generally to make sure directories that will be
 # mounted by docker exist. Ex.:
@@ -24,3 +24,6 @@ if (!-e './volumes/my_module') {
 if (!-e './volumes/my_module/somefile.ext') {
   copy('./modules/my_module/res/somefile.ext', './volumes/my_module/somefile.ext');
 }
+
+# Returns 1 when called by "require".
+1;

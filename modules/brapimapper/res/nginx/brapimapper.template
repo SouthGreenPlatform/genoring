@@ -1,0 +1,20 @@
+# Service interface.
+server {
+  listen ${BRAPI_PORT};
+
+  server_name ${NGINX_HOST};
+  root /var/www/html;
+
+  # Index files.
+  index index.html;
+
+  proxy_max_temp_file_size 0;
+
+  location /brapi/v1/ {
+    proxy_pass http://${NGINX_HOST}:${NGINX_PORT}/brapi/v1/;
+  }
+
+  location /brapi/v2/ {
+    proxy_pass http://${NGINX_HOST}:${NGINX_PORT}/brapi/v2/;
+  }
+}

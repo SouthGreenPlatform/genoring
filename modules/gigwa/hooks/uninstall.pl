@@ -8,9 +8,9 @@ use File::Spec;
 ++$|; #no buffering
 
 # Remove Gigwa config.
-my $volume_path = File::Spec->catfile('.', 'volumes');
+my $volume_path = File::Spec->catfile(' .', 'volumes');
 my $output = qx(
-  docker run --rm -v $volume_path:/genoring -w / --platform linux/amd64 alpine rm -rf /genoring/gigwa /genoring/mongodb
+  docker run --rm -v $volume_path:/genoring -w / alpine rm -rf /genoring/gigwa /genoring/mongodb
 );
 
 if ($?) {
@@ -24,8 +24,11 @@ if ($?) {
       ($? & 127), ($? & 128) ? 'with' : 'without'
     );
   }
-  elsif ($?) {
+  else {
     $error_message = sprintf("ERROR %d", $? >> 8);
   }
   warn($error_message);
 }
+
+# Returns 1 when called by "require".
+1;

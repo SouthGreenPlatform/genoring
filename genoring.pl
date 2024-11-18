@@ -1401,7 +1401,7 @@ sub PerformContainerOperations {
 
     # Apply docker hooks of each enabled module service for each
     # enabled module service (ie. modules/"svc1"/hooks/${hook}_"svc2".sh).
-    print "  - Applying service hooks...\n";
+    print "  - Applying service hooks" . ($module ? " ($module)" : '') . "...\n";
     my @container_hooks = sort {
         my $ao = $container_hooks->{$a}->{'order'} || 0;
         my $bo = $container_hooks->{$b}->{'order'} || 0;
@@ -1633,7 +1633,7 @@ sub InstallModule {
     warn "WARNING: InstallModule: Module '$module' already installed!\n";
     return;
   }
-  
+
   my $errors = ApplyLocalHooks('requirements', $module);
   if (scalar(values(%$errors))) {
     die
@@ -1660,7 +1660,7 @@ sub InstallModule {
     SetModuleConf($module, {'status' => 'enabled'});
 
     # Setup new environment variables.
-    SetupGenoringEnvironment();
+    SetupGenoringEnvironment(undef, $module);
 
     PerformLocalOperations($context);
 
@@ -2711,16 +2711,16 @@ B<ArgsCount>: 1-4
 
 The hook name.
 
-=item $en_module: (string) (U)
+=item $spec_module: (string) (U)
 
-Restrict hooks to the given module and its services. When set to a valid module
-name, only its hooks will be processed first and then only other module hooks
-related to this module will be run as well if $related is set to 1.
+Restrict hooks to the specified module and its services. When set to a valid
+module name, only its hooks will be processed first and then only other module
+hooks related to this module will be run as well if $related is set to 1.
 
 =item $related: (bool) (O)
 
 Will also run hook scripts of other modules targeting one service of
-$en_module.
+$spec_module.
 
 =item $args: (string) (O)
 
@@ -2733,7 +2733,7 @@ B<Return>: (nothing)
 =cut
 
 sub ApplyContainerHooks {
-  my ($hook_name, $en_module, $related, $args) = @_;
+  my ($hook_name, $spec_module, $related, $args) = @_;
   $args ||= '';
 
   if (!$hook_name) {
@@ -2742,11 +2742,15 @@ sub ApplyContainerHooks {
 
   # Get enabled modules.
   my $modules;
-  if (!$en_module || $related) {
+  if (!$spec_module || $related) {
     $modules = GetModules(1);
+    if ($spec_module && !grep(/^$spec_module$/, @$modules)) {
+      # Add module being disabled/uninstalled.
+      push(@$modules, $spec_module);
+    }
   }
   else {
-    $modules = [$en_module];
+    $modules = [$spec_module];
   }
 
   # Get enabled services.
@@ -2769,17 +2773,23 @@ APPLYCONTAINERHOOKS_HOOKS:
       foreach my $hook (@hooks) {
         if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($services->{$1})) {
           my $service = $1;
-          if ($g_debug) {
-            print "DEBUG: Applying container hook '$MODULE_DIR/$module/hooks/$hook' in '$service' container.\n";
-          }
           # Check if a module has been specified and only process its hooks.
           # ie. process any hook of current module or any hook of another module
           # that targets a service of the specified module, and skip others.
           # Note: other modules hooks are not processed if $related was not TRUE
           # as $modules would only contain the given module.
-          if ($en_module && ($en_module ne $module) && ($services->{$service} ne $en_module)) {
+          if ($spec_module && ($spec_module ne $module) && ($services->{$service} ne $spec_module)) {
+            if ($g_debug) {
+              print "DEBUG: non-matching container hook '$MODULE_DIR/$module/hooks/$hook' for '$service' container.\n";
+            }
             # Skip non-matching hooks.
             next APPLYCONTAINERHOOKS_HOOKS;
+          }
+          if ($g_debug) {
+            print "DEBUG: Applying container hook '$MODULE_DIR/$module/hooks/$hook' in '$service' container.\n";
+          }
+          else {
+            print "  Processing $module module hook $hook_name in '$service' container...";
           }
           # Check if container is running.
           my ($id, $state, $name, $image) = IsContainerRunning($service);
@@ -2801,10 +2811,16 @@ APPLYCONTAINERHOOKS_HOOKS:
             $initialized_containers{$service} = 1;
           }
           # Make sure script is executable.
-          Run(
+          my $output = Run(
             "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service sh -c \"chmod +x /genoring/$MODULE_DIR/$module/hooks/$hook && /genoring/$MODULE_DIR/$module/hooks/$hook $args\"",
             "Failed to run hook of $module in $service (hook $hook)"
           );
+          if ($?) {
+            print "  Failed.\n$output\n";
+          }
+          else {
+            print "  OK.\n";
+          }
         }
       }
     }
@@ -3819,7 +3835,7 @@ sub Confirm {
   elsif ($g_flags->{'no'}) {
     return 0;
   }
-  
+
   print "$message (y/n) ";
   my $user_input = <STDIN>;
   if ($user_input !~ m/^y/i) {
@@ -4285,6 +4301,12 @@ elsif ($command =~ m/^compile$/i) {
 elsif ($command =~ m/^modules$/i) {
   print join(', ', @{GetModules(@arguments)}) . "\n";
 }
+elsif ($command =~ m/^volumes$/i) {
+  my $volumes = GetVolumes(@arguments);
+  foreach my $volume (sort keys(%$volumes)) {
+    print "$volume (" . join(', ', @{$volumes->{$volume}}) . ")\n";
+  }
+}
 elsif ($command =~ m/^services$/i) {
   my $services = GetServices(@arguments);
   foreach my $service (sort keys(%$services)) {
@@ -4334,11 +4356,11 @@ elsif ($command =~ m/^shell$/i) {
     exit(1);
   }
 }
-elsif ($command =~ m/^volumes$/i) {
-  my $volumes = GetVolumes(@arguments);
-  foreach my $volume (sort keys(%$volumes)) {
-    print "$volume (" . join(', ', @{$volumes->{$volume}}) . ")\n";
-  }
+elsif ($command =~ m/^localhook$/i) {
+  ApplyLocalHooks(@arguments);
+}
+elsif ($command =~ m/^containerhook$/i) {
+  ApplyContainerHooks(@arguments);
 }
 else {
   warn "ERROR: Invalid command '$command'.\n\n" if $command;

@@ -3,17 +3,21 @@
 use strict;
 use warnings;
 
-++$|; #no buffering
+++$|; # No buffering.
 
 # Add proxy configs.
-if (-d './volumes/proxy/nginx/includes') {
-  if (!-e './volumes/proxy/nginx/includes/gigwa.conf') {
-    copy('./modules/gigwa/res/nginx/gigwa.conf', './volumes/proxy/nginx/includes/gigwa.conf');
+# NGINX.
+if (-d './volumes/proxy/nginx/genoring') {
+  if (!-e './volumes/proxy/nginx/genoring/gigwa.conf') {
+    copy('./modules/gigwa/res/nginx/gigwa.conf', './volumes/proxy/nginx/genoring/gigwa.conf');
+  }
+}
+# Apache 2.
+if (-d './volumes/proxy/httpd/genoring') {
+  if (!-e './volumes/proxy/httpd/genoring/gigwa.conf') {
+    copy('./modules/gigwa/res/httpd/gigwa.conf', './volumes/proxy/httpd/genoring/gigwa.conf');
   }
 }
 
-if (-d './volumes/proxy/httpd/includes') {
-  if (!-e './volumes/proxy/httpd/includes/gigwa.conf') {
-    copy('./modules/gigwa/res/httpd/gigwa.conf', './volumes/proxy/httpd/includes/gigwa.conf');
-  }
-}
+# Returns 1 when called by "require".
+1;
