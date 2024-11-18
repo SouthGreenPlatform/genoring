@@ -147,6 +147,10 @@ B<$g_debug>: (boolean)
 When set to true, it enables debug mode. This constant can be set at script
 start by command line options.
 
+B<$g_instance>: (string)
+
+Contains the global instance name.
+
 B<$g_flags>: (hash ref)
 
 Contains flags set on command line with their values if set or "1" otherwise.
@@ -166,6 +170,7 @@ Cache variable for volumes lists. See GetVolumes(). Should not be used directly.
 =cut
 
 our $g_debug = 0;
+our $g_instance = 'genoring';
 our $g_flags = {};
 our $_g_modules = {};
 our $_g_services = {};
@@ -199,18 +204,25 @@ The command line to execute.
 The error message to display in case of error. Do not prefix it with 'ERROR' or
 'WARNING' as it will be automatically managed in this routine.
 
-=item $fatal_error: (string) (O)
+=item $fatal_error: (bool) (U)
 
 If TRUE, the error is fatal and the script should die. Otherwise, just warn.
 
+=item $interactive: (bool) (O)
+
+If TRUE, the execution output will be displayed to current screen. If FALSE, the
+execution output is returned as a string.
+
 =back
 
-B<Return>: (nothing)
+B<Return>: (string)
+
+Execution outputs if $interactive is FALSE. An empty string otherwise.
 
 =cut
 
 sub Run {
-  my ($command, $error_message, $fatal_error) = @_;
+  my ($command, $error_message, $fatal_error, $interactive) = @_;
 
   # Get caller.
   my ($package, $filename, $line, $subroutine) = caller(1);
@@ -229,7 +241,13 @@ sub Run {
   $error_message = ($fatal_error ? 'ERROR: ' : 'WARNING: ')
     . $subroutine
     . $error_message;
-  my $output = qx($command);
+  my $output = '';
+  if ($interactive) {
+    system($command);
+  }
+  else {
+    $output = qx($command);
+  }
 
   if ($?) {
     if ($? == -1) {
@@ -253,6 +271,8 @@ sub Run {
       warn($error_message);
     }
   }
+
+  return $output;
 }
 
 =pod
@@ -4295,12 +4315,12 @@ elsif ($command =~ m/^shell$/i) {
     $message = "Failed to run '$command' in '$service' container!";
   }
 
-
   my ($id, $state, $name, $image) = IsContainerRunning($service);
   if ($state && ($state =~ m/running/)) {
     Run(
       "docker exec -it $service $command",
       $message,
+      1,
       1
     );
   }
