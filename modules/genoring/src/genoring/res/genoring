@@ -1,0 +1,660 @@
+#!/bin/sh
+# This script handle GenoRing management.
+#
+# Its default behavior is to setup what is missing, update the system if needed
+# and start GenoRing (Drupal) CMS in daemon mode.
+#
+# It also handles special commands to interact with the CMS. Therefore, it
+# allows the use of other replacement containers with their own CMS that would
+# provide an adapted script with the same name and behavior, and accepting the
+# same commands but working with the provided CMS.
+#
+# To keep it compatible with most shell system restrict to busybox commands
+# (see https://www.commandlinux.com/man-page/man1/busybox.1.html).
+
+cd /opt/drupal/
+
+
+################################################################################
+# Global variables.
+################################################################################
+
+# @todo The rwo list above will be obsolete and replaced by a Genoring Drupal
+# distribution.
+# modules="tripal token geofield leaflet dbxschema external_entities xnttexif-xnttexif xnttjson xnttmanager xnttstrjp xntttsv xnttxml xnttyaml chadol gbif2 eu_cookie_compliance bibcite honeypot"
+modules="token external_entities"
+# enabled_modules="token dbxschema_pgsql dbxschema_mysql chadol xnttjson xntttsv xnttxml xnttmanager layout_builder"
+enabled_modules="token external_entities"
+
+
+################################################################################
+# Global functions.
+################################################################################
+
+# Wait for database to be ready to handle queries (3 minutes max or exit 1).
+wait_database_ready()
+{
+  printf "Waiting for database server to be ready...\n"
+  loop_count=0
+  while ! pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" && [ "$loop_count" -lt 180 ]; do
+    printf '.'
+    loop_count=$(( loop_count + 1 ))
+    sleep 1
+  done
+  if [ "$loop_count" -ge 180 ]; then
+    >&2 printf "ERROR: Failed to wait for PostgreSQL database! Stopping here.\n"
+    exit 1
+  fi
+  printf "...OK (ready).\n"
+}
+
+# Setup CMS database.
+setup_database()
+{
+  # Get Drupal database name and user to use.
+  DRUPAL_DB="${1:-$POSTGRES_DRUPAL_DB}"
+  DRUPAL_DB_USER="${2:-$POSTGRES_USER}"
+
+  printf "Setup database...\n"
+  # Create a new PostgreSQL database.
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" --command="CREATE DATABASE $DRUPAL_DB WITH OWNER $DRUPAL_DB_USER;"
+  # Install default extensions.
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION pg_trgm; CREATE EXTENSION fuzzystrmatch;"
+  printf "...OK (database created).\n"
+}
+
+# Install Drupal CMS (download and setup file system).
+install_cms()
+{
+  printf "Drupal downloads...\n"
+  printf "* Downloading Drupal $DRUPAL_VERSION core...\n"
+  if [ ! -e ./composer.json ]; then
+    # Prepare Drupal download settings.
+    composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev
+    if [ $? -gt 0 ]; then
+      >&2 printf "WARNING: Failed to setup composer!\n"
+    fi
+  fi
+
+  # Install Drupal files.
+  composer install
+  if [ $? -gt 0 ]; then
+    printf "...ERROR!\n"
+    >&2 printf "ERROR: Failed to download Drupal!\n"
+    exit 1
+  fi
+
+  # Prepare file system.
+  if [ -e ./web/sites ] && [ -e ./web/modules ] && [ -e ./web/themes ]; then
+    mkdir private config
+    chown -R www-data:www-data web/sites web/modules web/themes private config
+  else
+    printf "  ...ERROR!\n"
+    >&2 printf "ERROR: Installation process seems to have failed (expected web directories are missing)!\n"
+    exit 1
+  fi
+  printf "  ...OK (core downloaded).\n"
+
+  # Setup cron.
+  printf "* Setup Drupal cron...\n"
+  printf "*/5 * * * * root /opt/drupal/vendor/bin/drush cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
+  printf "  ...OK (cron).\n"
+  printf "...OK (Drupal downloaded).\n"
+}
+
+# Setup Drupal CMS (initializes database content and setting files).
+setup_cms()
+{
+  # Get Drupal database name and user to use.
+  DRUPAL_DB="${1:-$POSTGRES_DRUPAL_DB}"
+
+  printf "Setup Drupal...\n"
+  if [ ! -s ./web/sites/default/settings.php ]; then
+    printf "* settings.php...\n"
+    cp ./web/sites/default/default.settings.php ./web/sites/default/settings.php
+    # Append some settings.
+    printf "\n\$settings['config_sync_directory'] = '../config/sync';\n\$settings['file_private_path'] = '/opt/drupal/private/';\n\n" >>./web/sites/default/settings.php
+    printf "\n\$settings['trusted_host_patterns'] = [\n" >>./web/sites/default/settings.php
+    # We must not use "printf" for $DRUPAL_TRUSTED_HOST because it complicates
+    # escaping in env file, especially for "\E".
+    echo "$DRUPAL_TRUSTED_HOST" >>./web/sites/default/settings.php
+    printf "];\n\n" >>./web/sites/default/settings.php
+    # Append auto-include for external databases settings in "db_settings.php".
+    printf "\n\nif (file_exists(\$app_root . '/' . \$site_path . '/db_settings.php')) {\n  include \$app_root . '/' . \$site_path . '/db_settings.php';\n}\n\n" >>./web/sites/default/settings.php
+    printf "  ...OK (settings.php).\n"
+  fi
+  # Allow setting update by Drupal installation process.
+  # Permissions will be automatically reset after installation.
+  chmod uog+w ./web/sites/default/settings.php
+
+  if [ ! -s ./web/sites/default/services.yml ]; then
+    printf "* services.yml...\n"
+    cp ./web/sites/default/default.services.yml ./web/sites/default/services.yml
+    # Enable and configure Drupal CORS to allow REST and token authentication...
+    # - enabled: true
+    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:    [^\n]+\n|\s*\n|\s*#[^\n]*\n)*)    enabled:\s*false/$1    enabled: true/smig' ./web/sites/default/services.yml
+    # - allowedHeaders: ['authorization','content-type','accept','origin','access-control-allow-origin','x-allowed-header']
+    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:\s*\n|    [^\n]+\n|    #[^\n]*\n)*)    allowedHeaders:[^\n]*/$1    allowedHeaders: ['"'"'authorization'"'"','"'"'content-type'"'"','"'"'accept'"'"','"'"'origin'"'"','"'"'access-control-allow-origin'"'"','"'"'x-allowed-header'"'"']/smig' ./web/sites/default/services.yml
+    # - allowedMethods: ['*']
+    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:    [^\n]+\n|\s*\n|\s*#[^\n]*\n)*)    allowedMethods:[^\n]*/$1    allowedMethods: ['"'"'*'"'"']/smig' ./web/sites/default/services.yml
+    printf "  ...OK (services.yml).\n"
+  fi
+
+  if [ ! -e ./web/sites/default/db_settings.php ]; then
+    printf "* db_settings.php...\n"
+    cp /opt/genoring/db_settings.template.php ./web/sites/default/db_settings.php
+    printf "  ...OK (db_settings.php).\n"
+  fi
+
+  # Install Drupal.
+  printf "* Initializing Drupal...\n"
+  # drush -y site:install standard \
+  drush -y site:install genoring_distrib \
+    --db-url="pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB" \
+    --account-mail="$DRUPAL_USER_MAIL" \
+    --account-name="$DRUPAL_USER" \
+    --account-pass="$DRUPAL_PASSWORD" \
+    --site-mail="$DRUPAL_SITE_MAIL" \
+    --site-name="$DRUPAL_SITE_NAME"
+  if [ $? -gt 0 ]; then
+    printf "  ...ERROR!\n"
+    >&2 printf "ERROR: Failed to initialize Drupal!\npgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\n"
+    exit 1
+  fi
+  printf "  ...OK (Drupal initialized).\n"
+
+  # Externalize database credentials.
+  printf "* Separate database credentials from global settings...\n"
+  perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' ./web/sites/default/settings.php >> ./web/sites/default/db_settings.php
+  perl -pi -e 'BEGIN{undef $/;} s/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)//smig' ./web/sites/default/settings.php
+  printf "  ...OK (database credentials).\n"
+
+  # Other config stuff.
+  printf "* Adjust file system permissions...\n"
+  chown -R www-data:www-data ./web/sites/default/files
+  chmod -R uog+w ./private ./config ./web/sites/default/files
+  printf "  ...OK (file system).\n"
+
+  printf "...OK (Drupal setup).\n"
+}
+
+# Update CMS and modules.
+update_cms()
+{
+  printf "Updating Drupal...\n"
+  # Check if updates could run well.
+  # @todo Maybe check free disk space as well?
+  if composer update --with-all-dependencies --dry-run; then
+    # Set Drupal offline.
+    drush sset system.maintenance_mode TRUE
+    # Backup DB.
+    printf "* Backup Drupal...\n"
+    drush -y archive:dump --destination=/backups/preupdate_backup.tgz --overwrite
+    if [ $? -ne 0 ]; then
+      printf "  ...FAILED to backup, aborting update.\n"
+      printf "...ERROR!\n"
+      >&2 printf "ERROR: Unable to create a backup before updating!\n"
+      exit 1
+    fi
+    printf "  ...OK (backup).\n"
+    if composer update --with-all-dependencies && drush -y updb; then
+      printf "...OK (update).\n"
+    else
+      # Restore DB backup.
+      printf "...ERROR!\n"
+      >&2 printf "ERROR: Drupal update failed! Restoring backup...\n"
+      drush -y archive:restore /backups/preupdate_backup.tgz
+      rm -rf ./vendor
+      composer install
+      printf "...OK (restoring).\n"
+    fi
+    # Set Drupal back online.
+    drush sset system.maintenance_mode FALSE
+  fi
+}
+
+# Synchronize host config (environment, passwords and files).
+sync_config()
+{
+  printf "Synchronizing host config...\n"
+  # Sync database password if updated.
+  printf " - syncronize password...\n"
+  if [ ! -z "$POSTGRES_PASSWORD" ]; then
+    # Update credential in case of change.
+    printf "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$POSTGRES_PASSWORD\n" >~/.pgpass && chmod go-rwx ~/.pgpass
+  fi
+  printf "...done\n"
+
+  # Synchronize PHP config.
+  if [ ! -e ./php ] || [ ! -e ./php/php.ini ]; then
+    # First time, copy PHP settings on a mountable volume.
+    mkdir -p ./php
+    cp "$PHP_INI_DIR/php.ini" ./php/php.ini
+  else
+    # If (volume) Drupal php.ini exists, replace the system one with it.
+    cp ./php/php.ini "$PHP_INI_DIR/php.ini"
+  fi
+  printf "... done synchronizing host.\n"
+}
+
+# Start GenoRing in daemon mode.
+start_genoring()
+{
+  printf "[Start GenoRing]\n"
+  # Check if Drupal should be installed.
+  if [ ! -e ./web/index.php ]; then
+    install_cms
+  else
+    printf "* Drupal already downloaded.\n"
+  fi
+
+  # Sync host config.
+  sync_config
+
+  # Wait for database ready.
+  wait_database_ready
+
+  # @todo Manage multiple instances.
+  # Check if the database is already initialized.
+  test_drupal_db=$( psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -XtAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DRUPAL_DB';" )
+  test_drupal_db_error=$?
+  if [ '1' = "$test_drupal_db" ]; then
+    # Database already initialized.
+    printf "* Database already initialized.\n"
+  else
+    if [ "$test_drupal_db_error" -ne 0 ]; then
+      >&2 printf "ERROR: Failed to connect to PostgreSQL database! Stopping here.\n"
+      exit 1
+    fi
+    setup_database
+    setup_cms
+  fi
+
+  # Update Drupal and modules.
+  if [ "$DRUPAL_UPDATE" -gt 0 ]; then
+    update_cms
+    if [ $DRUPAL_UPDATE -eq 2 ]; then
+      # Update and stop.
+      exit 0
+    fi
+  fi
+
+  printf "* Running PHP-fpm daemon...\n"
+  # Launch PHP-fpm
+  php-fpm
+  # We should not get there.
+  printf "[Stopped]\n"
+}
+
+# Manage GenoRing commands.
+#######################################
+
+install_module()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: install_module(): Missing module name!"
+    exit 1
+  fi
+  composer require --no-interaction "drupal/$1"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to install module '$1'!\n"
+    exit 1
+  fi
+  drush pm:enable -y $1
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to enable module '$1'!\n"
+    exit 1
+  fi
+}
+
+uninstall_module()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: uninstall_module(): Missing module name!"
+    exit 1
+  fi
+  drush pm:uninstall -y $1
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to uninstall module '$1'!\n"
+    exit 1
+  fi
+  composer remove --no-interaction "drupal/$1"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to remove module '$1'!\n"
+    exit 1
+  fi
+}
+
+add_menuitem()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: add_menuitem(): Missing menu URL!"
+    exit 1
+  fi
+
+  # Check URL type.
+  case $1 in
+    http*)
+      menu_item_uri="external:$1"
+      ;;
+
+    /*)
+      menu_item_uri="internal:$1"
+      ;;
+
+    *)
+      menu_item_uri="internal:/$1"
+      ;;
+  esac
+
+  if [ -z "$2" ]; then
+    >&2 printf "ERROR: add_menuitem(): Missing menu label!"
+    exit 1
+  fi
+
+  # Machine name of the menu holding the menu item.
+  menu_name="${3:-'main'}"
+
+  # Add menu item if not exist.
+  drush php "use Drupal\menu_link_content\Entity\MenuLinkContent; if (empty(\Drupal::entityTypeManager()->getStorage('menu_link_content')->loadByProperties(['link.uri' => '$menu_item_uri']))) {MenuLinkContent::create(['title' => '$2', 'link' => ['uri' => '$menu_item_uri'], 'menu_name' => '$menu_name', 'expanded' => TRUE])->save();}"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to add menu item '$2'!\n"
+    exit 1
+  fi
+}
+
+remove_menuitem()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: add_menuitem(): Missing menu URL!"
+    exit 1
+  fi
+
+  # Check URL type.
+  case $1 in
+    http*)
+      menu_item_uri="external:$1"
+      ;;
+
+    /*)
+      menu_item_uri="internal:$1"
+      ;;
+
+    *)
+      menu_item_uri="internal:/$1"
+      ;;
+  esac
+
+  # Remove menu items.
+  drush php "foreach (\Drupal::entityTypeManager()->getStorage('menu_link_content')->loadByProperties(['link.uri' => '$menu_item_uri']) as $mi) {$mi->delete();}"
+}
+
+add_user()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: add_user(): Missing user name!"
+    exit 1
+  fi
+
+  if [ -z "$2" ]; then
+    >&2 printf "ERROR: add_user(): Missing user e-mail!"
+    exit 1
+  fi
+
+  # Make sure we got a default user password.
+  user_password="${3:-'Drupal1234!'}"
+
+  # Create user.
+  drush user:create "$1" --mail="$2" --password="$user_password"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to create user '$1'!\n"
+    exit 1
+  fi
+}
+
+remove_user()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: remove_user(): Missing user name!"
+    exit 1
+  fi
+
+  # Remove user.
+  drush user:cancel --reassign-content "$1"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to remove user '$1'!\n"
+    exit 1
+  fi
+}
+
+add_group()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: add_group(): Missing group name!"
+    exit 1
+  fi
+  drush role:create "$1"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to create group '$1'!\n"
+    exit 1
+  fi
+}
+
+remove_group()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: remove_group(): Missing group name!"
+    exit 1
+  fi
+  drush role:delete "$1"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to remove group '$1'!\n"
+    exit 1
+  fi
+}
+
+add_user_to_group()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: add_user_to_group(): Missing group name!"
+    exit 1
+  fi
+
+  if [ -z "$2" ]; then
+    >&2 printf "ERROR: add_user_to_group(): Missing user name!"
+    exit 1
+  fi
+
+  drush user:role:add "$1" "$2"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to add user '$2' to group '$1'!\n"
+    exit 1
+  fi
+}
+
+remove_user_from_group()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: remove_user_from_group(): Missing group name!"
+    exit 1
+  fi
+
+  if [ -z "$2" ]; then
+    >&2 printf "ERROR: remove_user_from_group(): Missing user name!"
+    exit 1
+  fi
+
+  drush user:role:remove "$1" "$2"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to remove user '$2' from group '$1'!\n"
+    exit 1
+  fi
+}
+
+add_permission()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: add_permission(): Missing permission name!"
+    exit 1
+  fi
+
+  if [ -z "$2" ]; then
+    >&2 printf "ERROR: add_permission(): Missing group name!"
+    exit 1
+  fi
+
+  drush role:perm:add "$1" "$2"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to add permission '$1' to group '$2'!\n"
+    exit 1
+  fi
+}
+
+remove_permission()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: remove_permission(): Missing permission name!"
+    exit 1
+  fi
+
+  if [ -z "$2" ]; then
+    >&2 printf "ERROR: remove_permission(): Missing group name!"
+    exit 1
+  fi
+
+  drush role:perm:remove "$1" "$2"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to remove permission '$1' from group '$2'!\n"
+    exit 1
+  fi
+}
+
+backup()
+{
+  backup_name="${1:-$(date +"drupal_backup_%Y%m%d_%H%M%S")}"
+  drush -y archive:dump --destination="/backups/$backup_name.tgz" --overwrite
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to perform site backup!\n"
+    exit 1
+  fi
+}
+
+restore()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: restore(): Missing backup name!"
+    exit 1
+  fi
+
+  drush -y archive:restore "/backups/$backup_name.tgz"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to restore site backup!\n"
+    exit 1
+  fi
+}
+
+run_script()
+{
+  if [ -z "$1" ]; then
+    >&2 printf "ERROR: run_script(): Missing script name!"
+    exit 1
+  fi
+
+  if [ ! -f "$1" ]; then
+    >&2 printf "ERROR: run_script(): Given script does not exist!"
+    exit 1
+  fi
+
+  if [ -z "$2" ]; then
+    >&2 printf "ERROR: run_script(): Missing script type!"
+    exit 1
+  fi
+
+  if [ "$2" != "drupal" ]; then
+    >&2 printf "WARNING: run_script(): Unsupported script type!"
+    exit 0
+  fi
+
+  drush -y php:script "$1"
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to run script '$1'!\n"
+    exit 1
+  fi
+}
+
+#######################################
+
+# Display script help.
+print_help()
+{
+  printf "GenoRing plateform (using Drupal CMS)
+Syntax:
+  ./genoring start\n"
+}
+
+################################################################################
+# Main script execution.
+################################################################################
+
+# Process commands.
+case "$1" in
+  start)
+    start_genoring
+    ;;
+  help|-help|--help|-?|/?)
+    print_help
+    ;;
+  install_module)
+    install_module
+    ;;
+  uninstall_module)
+    uninstall_module
+    ;;
+  add_menuitem)
+    add_menuitem
+    ;;
+  remove_menuitem)
+    remove_menuitem
+    ;;
+  add_user)
+    add_user
+    ;;
+  remove_user)
+    remove_user
+    ;;
+  add_group)
+    add_group
+    ;;
+  remove_group)
+    remove_group
+    ;;
+  add_user_to_group)
+    add_user_to_group
+    ;;
+  remove_user_from_group)
+    remove_user_from_group
+    ;;
+  add_permission)
+    add_permission
+    ;;
+  remove_permission)
+    remove_permission
+    ;;
+  backup)
+    backup
+    ;;
+  restore)
+    restore
+    ;;
+  update)
+    update_cms
+    ;;
+  run_script)
+    run_script
+    ;;
+  *)
+    >&2 printf "ERROR: Syntax error! Unsupported command '$1'.\n\n"
+    print_help
+    exit 1
+    ;;
+esac

@@ -1,8 +1,6 @@
-# genoring4.0.0beta3-drupal10.1.2-php8.2-fpm-bookworm
 # Compile with:
-# docker build -t genoring .
-# docker build -t genoring4.0.0beta3-drupal10.1.2-php8.2-fpm-bookworm .
-FROM php:8.2-fpm-bookworm
+#   docker build -t genoring .
+FROM php:8.3-fpm-bookworm
 
 LABEL net.genoring.image.authors="v.guignon@cgiar.org"
 
@@ -101,10 +99,10 @@ RUN { \
 # Alternative: RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
-# Drupal pre-setup
+# Copy Drupal GenoRing distribution.
 COPY res /opt/genoring
-RUN chmod u+rx /opt/genoring/init.sh
-RUN mkdir -p /opt/drupal
+RUN chmod u+rx /opt/genoring/genoring
+RUN mkdir -p /opt/drupal && rm -rf /var/www/html && ln -sf /opt/drupal/web /var/www/html
 WORKDIR /opt/drupal
 
-CMD ["/opt/genoring/init.sh"]
+CMD ["/opt/genoring/genoring", "start"]

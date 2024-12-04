@@ -4352,6 +4352,14 @@ elsif ($command =~ m/^shell$/i) {
     );
   }
   else {
+    # @todo Add support for non-running dockers.
+    # Get environment files and volumes from docker compose file.
+    # Run(
+    #   "docker run --env-file ... -v ... --network genoring_default -it -rm $service $command",
+    #   $message,
+    #   1,
+    #   1
+    # );
     warn "ERROR: '$service' container is not running.\n";
     exit(1);
   }
