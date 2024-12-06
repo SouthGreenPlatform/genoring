@@ -23,7 +23,7 @@ Syntax:
   | update | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
   | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
-  [-yes|-no] [-compile-missing]
+  [-yes|-no] [-hide-compile]
 
 =head1 REQUIRES
 
@@ -823,7 +823,7 @@ sub SetupGenoring {
       $modules = GetModules(1);
     }
   }
-  if (exists($g_flags->{'compile-missing'})) {
+  if (!exists($g_flags->{'hide-compile'})) {
     # Compile missing containers with sources.
     CompileMissingContainers();
   }
@@ -4043,10 +4043,9 @@ modifying modules.
 Automatically answers confirmations with the selected answer (ie. 'yes' or
 'no').
 
-=item B<-compile-missing>:
+=item B<-hide-compile>:
 
-The flag "-compile-missing" can be used to automatically compile missing
-containers at runtime.
+Use this flag to hide missing container compilation details.
 
 =item B<-debug>:
 
@@ -4210,7 +4209,7 @@ if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {
 }
 
 if ($command =~ m/^(?:start|online|offline|backend)$/i) {
-  if (exists($g_flags->{'compile-missing'})) {
+  if (!exists($g_flags->{'hide-compile'})) {
     # Compile missing containers with sources.
     CompileMissingContainers();
   }
