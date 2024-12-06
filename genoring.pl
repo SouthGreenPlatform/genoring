@@ -23,7 +23,7 @@ Syntax:
   | update | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
   | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
-  [-yes|-no]
+  [-yes|-no] [-compile-missing]
 
 =head1 REQUIRES
 
@@ -823,8 +823,10 @@ sub SetupGenoring {
       $modules = GetModules(1);
     }
   }
-  # Compile missing containers with sources.
-  CompileMissingContainers();
+  if (exists($g_flags->{'compile-missing'})) {
+    # Compile missing containers with sources.
+    CompileMissingContainers();
+  }
 
   # Process environment variables and ask user for inputs for variables with
   # tags SET and OPT.
@@ -4041,6 +4043,11 @@ modifying modules.
 Automatically answers confirmations with the selected answer (ie. 'yes' or
 'no').
 
+=item B<-compile-missing>:
+
+The flag "-compile-missing" can be used to automatically compile missing
+containers at runtime.
+
 =item B<-debug>:
 
 Enables debug mode.
@@ -4203,8 +4210,10 @@ if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {
 }
 
 if ($command =~ m/^(?:start|online|offline|backend)$/i) {
-  # Compile missing containers with sources.
-  CompileMissingContainers();
+  if (exists($g_flags->{'compile-missing'})) {
+    # Compile missing containers with sources.
+    CompileMissingContainers();
+  }
 
   # Check if setup needs to be run first.
   if (!-e $DOCKER_COMPOSE_FILE) {
