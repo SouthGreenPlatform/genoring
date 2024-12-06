@@ -45,6 +45,7 @@ RUN set -eux; \
     wget \
     rsync \
     vim \
+    cron \
     sendmail \
     postgresql \
   && docker-php-ext-install -j$(nproc) gd zip pdo pdo_mysql pdo_pgsql opcache mbstring exif imap \

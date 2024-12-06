@@ -96,8 +96,9 @@ install_cms()
   printf "  ...OK (core downloaded).\n"
 
   # Setup cron.
+  # @todo check if cron runs for each site when using multiple sites.
   printf "* Setup Drupal cron...\n"
-  printf "*/5 * * * * root /opt/drupal/vendor/bin/drush cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
+  printf "*/5 * * * * root cd /opt/drupal/web/ && /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin COLUMNS=72 /usr/local/bin/php ../vendor/bin/drush --uri=$DRUPAL_HOST --quiet maint:status && /usr/local/bin/php ../vendor/bin/drush --uri=$DRUPAL_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
   printf "  ...OK (cron).\n"
   printf "...OK (Drupal downloaded).\n"
 }
@@ -279,6 +280,11 @@ start_genoring()
     fi
   fi
 
+  printf "* Start cron daemon...\n"
+  cron
+  printf "  ...OK.\n"
+  
+  
   printf "* Running PHP-fpm daemon...\n"
   # Launch PHP-fpm
   php-fpm
