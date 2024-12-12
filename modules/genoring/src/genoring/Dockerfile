@@ -34,6 +34,7 @@ RUN set -eux; \
     libpng-dev \
     libpq-dev \
     libwebp-dev \
+    libavif-dev \
     libxml2-dev \
     libzip-dev \
     libc-client-dev \
@@ -48,9 +49,9 @@ RUN set -eux; \
     cron \
     sendmail \
     postgresql \
-  && docker-php-ext-install -j$(nproc) gd zip pdo pdo_mysql pdo_pgsql opcache mbstring exif imap \
   && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp --with-avif --with-xpm \
   && docker-php-ext-configure imap --with-kerberos --with-imap-ssl \
+  && docker-php-ext-install -j$(nproc) gd zip pdo pdo_mysql pdo_pgsql opcache mbstring exif imap \
   # reset apt-mark's "manual" list so that "purge --auto-remove" will remove all build dependencies.
   && apt-mark auto '.*' > /dev/null \
   && apt-mark manual $savedAptMark; \
