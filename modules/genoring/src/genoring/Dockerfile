@@ -4,7 +4,7 @@ FROM php:8.3-fpm-bookworm
 
 LABEL net.genoring.image.authors="v.guignon@cgiar.org"
 
-# Environment
+# Environment.
 ENV POSTGRES_HOST=db
 ENV POSTGRES_PORT=5432
 ENV POSTGRES_DRUPAL_DB=drupal
@@ -24,14 +24,35 @@ ENV COMPOSER_ALLOW_SUPERUSER=1
 ENV COMPOSER_HOME=/root/.composer
 ENV PATH=${PATH}:/opt/drupal/vendor/bin
 
-# Setup libraries and PHP
+# Add genoring user and group.
+RUN groupadd -r genoring && useradd --no-log-init -r -g genoring genoring
+# @todo: To be used later for security:
+# USER genoring:genoring
+
+# Setup applications, libraries and PHP.
+# Git might be used later in genoring script for automated updates and is still
+# usefull when accessing the container shell.
+# Postgresql is required by genoring script.
+# vim is convenient when accessing the container shell.
+# rsync, unzip, wget and zip are convenient when accessing the container shell.
+#   They might be required and used by GenoRing modules hooks.
 RUN set -eux; \
-  savedAptMark="$(apt-mark showmanual)"; \
   apt-get update && apt-get install -y --no-install-recommends \
+    cron \
+    git \
+    postgresql \
+    rsync \
+    sendmail \
+    unzip \
+    vim \
+    wget \
+    zip; \
+  savedAptMark="$(apt-mark showmanual)"; \
+  apt-get install -y --no-install-recommends \
     libfreetype6-dev \
     libjpeg-dev \
-    libjpeg62-turbo-dev \
     libpng-dev \
+    libxpm-dev \
     libpq-dev \
     libwebp-dev \
     libavif-dev \
@@ -40,15 +61,6 @@ RUN set -eux; \
     libc-client-dev \
     libkrb5-dev \
     libonig-dev \
-    zip \
-    unzip \
-    git \
-    wget \
-    rsync \
-    vim \
-    cron \
-    sendmail \
-    postgresql \
   && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp --with-avif --with-xpm \
   && docker-php-ext-configure imap --with-kerberos --with-imap-ssl \
   && docker-php-ext-install -j$(nproc) gd zip pdo pdo_mysql pdo_pgsql opcache mbstring exif imap \
@@ -65,30 +77,30 @@ RUN set -eux; \
   apt-get purge -y libc-client-dev libkrb5-dev --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
   rm -rf /var/lib/apt/lists/*
 
-# APCu setup
+# APCu setup (upload progress).
 RUN printf "\n" | pecl install apcu \
   && docker-php-ext-enable apcu \
   && pecl install uploadprogress \
   && docker-php-ext-enable uploadprogress \
   && pecl clear-cache
 
-# Sendmail setup
+# Sendmail setup (completed by genoring script).
 # Source: https://r.je/sendmail-php-docker
-RUN echo "sendmail_path=/usr/sbin/sendmail -t -i" >> /usr/local/etc/php/conf.d/sendmail.ini \
-  && sed -i '/#!\/bin\/sh/aservice sendmail restart' /usr/local/bin/docker-php-entrypoint \
-  && sed -i '/#!\/bin\/sh/aecho "$(hostname -i)\t$(hostname) $(hostname).localhost" >> /etc/hosts' /usr/local/bin/docker-php-entrypoint
+RUN printf "sendmail_path=/usr/sbin/sendmail -t -i\n" >> /usr/local/etc/php/conf.d/sendmail.ini; \
+  printf "\ninclude(\`/etc/mail/tls/starttls.m4')dnl\n" >> /etc/mail/sendmail.mc; \
+  printf "\ninclude(\`/etc/mail/tls/starttls.m4')dnl\n" >> /etc/mail/submit.mc
 
-# PostgeSQL access setup
-RUN echo "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$POSTGRES_PASSWORD" >~/.pgpass \
+# PostgeSQL access setup.
+RUN printf "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$POSTGRES_PASSWORD\n" >~/.pgpass \
   && chmod go-rwx ~/.pgpass
 
-# PHP (recommended) settings
+# PHP (recommended) settings.
 # See https://secure.php.net/manual/en/opcache.installation.php
 RUN { \
-    echo 'opcache.memory_consumption=128'; \
-    echo 'opcache.interned_strings_buffer=8'; \
-    echo 'opcache.max_accelerated_files=4000'; \
-    echo 'opcache.revalidate_freq=60'; \
+    printf "opcache.memory_consumption=128\n"; \
+    printf "opcache.interned_strings_buffer=8\n"; \
+    printf "opcache.max_accelerated_files=4000\n"; \
+    printf "opcache.revalidate_freq=60\n"; \
   } > /usr/local/etc/php/conf.d/opcache-recommended.ini; \
   cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
   && perl -pi -e 's/^max_execution_time\s*=.*/max_execution_time = 300/g' "$PHP_INI_DIR/php.ini" \
@@ -97,11 +109,11 @@ RUN { \
   && perl -pi -e 's/^post_max_size\s*=.*/post_max_size = 256M/g' "$PHP_INI_DIR/php.ini" \
   && perl -pi -e 's/^upload_max_filesize\s*=.*/upload_max_filesize = 256M/g' "$PHP_INI_DIR/php.ini"
 
-# Composer setup
+# Composer setup.
 # Alternative: RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
-# Copy Drupal GenoRing distribution.
+# Copy Drupal GenoRing distribution and setup file structure.
 COPY res /opt/genoring
 RUN chmod u+rx /opt/genoring/genoring
 RUN mkdir -p /opt/drupal && rm -rf /var/www/html && ln -sf /opt/drupal/web /var/www/html

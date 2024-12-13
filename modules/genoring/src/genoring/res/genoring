@@ -14,19 +14,6 @@
 
 cd /opt/drupal/
 
-
-################################################################################
-# Global variables.
-################################################################################
-
-# @todo The rwo list above will be obsolete and replaced by a Genoring Drupal
-# distribution.
-# modules="tripal token geofield leaflet dbxschema external_entities xnttexif-xnttexif xnttjson xnttmanager xnttstrjp xntttsv xnttxml xnttyaml chadol gbif2 eu_cookie_compliance bibcite honeypot"
-modules="token external_entities"
-# enabled_modules="token dbxschema_pgsql dbxschema_mysql chadol xnttjson xntttsv xnttxml xnttmanager layout_builder"
-enabled_modules="token external_entities"
-
-
 ################################################################################
 # Global functions.
 ################################################################################
@@ -284,7 +271,11 @@ start_genoring()
   cron
   printf "  ...OK.\n"
   
-  
+  printf "* Init sendmail...\n"
+  printf "$(hostname -i)\t$(hostname) $(hostname).localhost\n" >> /etc/hosts
+  service sendmail start
+  printf "  ...OK.\n"
+
   printf "* Running PHP-fpm daemon...\n"
   # Launch PHP-fpm
   php-fpm
