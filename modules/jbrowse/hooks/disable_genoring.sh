@@ -4,5 +4,5 @@
 set -e
 
 # Add JBrowse menu item.
-genoring add_menuitem '/jbrowse/' 'JBrowse' 'main'
+genoring remove_menuitem '/jbrowse/'
 

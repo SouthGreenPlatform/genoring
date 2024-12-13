@@ -4,7 +4,7 @@
 set -e
 
 # Remove maintenance mode.
-./vendor/drush/drush/drush -y sset system.maintenance_mode 0 --input-format=integer
+genoring online
 
 # Remove offline file.
 if test -f /opt/drupal/web/offline.html; then

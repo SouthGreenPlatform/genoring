@@ -136,7 +136,6 @@ setup_cms()
 
   # Install Drupal.
   printf "* Initializing Drupal...\n"
-  # drush -y site:install standard \
   drush -y site:install genoring_distrib \
     --db-url="pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB" \
     --account-mail="$DRUPAL_USER_MAIL" \
@@ -174,7 +173,7 @@ update_cms()
   # @todo Maybe check free disk space as well?
   if composer update --with-all-dependencies --dry-run; then
     # Set Drupal offline.
-    drush sset system.maintenance_mode TRUE
+    drush state:set system.maintenance_mode 1 --input-format=integer
     # Backup DB.
     printf "* Backup Drupal...\n"
     drush -y archive:dump --destination=/backups/preupdate_backup.tgz --overwrite
@@ -197,7 +196,7 @@ update_cms()
       printf "...OK (restoring).\n"
     fi
     # Set Drupal back online.
-    drush sset system.maintenance_mode FALSE
+    drush state:set system.maintenance_mode 0 --input-format=integer
   fi
 }
 
@@ -325,14 +324,14 @@ uninstall_module()
 add_menuitem()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_menuitem(): Missing menu URL!"
+    >&2 printf "ERROR: add_menuitem(): Missing menu URI!"
     exit 1
   fi
 
   # Check URL type.
   case $1 in
     http*)
-      menu_item_uri="external:$1"
+      menu_item_uri="$1"
       ;;
 
     /*)
@@ -350,10 +349,10 @@ add_menuitem()
   fi
 
   # Machine name of the menu holding the menu item.
-  menu_name="${3:-'main'}"
+  menu_name="${3:-main}"
 
   # Add menu item if not exist.
-  drush php "use Drupal\menu_link_content\Entity\MenuLinkContent; if (empty(\Drupal::entityTypeManager()->getStorage('menu_link_content')->loadByProperties(['link.uri' => '$menu_item_uri']))) {MenuLinkContent::create(['title' => '$2', 'link' => ['uri' => '$menu_item_uri'], 'menu_name' => '$menu_name', 'expanded' => TRUE])->save();}"
+  drush php:eval "use Drupal\\menu_link_content\\Entity\\MenuLinkContent; if (empty(\\Drupal::entityTypeManager()->getStorage('menu_link_content')->loadByProperties(['link.uri' => '$menu_item_uri']))) {MenuLinkContent::create(['title' => '$2', 'link' => ['uri' => '$menu_item_uri'], 'menu_name' => '$menu_name', 'expanded' => TRUE])->save();}"
   if [ $? -gt 0 ]; then
     >&2 printf "ERROR: Failed to add menu item '$2'!\n"
     exit 1
@@ -363,14 +362,14 @@ add_menuitem()
 remove_menuitem()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_menuitem(): Missing menu URL!"
+    >&2 printf "ERROR: add_menuitem(): Missing menu URI!"
     exit 1
   fi
 
   # Check URL type.
   case $1 in
     http*)
-      menu_item_uri="external:$1"
+      menu_item_uri="$1"
       ;;
 
     /*)
@@ -383,7 +382,7 @@ remove_menuitem()
   esac
 
   # Remove menu items.
-  drush php "foreach (\Drupal::entityTypeManager()->getStorage('menu_link_content')->loadByProperties(['link.uri' => '$menu_item_uri']) as $mi) {$mi->delete();}"
+  drush php:eval "foreach (\\Drupal::entityTypeManager()->getStorage('menu_link_content')->loadByProperties(['link.uri' => '$menu_item_uri']) as \$mi) {\$mi->delete();}"
 }
 
 add_user()
@@ -399,7 +398,7 @@ add_user()
   fi
 
   # Make sure we got a default user password.
-  user_password="${3:-'Drupal1234!'}"
+  user_password="${3:-Drupal1234!}"
 
   # Create user.
   drush user:create "$1" --mail="$2" --password="$user_password"
@@ -452,38 +451,38 @@ remove_group()
 
 add_user_to_group()
 {
-  if [ -z "$1" ]; then
+  if [ -z "$2" ]; then
     >&2 printf "ERROR: add_user_to_group(): Missing group name!"
     exit 1
   fi
 
-  if [ -z "$2" ]; then
+  if [ -z "$1" ]; then
     >&2 printf "ERROR: add_user_to_group(): Missing user name!"
     exit 1
   fi
 
-  drush user:role:add "$1" "$2"
+  drush user:role:add "$2" "$1"
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add user '$2' to group '$1'!\n"
+    >&2 printf "ERROR: Failed to add user '$1' to group '$2'!\n"
     exit 1
   fi
 }
 
 remove_user_from_group()
 {
-  if [ -z "$1" ]; then
+  if [ -z "$2" ]; then
     >&2 printf "ERROR: remove_user_from_group(): Missing group name!"
     exit 1
   fi
 
-  if [ -z "$2" ]; then
+  if [ -z "$1" ]; then
     >&2 printf "ERROR: remove_user_from_group(): Missing user name!"
     exit 1
   fi
 
-  drush user:role:remove "$1" "$2"
+  drush user:role:remove "$2" "$1"
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to remove user '$2' from group '$1'!\n"
+    >&2 printf "ERROR: Failed to remove user '$1' from group '$2'!\n"
     exit 1
   fi
 }
@@ -529,7 +528,8 @@ remove_permission()
 backup()
 {
   backup_name="${1:-$(date +"drupal_backup_%Y%m%d_%H%M%S")}"
-  drush -y archive:dump --destination="/backups/$backup_name.tgz" --overwrite
+  mkdir -p /backups/$backup_name/genoring/
+  drush -y archive:dump --destination=/backups/$backup_name/genoring/ --overwrite --exclude-code-paths=web/sites/default/db_settings.php
   if [ $? -gt 0 ]; then
     >&2 printf "ERROR: Failed to perform site backup!\n"
     exit 1
@@ -543,38 +543,51 @@ restore()
     exit 1
   fi
 
-  drush -y archive:restore "/backups/$backup_name.tgz"
+  # First we extract backuped source code of Drupal in a different directory to
+  # avoid removing libraries used by Drush for this opeation.
+  drush -y archive:restore --code --overwrite --destination-path /opt/drupal_res /backups/$1/genoring/archive.tar.gz
+  # Then we copy restored files to current Drupal and remove restore temp dir.
+  cp -R /opt/drupal_res/* /opt/drupal
+  rm -rf /opt/drupal_res
+  # We update the composer libraries.
+  composer update
+  # Now we restore the rest (database and files).
+  drush -y archive:restore  --db --files --overwrite /backups/$1/genoring/archive.tar.gz
+
   if [ $? -gt 0 ]; then
     >&2 printf "ERROR: Failed to restore site backup!\n"
     exit 1
   fi
 }
 
-run_script()
+offline()
+{
+  drush -y state:set system.maintenance_mode 1 --input-format=integer
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to set site offline!\n"
+    exit 1
+  fi
+}
+
+online()
+{
+  drush -y state:set system.maintenance_mode 0 --input-format=integer
+  if [ $? -gt 0 ]; then
+    >&2 printf "ERROR: Failed to set site online!\n"
+    exit 1
+  fi
+}
+
+command()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: run_script(): Missing script name!"
+    >&2 printf "ERROR: command(): Missing command name!"
     exit 1
   fi
 
-  if [ ! -f "$1" ]; then
-    >&2 printf "ERROR: run_script(): Given script does not exist!"
-    exit 1
-  fi
-
-  if [ -z "$2" ]; then
-    >&2 printf "ERROR: run_script(): Missing script type!"
-    exit 1
-  fi
-
-  if [ "$2" != "drupal" ]; then
-    >&2 printf "WARNING: run_script(): Unsupported script type!"
-    exit 0
-  fi
-
-  drush -y php:script "$1"
+  "$@"
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to run script '$1'!\n"
+    >&2 printf "ERROR: Failed to run command '$1'!\n"
     exit 1
   fi
 }
@@ -584,9 +597,60 @@ run_script()
 # Display script help.
 print_help()
 {
-  printf "GenoRing plateform (using Drupal CMS)
+  printf "GenoRing platform v1.0 (using Drupal CMS)
 Syntax:
-  ./genoring start\n"
+  ./genoring start
+
+Available commands:
+  help:
+    Displays this help.
+  start:
+    Starts GenoRing and the PHP FPM daemon (never returns unless killed).
+  install_module <module>:
+    Downloads and installs the given Drupal module.
+  uninstall_module <module>:
+    Uninstalls and removes the given Drupal module.
+  add_menuitem <uri> <label> [menu_machine_name]:
+    Add the given URI to the Drupal menu 'menu_machine_name' using the label
+    'label'. If the URI is already in use, the menu item is not added.
+  remove_menuitem <uri>:
+    Removes all the menu items with the given URI.
+  add_user <user_name> <email> [password]:
+    Adds the user with the given 'user_name', 'email' and 'password' to Drupal.
+  remove_user <user_name>:
+    Removes the user that uses the name 'user_name' from Drupal (reassign
+    content to 'anonymous').
+  add_group <group_name>:
+    Adds the role 'group_name' to Drupal.
+  remove_group <group_name>:
+    Removes the role 'group_name' from Drupal.
+  add_user_to_group <user_name> <group_name>:
+    Gives the given role to the given user.
+  remove_user_from_group <user_name> <group_name>:
+    Removes the given role from the given user.
+  add_permission <permission_name> <group_name>:
+    Grants the given permission to the given group.
+  remove_permission <permission_name> <group_name>:
+    Removes the given permission from the given group.
+  backup [backup_name]:
+    Generates a Drupal site archive using the given name.
+    Default name is 'drupal_backup_YYYYMMDD_HHIISS' where YYYY is the year, MM
+    the month, DD the day of the month, HH current hour (24H format), II current
+    minute and SS current second.
+  restore <backup_name>:
+    Restores a Drupal site archive from the given backup name.
+  command <command> [arguments...]:
+    Runs a shell command. Using 'genoring command ...' rather than the shell
+    command directly allows genoring core replacement to handle and replaces
+    some specific commands such as drush commands or composer commands.
+  update:
+    Performs Drupal CMS and extensions updates. Handles site backup and restore
+    in case of update failure.
+  offline:
+    Sets the site offline and displays a maintenance message.
+  online:
+    Sets the site back online.
+\n"
 }
 
 ################################################################################
@@ -594,64 +658,76 @@ Syntax:
 ################################################################################
 
 # Process commands.
-case "$1" in
+cmd="$1"
+shift
+case "$cmd" in
   start)
-    start_genoring
+    start_genoring "$@"
     ;;
   help|-help|--help|-?|/?)
-    print_help
+    print_help "$@"
     ;;
   install_module)
-    install_module
+    install_module "$@"
     ;;
   uninstall_module)
-    uninstall_module
+    uninstall_module "$@"
     ;;
   add_menuitem)
-    add_menuitem
+    add_menuitem "$@"
     ;;
   remove_menuitem)
-    remove_menuitem
+    remove_menuitem "$@"
     ;;
   add_user)
-    add_user
+    add_user "$@"
     ;;
   remove_user)
-    remove_user
+    remove_user "$@"
     ;;
   add_group)
-    add_group
+    add_group "$@"
     ;;
   remove_group)
-    remove_group
+    remove_group "$@"
     ;;
   add_user_to_group)
-    add_user_to_group
+    add_user_to_group "$@"
     ;;
   remove_user_from_group)
-    remove_user_from_group
+    remove_user_from_group "$@"
     ;;
   add_permission)
-    add_permission
+    add_permission "$@"
     ;;
   remove_permission)
-    remove_permission
+    remove_permission "$@"
     ;;
   backup)
-    backup
+    backup "$@"
     ;;
   restore)
-    restore
+    restore "$@"
     ;;
   update)
-    update_cms
+    update_cms "$@"
     ;;
-  run_script)
-    run_script
+  offline)
+    offline "$@"
+    ;;
+  online)
+    online "$@"
+    ;;
+  command)
+    command "$@"
     ;;
   *)
-    >&2 printf "ERROR: Syntax error! Unsupported command '$1'.\n\n"
-    print_help
-    exit 1
+    if [ ! -z "$1" ]; then
+      >&2 printf "ERROR: Syntax error! Unsupported command '$1'.\n\n"
+      print_help
+      exit 1
+    else
+      print_help
+    fi
     ;;
 esac

@@ -1,4 +1,7 @@
 #!/bin/sh
 
+# Automatically exit on error.
+set -e
+
 # Remove Gigwa menu item.
-drush -y scr /genoring/modules/gigwa/res/disable_gigwa.php
+genoring remove_menuitem '/gigwa/'

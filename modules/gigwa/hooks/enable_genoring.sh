@@ -3,8 +3,8 @@
 # Automatically exit on error.
 set -e
 
-# Install and enable Gigwa Drupal module.
-composer -n require drupal/gigwa
+# Enable Gigwa module.
+genoring install_module gigwa
 
 # Add Gigwa menu item.
-drush -y scr /genoring/modules/gigwa/res/init_site.php
+genoring add_menuitem '/gigwa/' 'Gigwa' 'main'

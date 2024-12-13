@@ -22,7 +22,7 @@ ENV DRUPAL_AUTO_UPDATE=1
 # https://github.com/composer/composer/blob/94fe2945456df51e122a492b8d14ac4b54c1d2ce/src/Composer/Console/Application.php#L217-L218
 ENV COMPOSER_ALLOW_SUPERUSER=1
 ENV COMPOSER_HOME=/root/.composer
-ENV PATH=${PATH}:/opt/drupal/vendor/bin
+ENV PATH=${PATH}:/opt/drupal/vendor/bin:/opt/genoring
 
 # Add genoring user and group.
 RUN groupadd -r genoring && useradd --no-log-init -r -g genoring genoring

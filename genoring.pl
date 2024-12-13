@@ -14,14 +14,15 @@ genoring.pl - Manages GenoRing platform.
 Syntax:
 
   perl genoring.pl [help | man | start | stop | online | offline | backend
-  | logs [-f] | status | modules | services | volumes | alternatives <MODULE>
+  | logs [-f] | status
+  | modules | services | volumes | alternatives <MODULE> | moduleinfo <MODULE>
   | setup [-auto | -minimal] [-reset]
   | reset [-f] [-delete-containers] [-keep-env]
   | enable <MODULE> | disable <MODULE> | uninstall <MODULE>
   | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
   | update [MODULE] | upgrade [MODULE]
-  | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
+  | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-cache]
   | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
   [-yes|-no] [-hide-compile]
@@ -3100,8 +3101,12 @@ sub Compile {
     1
   );
   my $service_src_path = File::Spec->catfile($MODULE_DIR, $module, 'src' , $service);
+  my $no_cache = '--no-cache';
+  if ($g_flags->{'cache'}) {
+    $no_cache = '';
+  }
   Run(
-    "docker build --no-cache -t $service $service_src_path",
+    "docker build $no_cache -t $service $service_src_path",
     "Failed to compile container (service ${module}[$service])",
     1,
     1
@@ -4249,6 +4254,10 @@ modules.
 =item B<alternatives MODULE>:
 
 Displays the list of service alternatives for a given module.
+
+=item B<moduleinfo MODULE>:
+
+Displays information on the given module.
 
 =item B<setup [-auto | -minimal] [-reset]>:
 
