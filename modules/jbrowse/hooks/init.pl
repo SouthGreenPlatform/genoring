@@ -8,8 +8,8 @@ use File::Copy;
 
 # Add proxy configs.
 if (-d './volumes/proxy/nginx') {
-  if (!-e './volumes/proxy/nginx/jbrowse.conf') {
-    copy('./modules/jbrowse/res/nginx/jbrowse.conf', './volumes/proxy/nginx/jbrowse.conf');
+  if (!-e './volumes/proxy/nginx/genoring/jbrowse.conf') {
+    copy('./modules/jbrowse/res/nginx/jbrowse.conf', './volumes/proxy/nginx/genoring/jbrowse.conf');
   }
 }
 

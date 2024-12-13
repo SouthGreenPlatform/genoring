@@ -1,0 +1,11 @@
+name: "JBrowse"
+description: "JBrowse is a genome browser that runs on the web."
+version: 1.0
+services:
+  genoring-jbrowse:
+    name: "JBrowse"
+    description: "The JBrowse web application."
+    version: 1.0
+dependencies:
+  volumes:
+    - "requires genoring genoring-data-volume"

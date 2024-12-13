@@ -1,7 +1,6 @@
-# v1.0
-# image: jbrowse
 image: genoring-jbrowse
-# image: jbrowse/gmod-jbrowse
+build: ${PWD}/modules/jbrowse/src/genoring-jbrowse
+pull_policy: never
 
 env_file:
   - ${PWD}/env/jbrowse_jbrowse.env

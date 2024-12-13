@@ -1,0 +1,3 @@
+name: "BrAPI Mapper"
+description: "Provides Breeding API services (v1 and v2) and an interface to map data to those services."
+version: 1.0

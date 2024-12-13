@@ -1,4 +1,3 @@
-# v1.0
 image: guilhemsempere/gigwa:2.8-RELEASE
 platform: linux/amd64
 env_file:

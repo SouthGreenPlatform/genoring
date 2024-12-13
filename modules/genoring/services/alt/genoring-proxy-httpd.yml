@@ -1,4 +1,3 @@
-# v1.0
 image: httpd:2.4
 profiles: ["prod","staging","dev","backend","offline"]
 env_file:

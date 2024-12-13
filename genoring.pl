@@ -20,7 +20,8 @@ Syntax:
   | enable <MODULE> | disable <MODULE> | uninstall <MODULE>
   | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
-  | update | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
+  | update [MODULE] | upgrade [MODULE]
+  | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE>
   | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
   [-yes|-no] [-hide-compile]
@@ -109,6 +110,37 @@ B<$DEFAULT_ARM_ARCHITECTURE>: (string)
 
 Default ARM architecture to use.
 
+B<$MODULE_NAME_REGEX>: (string)
+
+Regular expression used to match valid module names.
+
+B<$SERVICE_NAME_REGEX>: (string)
+
+Regular expression used to match valid service names.
+
+B<$VOLUME_NAME_REGEX>: (string)
+
+Regular expression used to match valid volume names.
+
+B<$CONSTRAINT_REGEX>: (string)
+
+Regular expression used to match a dependency constraint. One of "requires" or
+"conflicts".
+
+B<$DEPENDENCY_REGEX>: (string)
+
+Regular expression used to match a dependency. Match order:
+$1: module name
+$2: optional version constraint (=, <, <=, >, >=)
+$3: optional major version (always set if $3 is set)
+$4: optional minor version
+$5: optional stability
+$6: optional service or volume name
+
+B<%OS>: (hash)
+
+Hash associating an OS name ($^O) to a normalized OS architecture.
+
 =cut
 
 our $GENORING_VERSION = '1.0';
@@ -121,6 +153,11 @@ our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $STATE_MAX_TRIES = 300;
 our $DEFAULT_ARCHITECTURE = 'linux/amd64';
 our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';
+our $MODULE_NAME_REGEX = '[a-z][a-z0-9_]*';
+our $SERVICE_NAME_REGEX = '[a-z][a-z0-9\-]*';
+our $VOLUME_NAME_REGEX = '[a-z][a-z0-9\-]*';
+our $CONSTRAINT_REGEX = "(requires|conflicts)";
+our $DEPENDENCY_REGEX = "(?:\\s+or\\s+)?($MODULE_NAME_REGEX)(?:\\s+(?:([<>]?=?)\\s*)(\\d+)(?:\\.(\\d+))?(alpha|beta|dev)?)?(?:\\s+($SERVICE_NAME_REGEX|$VOLUME_NAME_REGEX))?";
 our %OS = (
   ''        => 'Unix',
   'MSWin32' => 'Win32',
@@ -1114,6 +1151,7 @@ sub GenerateDockerComposeFile {
 
   my %services;
   my %volumes;
+  my $volume_dependencies = {};
   my @proxy_dependencies;
   foreach my $module (@$modules) {
     print "  - Processing $module module\n";
@@ -1122,6 +1160,8 @@ sub GenerateDockerComposeFile {
       # No service to enable.
       next;
     }
+    # Get version.
+    my $module_info = GetModuleInfo($module);
     # Work on module services.
     opendir(my $dh, "$MODULE_DIR/$module/services")
       or die "ERROR: GenerateDockerComposeFile: Failed to access '$MODULE_DIR/$module/services' directory!\n$!";
@@ -1136,13 +1176,8 @@ sub GenerateDockerComposeFile {
       if (($module ne 'genoring') || ($service eq 'genoring')) {
         push(@proxy_dependencies, $service);
       }
-      my $svc_version = <$svc_fh>;
-      if ($svc_version !~ m/^# v?(\d+)\.(\d+)/i) {
-        die "ERROR: GenerateDockerComposeFile: Invalid $module module service file '$service_yml': missing version!";
-      }
       $services{$service} = {
-        'version' => $1,
-        'subversion' => $2,
+        'version' => $module_info->{'version'} || '',
         'module' => $module,
         'definition' => '    ' . join('    ', <$svc_fh>),
       };
@@ -1159,40 +1194,72 @@ sub GenerateDockerComposeFile {
       open($vl_fh, '<:utf8', "$MODULE_DIR/$module/volumes/$volume_yml")
         or die "ERROR: GenerateDockerComposeFile: Failed to open module volume file '$volume_yml'.\n$!";
       my $volume = substr($volume_yml, 0, -4);
-      my $vol_version = <$vl_fh>;
-      if ($vol_version !~ m/^# v?(\d+)\.(\d+)/i) {
-        die "ERROR: GenerateDockerComposeFile: Invalid $module module volume file '$volume_yml': missing version!";
-      }
-      if (exists($volumes{$volume})) {
-        # Compare versions.
-        if ($volumes{$volume}->{'version'} != $1) {
-          die "ERROR: GenerateDockerComposeFile: Incompatible $module module volume file '$volume_yml': major version differs from corresponding " . $volumes{$volume}->{'module'} . " module definition!";
-        }
-        # Keep latest or most recent definition.
-        if ($volumes{$volume}->{'subversion'} >= $2) {
-          $volumes{$volume} = {
-            'version' => $1,
-            'subversion' => $2,
-            'module' => $module,
-            'definition' => '    ' . join('    ', <$vl_fh>),
-          };
-        }
-      }
-      else {
-        $volumes{$volume} = {
-          'version' => $1,
-          'subversion' => $2,
-          'module' => $module,
-          'definition' => '    ' . join('    ', <$vl_fh>),
-        };
-      }
+      $volumes{$volume} = {
+        'module' => $module,
+        'definition' => '    ' . join('    ', <$vl_fh>),
+      };
       if ($g_flags->{'no-exposed-volumes'}) {
         $volumes{$volume}->{'definition'} =~ s/^(\s+)driver[^\n]+\n?(?:\g1 [^\n]+\n?)*//gms;
       }
       close($vl_fh);
     }
+    # Check required shared volume are available.
+    foreach my $volume_dep (@{$module_info->{'dependencies'}{'volumes'} || []}) {
+      my $dependencies = ParseDependencies($volume_dep);
+      if ('requires' eq $dependencies->{'constraint'}) {
+        $volume_dependencies->{$module} ||= [];
+        push(@{$volume_dependencies->{$module}}, $dependencies->{'dependencies'});
+      }
+    }
     print "    OK\n";
   }
+  
+  # Check volume dependencies.
+  foreach my $module (keys(%$volume_dependencies)) {
+    foreach my $volume_deps (values(%{$volume_dependencies->{$module}})) {
+      my $volume_ok = 0;
+      foreach my $volume_dep (@$volume_deps) {
+        # Check if the requirement is on a whole module (ie. no volume name).
+        if (!$volume_dep->{'element'}) {
+          if (grep($volume_dep->{'module'}, @$modules)) {
+            $volume_ok = 1;
+          }
+          # else warn "WARNING: module '$module' requires volumes from module '$module' but that module is not enabled! GenoRing may fail to start.\n";
+        }
+        elsif ($volume_dep->{'element'}
+            && exists($volumes{$volume_dep->{'element'}})
+        ) {
+          # Check for version constraints.
+          if ($volume_dep->{'major_version'}) {
+            my $module_info = GetModuleInfo($module);
+            my $version_constraint = $volume_dep->{'version_constraint'} || '=';
+            # @todo This will not work with minor versions above 10.
+            my $dep_version = $volume_dep->{'major_version'} . '.' . ($volume_dep->{'minor_version'} || '');
+            if ((('=' eq $version_constraint) && ($module_info->{'version'} == $dep_version))
+              || (('<' eq $version_constraint) && ($module_info->{'version'} < $dep_version))
+              || (('<=' eq $version_constraint) && ($module_info->{'version'} <= $dep_version))
+              || (('>' eq $version_constraint) && ($module_info->{'version'} > $dep_version))
+              || (('>=' eq $version_constraint) && ($module_info->{'version'} >= $dep_version))
+            ) {
+              $volume_ok = 1;
+            }
+          }
+          else {
+            # No version constraint and volume is there.
+            $volume_ok = 1;
+          }
+        }
+        if ($volume_ok) {
+          last;
+        }
+      }
+      if (!$volume_ok) {
+        # @todo Display a more informative message.
+        warn "WARNING: module '$module' has unmet volume dependencies! GenoRing may fail to start.\n";
+      }
+    }
+  }
+ 
   # Done with all modules, add proxy dependencies.
   if (exists($services{'genoring-proxy'})) {
     $services{'genoring-proxy'}->{'dependencies'} = [@proxy_dependencies];
@@ -1602,6 +1669,39 @@ sub Update {
 
 =pod
 
+=head2 Upgrade
+
+B<Description>: Upgrades the GenoRing system or the specified module.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $module: (string) (O)
+
+The module name is only this module should be upgraded.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub Upgrade {
+
+  my ($module) = @_;
+  if ($module) {
+    print "Upgrading GenoRing module '$module'...\n";
+  }
+  else {
+    print "Upgrading GenoRing...\n";
+  }
+  
+  die "EROR: Not implemented yet!\n";
+}
+
+=pod
+
 =head2 InstallModule
 
 B<Description>: Installs and enables the given module.
@@ -1630,12 +1730,13 @@ sub InstallModule {
     die "ERROR: InstallModule: Module '$module' not found!\n";
   }
 
-  my %enabled_volumes = map { $_ => $_ } @{GetModules(1)};
-  if (exists($enabled_volumes{$module})) {
+  my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
+  if (exists($enabled_modules{$module})) {
     warn "WARNING: InstallModule: Module '$module' already installed!\n";
     return;
   }
-
+  
+  # @todo Check module dependencies.
   my $errors = ApplyLocalHooks('requirements', $module);
   if (scalar(values(%$errors))) {
     die
@@ -1659,7 +1760,14 @@ sub InstallModule {
   # Setup environment files.
   eval {
     # Enable module.
-    SetModuleConf($module, {'status' => 'enabled'});
+    # @todo: add module version.
+    SetModuleConf(
+      $module,
+      {
+        'status' => 'enabled',
+        'version' => '',
+      }
+    );
 
     # Setup new environment variables.
     SetupGenoringEnvironment(undef, $module);
@@ -1724,12 +1832,14 @@ sub EnableModule {
     die "ERROR: EnableModule: Module '$module' not found!\n";
   }
 
-  my %enabled_volumes = map { $_ => $_ } @{GetModules(1)};
-  if (exists($enabled_volumes{$module})) {
+  # @todo Check module dependencies.
+
+  my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
+  if (exists($enabled_modules{$module})) {
     die "ERROR: EnableModule: Module '$module' already enabled!\n";
   }
-  my %disabled_volumes = map { $_ => $_ } @{GetModules(0)};
-  if (!exists($disabled_volumes{$module})) {
+  my %disabled_modules = map { $_ => $_ } @{GetModules(0)};
+  if (!exists($disabled_modules{$module})) {
     die "ERROR: EnableModule: Module '$module' not installed!\n";
   }
 
@@ -1749,6 +1859,7 @@ sub EnableModule {
   # Setup environment files.
   eval {
     # Enable module.
+    # @todo Get current module config and just change its status.
     SetModuleConf($module, {'status' => 'enabled'});
 
     PerformLocalOperations($context);
@@ -1768,6 +1879,7 @@ sub EnableModule {
   if ($context->{'failed'}) {
     eval {
       # Disable module if failed.
+      # @todo Get current module config and just change its status.
       SetModuleConf($module, {'status' => 'disabled'});
     };
     warn "WARNING: $@\n" if $@;
@@ -1813,6 +1925,8 @@ sub DisableModule {
     warn "WARNING: DisableModule: Module '$module' not found!\n";
   }
 
+  # @todo Check other module dependencies (to this module).
+
   my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
   if (!exists($enabled_modules{$module})) {
     warn "WARNING: DisableModule: Module '$module' already disabled! Will retry to disable it.\n";
@@ -1850,6 +1964,7 @@ sub DisableModule {
       RemoveModuleConf($module);
     }
     else {
+      # @todo Get current module config and just change its status.
       SetModuleConf($module, {'status' => 'disabled'});
     }
     # Update Docker Compose config.
@@ -1908,6 +2023,8 @@ sub UninstallModule {
   if (! -d "$MODULE_DIR/$module") {
     warn "WARNING: UninstallModule: Module '$module' not found!\n";
   }
+
+  # @todo Check other module dependencies (to this module).
 
   my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
   if (!exists($enabled_modules{$module})) {
@@ -3065,7 +3182,7 @@ sub DeleteAllContainers {
 
 =pod
 
-=head2 GetModuleConfig
+=head2 GetModulesConfig
 
 B<Description>: Returns GenoRing module config.
 
@@ -3077,7 +3194,7 @@ The modules config. Keys are module names and values are module config hashes.
 
 =cut
 
-sub GetModuleConfig {
+sub GetModulesConfig {
   my $module_fh;
   # Get module config.
   if (!$_g_modules->{'config'}) {
@@ -3129,7 +3246,7 @@ sub GetModules {
       # Get all available modules.
       opendir(my $dh, "$MODULE_DIR")
         or die "ERROR: GetModules: Failed to list '$MODULE_DIR' directory!\n$!";
-      $_g_modules->{'all'} = [ sort grep { $_ =~ m/^[a-z][a-z0-9_]*$/ && -d "$MODULE_DIR/$_" } readdir($dh) ];
+      $_g_modules->{'all'} = [ sort grep { $_ =~ m/^$MODULE_NAME_REGEX$/ && -d "$MODULE_DIR/$_" } readdir($dh) ];
     }
     $modules = $_g_modules->{'all'};
   }
@@ -3143,7 +3260,7 @@ sub GetModules {
     # No cache.
     my %modules;
     # Get module config.
-    GetModuleConfig();
+    GetModulesConfig();
 
     if (0 == $module_mode) {
       if ($_g_modules->{'config'}) {
@@ -3251,7 +3368,7 @@ sub GetModuleServices {
           push(@services, map { s/\.yml\.dis$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml\.dis$/ && -r "$MODULE_DIR/$module/services/$_" } readdir($dh)));
         }
         if (('alt' eq $include) || ('all' eq $include)) {
-          push(@services,  map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && ($_ ne 'alt.yml') && -r "$MODULE_DIR/$module/services/alt/$_" } readdir($dh)));
+          push(@services,  map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$MODULE_DIR/$module/services/alt/$_" } readdir($dh)));
         }
       }
       my %seen = map {$_ => $_} @services;
@@ -3296,23 +3413,62 @@ sub GetModuleAlternatives {
 
   # Get all available alternatives.
   my $alternatives = {};
-  if (-f "$MODULE_DIR/$module/services/alt/alt.yml") {
-    if (open(my $alt_fh, '<:utf8', "$MODULE_DIR/$module/services/alt/alt.yml")) {
+  my $info = GetModuleInfo($module);
+  if (exists($info->{'alternatives'})) {
+    $alternatives = $info->{'alternatives'};
+  }
+
+  return $alternatives;
+}
+
+=pod
+
+=head2 GetModuleInfo
+
+B<Description>: Returns details of a given available module.
+WARNNG: The version may be different from what is installed if the module has
+not been upgraded.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=back
+
+B<Return>: (hash ref)
+
+The module details or an empty hash if the module is not available.
+
+=cut
+
+sub GetModuleInfo {
+  my ($module) = @_;
+
+  if (!defined($module)) {
+    die "ERROR: GetModuleInfo: No module name provided!";
+  }
+
+  # Get all available alternatives.
+  my $info = {};
+  if (-f "$MODULE_DIR/$module/$module.yml") {
+    if (open(my $alt_fh, '<:utf8', "$MODULE_DIR/$module/$module.yml")) {
       my $yaml_text = do { local $/; <$alt_fh> };
       close($alt_fh);
       my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
         or die
-          "ERROR: failed to alternative config file '$MODULE_DIR/$module/services/alt/alt.yml':\n"
+          "ERROR: failed to parse module info file '$MODULE_DIR/$module/$module.yml':\n"
           . CPAN::Meta::YAML->errstr;
-      $alternatives = $yaml->[0];
+      $info = $yaml->[0];
     }
     else {
-      warn "WARNING: GetModuleAlternatives: Failed to open alternative config file '$MODULE_DIR/$module/services/alt/alt.yml'!\n$!";
+      warn "WARNING: GetModuleInfo: Failed to open module info file '$MODULE_DIR/$module/$module.yml'!\n$!";
     }
   }
-
-  return $alternatives;
-
+  return $info;
 }
 
 =pod
@@ -3333,6 +3489,7 @@ sub GetVolumes {
     my %volumes;
     my $modules = GetModules(1);
     foreach my $module (@$modules) {
+      # @todo We currently don't have modules using shared volumes.
       foreach my $volume (@{GetModuleVolumes($module)}) {
         $volumes{$volume} ||= [];
         push(@{$volumes{$volume}}, $module);
@@ -3348,7 +3505,7 @@ sub GetVolumes {
 
 =head2 GetModuleVolumes
 
-B<Description>: Returns a list of shared volumes used by the given module.
+B<Description>: Returns a list of shared volumes defined by the given module.
 
 B<ArgsCount>: 1
 
@@ -3372,8 +3529,11 @@ sub GetModuleVolumes {
   if (!defined($module)) {
     die "ERROR: GetModuleVolumes: No module name provided!";
   }
+  
+  # @todo Add a parameter to also get used shared volumes from other modules as
+  # well as exposed volumes (from GetModuleInfo()).
 
-  # Get all available volumes.
+  # Get all defined volumes.
   my @volumes;
   if (-d "$MODULE_DIR/$module/volumes") {
     if (opendir(my $dh, "$MODULE_DIR/$module/volumes")) {
@@ -3599,6 +3759,35 @@ sub GetProfile {
 
 =pod
 
+=head2 GetModuleConf
+
+B<Description>: Retrieves a module config from the modules config file.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=back
+
+B<Return>: (hash)
+
+A module config hash or an empty hash if the module is not installed.
+
+=cut
+
+sub GetModuleConf {
+  my ($module) = @_;
+  GetModulesConfig();
+  my $module_config = $_g_modules->{'config'}->{$module} || {};
+  return $module_config;
+}
+
+=pod
+
 =head2 SetModuleConf
 
 B<Description>: Adds a module to module config file.
@@ -3623,11 +3812,13 @@ B<Return>: (nothing)
 
 sub SetModuleConf {
   my ($module, $module_conf) = @_;
-  GetModuleConfig();
+  GetModulesConfig();
   $_g_modules->{'config'}->{$module} ||= {};
 
+  my $module_info = GetModuleInfo($module);
   $module_conf ||= {
     'status' => 'enabled',
+    'version' => $module_info->{'version'} || '',
   };
   $_g_modules->{'config'}->{$module} = $module_conf;
   my $yaml = CPAN::Meta::YAML->new($_g_modules->{'config'});
@@ -3670,7 +3861,7 @@ B<Return>: (nothing)
 
 sub RemoveModuleConf {
   my ($module) = @_;
-  GetModuleConfig();
+  GetModulesConfig();
   $_g_modules->{'config'}->{$module} ||= {};
 
   if ($_g_modules->{'config'}->{$module}) {
@@ -3688,6 +3879,77 @@ sub RemoveModuleConf {
       die "ERROR: failed to write module file '$MODULE_FILE':\n$!\n";
     }
   }
+}
+
+=pod
+
+=head2 ParseDependencies
+
+B<Description>: Parses a dependency line to extract dependencies. See
+$CONSTRAINT_REGEX and $DEPENDENCY_REGEX.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $dependencies: (string) (R)
+
+A dependency string.
+
+=back
+
+B<Return>: (hash ref)
+
+A dependency hash of the form:
+  {
+    'constraint' => <constraint>,
+    'dependencies' => [
+      {
+        'module' => <module_name>,
+        'version_constraint' => <version_constraint>,
+        'major_version' => <string>,
+        'minor_version' => <string>,
+        'element' => <service_or_volume_name>,
+      },
+      {
+        'module' => <module_name>,
+        'version_constraint' => <version_constraint>,
+        'major_version' => <string>,
+        'minor_version' => <string>,
+        'element' => <service_or_volume_name>,
+      },
+      ...
+    ],
+  }
+
+=cut
+
+sub ParseDependencies {
+  my ($dependencies) = @_;
+  
+  my ($constraint) = $dependencies =~ m/^$CONSTRAINT_REGEX/;
+  if (!$constraint) {
+    return {};
+  }
+  $dependencies =~ s/^$CONSTRAINT_REGEX\s+//;
+  my @module_dependencies;
+  while ($dependencies =~ m/$DEPENDENCY_REGEX/g) {
+    push(
+      @module_dependencies,
+      {
+        'module' => $1,
+        'version_constraint' => $2,
+        'major_version' => $3,
+        'minor_version' => $4,
+        'stability' => $5,
+        'element' => $6,
+      }
+    );
+  }
+  return {
+    'constraint' => $constraint,
+    'dependencies' => \@module_dependencies,
+  };
 }
 
 =pod
@@ -3977,7 +4239,22 @@ Restores a general backup of the GenoRing system from the backup directory
 
 =item B<update>:
 
-Updates GenoRing modules.
+Updates GenoRing or a given GenoRing module. "Update" will update the software
+and the data managed by GenoRing or the given module. "update" deals with what
+is managed by the GenoRing module itself while "upgrade" deals with the version
+of the GenoRing module: for instance, "updating" GenoRing core will update
+Drupal modules while upgrading will change the version of GenoRing used which
+may bring new features or a different behavior of the GenoRing platform.
+
+=item B<upgrade>:
+
+Upgrade GenoRing or a given GenoRing module. "Upgrade" will upgrade
+GenoRing core and its modules or the given GenoRing module to a newer version.
+Upgrading will also update the software and the data. "update" deals with what
+is managed by the GenoRing module itself while "upgrade" deals with the version
+of the GenoRing module: for instance, "updating" GenoRing core will update
+Drupal modules while upgrading will change the version of GenoRing used which
+may bring new features or a different behavior of the GenoRing platform.
 
 =item B<compile MODULE SERVICE [-arm[=ARCH]]>:
 
@@ -4267,6 +4544,14 @@ elsif ($command =~ m/^update$/i) {
     exit(1);
   }
   Update(@arguments);
+}
+elsif ($command =~ m/^upgrade$/i) {
+  # Check if installed.
+  if (!-e $DOCKER_COMPOSE_FILE) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
+  Upgrade(@arguments);
 }
 elsif ($command =~ m/^setup$/i) {
   # (Re)run environment setup and docker-compose.yml generation.

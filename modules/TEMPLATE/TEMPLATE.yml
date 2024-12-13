@@ -1,0 +1,88 @@
+# This is the file that describes the module and its content.
+name: "Name of the module"
+description: "A quick description of the module and what it provides."
+# The module version (used to support future updates).
+version: 1.0
+# services: Optional. The list of services provided by the module.
+# Each key is a service machine name with its characteristics.
+services:
+  genoring-service1:
+    name: "Service 1 name"
+    description: "Optional service 1 description."
+    # The service version
+    version: 1.0
+  genoring-service2:
+    name: "Service 2 name"
+    version: 1.0
+  #...
+
+# alternatives: Optional. The list of service alternatives.
+# Each key is a service alternative machine name with its characteristics.
+# Alternative service definitions are placed in the module "services/alt/"
+# directory.
+# Here "genoring-alternative1" is the machine name of an alternative. Multiple
+# alternatives can be defined here, one section after the other.
+alternatives:
+  genoring-alternative1:
+    name: "Alternative 1 name"
+    description: "Replaces NGINX server with Apache 2 HTTPd."
+    # substitue: Optional. The list of substitued services with their
+    # substitution service machine name. Those substitution names must
+    # correspond to a YAML file in the module "services/alt/" directory.
+    substitue:
+      genoring-service1: genoring-alt-service1
+    # add: Optional. The list of new services that are added. Those names must
+    # correspond to a YAML file in the module "services/alt/" directory.
+    add:
+    - genoring-new-service1
+    # remove: Optional. The list of existing services that are disabled.
+    remove:
+    - genoring-service2
+  genoring-alternative2:
+    # ...
+
+# volumes: Optional. The list of volumes provided by this module. Each key is a
+# volume machine name with its characteristics. For "shared" volumes, the type
+# must be set to "shared" and the machine name must correspond to a volume
+# definition placed in the module "volumes/" directory. For "exposed" volumes,
+# the machine name should not start with "genoring" but rather the module name.
+# Note: Volumes that are not shared nor exposed do not need to appear here.
+volumes:
+  genoring-some-volume:
+    name: "Some volume name"
+    description: "Description of what that volume contains."
+    # The volume type (default: "shared"). It can be one of:
+    # - "shared" for volumes that are defined by this module and that can be
+    #   shared amongst multiple other services and modules.
+    # - "exposed" for volumes that are not shared but exposed in the local file
+    #   system in the GenoRing "volumes/" directory.
+    type: "shared"
+    # mapping: Optional. Provides the name of the corresponding directory (or
+    # file) in the local file system relative to the GenoRing directory. Do not
+    # prefix with "./" or use a trailing slash. A starting slash indicates an
+    # absolute local file system path.
+    mapping: "volumes/somedir"
+  module-some-specific-volume:
+    name: "Specific volume name"
+    description: "Description of what that volume contains."
+    type: "exposed"
+    mapping: "volumes/specificdir"
+  # ...
+
+# dependencies: Optional. Defines module dependencies.
+dependencies:
+  # Lists required module services (or alternatives) with optional version
+  # constraint.
+  # Syntax: <"requires"|"conflicts"> CONSTRAINT [or CONSTRAINT] ...
+  #   CONSTRAINT: <module_name> [[VERSION_CONSTRAINT] major_version.minor_version] [service_name]
+  #   VERSION_CONSTRAINT: [=, <, <=, >, >=]
+  services:
+    - "requires genoring >=1.0"
+    - "requires genoring genoring-db"
+    - "requires genoring >=1.0 genoring-proxy or genoring 1.0 genoring-httpd"
+    - "conflicts genoring genoring-mysql"
+  # Lists required volumes from other modules with optional module version
+  # constraint.
+  volumes:
+    - "requires genoring genoring-data-volume"
+    - "requires genoring >= 1.0 genoring-backups-volume"

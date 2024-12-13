@@ -1,4 +1,3 @@
-# v1.0
 image: genoring
 build: ${PWD}/modules/genoring/src/genoring
 pull_policy: never

@@ -1,0 +1,27 @@
+name: "Gigwa"
+description: "A tool to explore large amounts of genotyping data by filtering it."
+version: 1.0
+services:
+  genoring-gigwa:
+    name: "Gigwa Tomcat"
+    description: "The Gigwa web application part."
+    version: 1.0
+  genoring-mongodb:
+    name: "MongoDB"
+    description: "The Mongo database service used by Gigwa."
+    version: 1.0
+volumes:
+  gigwa-config-volume:
+    name: "Gigwa config files"
+    description: "Contains Gigwa Tomcat config files."
+    type: "exposed"
+    mapping: "volumes/gigwa/config"
+  gigwa-mongodb-volume:
+    name: "MongoDB files"
+    description: "Contains MongoDB file system. Those files should not be edited and are there for system backup purposes."
+    type: "exposed"
+    mapping: "volumes/mongodb"
+dependencies:
+  volumes:
+    - "requires genoring genoring-data-volume"
+    - "requires genoring genoring-backups-volume"

@@ -1,4 +1,3 @@
-# v1.0
 image: genoring-jbrowse2
 env_file:
   - ${PWD}/env/jbrowse2_jbrowse2.env

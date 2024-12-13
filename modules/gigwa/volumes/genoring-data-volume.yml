@@ -1,6 +1,0 @@
-# v1.0
-driver: local
-driver_opts:
-  type: none
-  device: ${PWD}/volumes/data
-  o: bind

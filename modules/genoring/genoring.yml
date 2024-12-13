@@ -1,0 +1,58 @@
+name: "GenoRing Core"
+description: "Provides GenoRing content management system and includes a proxy server and a database server."
+version: 1.0
+services:
+  genoring:
+    name: "GenoRing CMS"
+    version: 1.0
+  genoring-db:
+    name: "GenoRing main PostgreSQL database service"
+    version: 1.0
+  genoring-proxy:
+    name: "GenoRing NGINX proxy service"
+    version: 1.0
+alternatives:
+  httpd:
+    description: "Replaces NGINX server with Apache 2 HTTPd."
+    substitue:
+      genoring-proxy: genoring-proxy-httpd
+volumes:
+  genoring-data-volume:
+    name: "Biological datasets"
+    description: "Contains all the releases of biological datasets that are used in applications."
+    type: "shared"
+    mapping: "volumes/data"
+  genoring-backups-volume:
+    name: "Backups"
+    description: "Contains backups stored by backup names and applications."
+    type: "shared"
+    mapping: "volumes/backups"
+  genoring-drupal-volume:
+    name: "Drupal"
+    description: "Contains all the Drupal file structure with config."
+    type: "shared"
+    mapping: "volumes/drupal"
+  genoring-core-offline-volume:
+    name: "Offline files"
+    description: "Contains offline static HTML files."
+    type: "exposed"
+    mapping: "volumes/offline"
+  genoring-core-pgdata-volume:
+    name: "PostgreSQL data"
+    description: "Contains PostgreSQL data file structure. Those files should not be edited and are there for system backup purposes."
+    type: "exposed"
+    mapping: "volumes/db/pgdata"
+  genoring-core-nginx-conf-file:
+    name: "NGINX configuration file"
+    type: "exposed"
+    mapping: "volumes/proxy/nginx/genoring-fpm.conf"
+  genoring-core-nginx-includes-volume:
+    name: "NGINX includes"
+    description: "Contains NGINX virtual host definitions to include."
+    type: "exposed"
+    mapping: "volumes/proxy/nginx/includes"
+  genoring-core-nginx-genoring-volume:
+    name: "NGINX genoring location includes"
+    description: "Contains NGINX location (or other directives) to include into the main genoring web host."
+    type: "exposed"
+    mapping: "volumes/proxy/nginx/genoring"
