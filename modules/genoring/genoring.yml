@@ -1,6 +1,7 @@
 name: "GenoRing Core"
 description: "Provides GenoRing content management system and includes a proxy server and a database server."
 version: 1.0
+genoring_script_version: 1.0
 services:
   genoring:
     name: "GenoRing CMS"

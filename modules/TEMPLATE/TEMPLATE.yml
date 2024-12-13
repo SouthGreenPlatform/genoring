@@ -3,6 +3,8 @@ name: "Name of the module"
 description: "A quick description of the module and what it provides."
 # The module version (used to support future updates).
 version: 1.0
+# Minimal version of GenoRing script.
+genoring_script_version: 1.0
 # services: Optional. The list of services provided by the module.
 # Each key is a service machine name with its characteristics.
 services:

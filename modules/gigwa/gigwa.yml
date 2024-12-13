@@ -1,6 +1,7 @@
 name: "Gigwa"
 description: "A tool to explore large amounts of genotyping data by filtering it."
 version: 1.0
+genoring_script_version: 1.0
 services:
   genoring-gigwa:
     name: "Gigwa Tomcat"
