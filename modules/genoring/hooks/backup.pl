@@ -5,6 +5,7 @@ use warnings;
 use Cwd qw();
 use File::Copy;
 use File::Spec;
+use File::Path qw(make_path);
 
 # Recursive function to copy directories.
 sub dircopy {
@@ -50,11 +51,13 @@ $backup ||= 'default';
 if (-d './volumes/proxy') {
   my $proxy_src_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'proxy');
   my $proxy_vol_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'backups', $backup, 'genoring', 'proxy');
+  make_path($proxy_vol_path);
   dircopy($proxy_src_path, $proxy_vol_path);
 }
 
 if (-d './volumes/offline') {
   my $offline_src_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'offline');
   my $offline_vol_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'backups', $backup, 'genoring', 'offline');
+  make_path($offline_vol_path);
   dircopy($offline_src_path, $offline_vol_path);
 }
