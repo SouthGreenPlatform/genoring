@@ -2966,7 +2966,7 @@ sub Compile {
   );
   my $service_src_path = File::Spec->catfile($MODULE_DIR, $module, 'src' , $service);
   Run(
-    "docker build -t $service $service_src_path",
+    "docker build --no-cache -t $service $service_src_path",
     "Failed to compile container (service ${module}[$service])",
     1,
     1
