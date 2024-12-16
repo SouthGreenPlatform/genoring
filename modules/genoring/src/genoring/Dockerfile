@@ -115,7 +115,7 @@ COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
 # Copy Drupal GenoRing distribution and setup file structure.
 COPY res /opt/genoring
-RUN chmod u+rx /opt/genoring/genoring
+RUN chmod uog+rx /opt/genoring/genoring
 RUN mkdir -p /opt/drupal && rm -rf /var/www/html && ln -sf /opt/drupal/web /var/www/html
 WORKDIR /opt/drupal
 

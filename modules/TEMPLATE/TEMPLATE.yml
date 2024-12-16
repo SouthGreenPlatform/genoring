@@ -46,9 +46,16 @@ alternatives:
 # volumes: Optional. The list of volumes provided by this module. Each key is a
 # volume machine name with its characteristics. For "shared" volumes, the type
 # must be set to "shared" and the machine name must correspond to a volume
-# definition placed in the module "volumes/" directory. For "exposed" volumes,
-# the machine name should not start with "genoring" but rather the module name.
-# Note: Volumes that are not shared nor exposed do not need to appear here.
+# definition placed in the module "volumes/" directory. "Shared" volume names
+# must have a specific structure descibed in the module
+# "TEMPLATE/volumes/README.md" file. For other volumes, the machine name must
+# start with "genoring-" followed by a dash and the local "volumes" path where
+# "volumes" is replaced by "volume" (no "s") and non-word characters are
+# replaced by dashes. For example, the Docker volume of the genoring module
+# using the path "${PWD}/volumes/subdir/some-dir.index" becomes
+# "genoring-subdir-some-dir-index".
+# Note: anonymous volumes that are not shared nor exposed (in the "volumes"
+# directory) do not need to appear here.
 volumes:
   genoring-some-volume:
     name: "Some volume name"

@@ -1,5 +1,0 @@
-# v1.0
-driver_opts:
-  type: none
-  device: ${PWD}/volumes/backups
-  o: bind

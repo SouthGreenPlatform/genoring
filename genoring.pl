@@ -818,6 +818,23 @@ sub Reinitialize {
         "Failed to remove GenoRing volumes for module '$module'!"
       );
     }
+    # Remove internal volumes if not exposed (ie. not cleaned by "volumes" local
+    # directory cleaning).
+    if ($g_flags->{'no-exposed-volumes'}) {
+      my $module_info = GetModuleInfo($module);
+      my @module_volumes;
+      foreach my $module_volume (keys(%{$module_info->{'volumes'}})) {
+        if (!grep(/$module_volume/, @$volumes)) {
+          push(@module_volumes, $module_volume);
+        }
+      }
+      if (@module_volumes) {
+        Run(
+          "docker volume rm -f " . join(' ', @module_volumes),
+          "Failed to remove GenoRing internal volumes for module '$module'!"
+        );
+      }
+    }
   }
   print "  ...OK.\n";
 
@@ -1187,6 +1204,63 @@ sub GenerateDockerComposeFile {
         'module' => $module,
         'definition' => '    ' . join('    ', <$svc_fh>),
       };
+      if ($g_flags->{'no-exposed-volumes'}) {
+        # Replace all exposed volumes by named volumes instead.
+        $services{$service}->{'definition'} =~ m~^    volumes:\s*\n((?:^      [^\n]*\n)+)~gsm;
+        my @service_volumes = split(/\n/, $1);
+        $services{$service}->{'definition'} =~ s~^    volumes:\s*\n(?:^      [^\n]*\n)+~    volumes:\n~gsm;
+        my @new_service_volumes;
+        while (@service_volumes) {
+          my $service_volume = shift(@service_volumes);
+          if ($service_volume =~ m~^      - type:\s*bind~) {
+            # For explicit binds, we keep them as they are. Indeed, in case of
+            # direct file binding, we can not use named volumes.
+            push(@new_service_volumes, $service_volume);
+            my $next_bind_line = 1;
+            do {
+              $service_volume = shift(@service_volumes);
+              if (!$service_volume) {
+                $next_bind_line = 0;
+              }
+              elsif ($service_volume =~ m~^      -~) {
+                $next_bind_line = 0;
+                unshift(@service_volumes, $service_volume);
+                $service_volume = undef;
+              }
+              else {
+                # if ($service_volume =~ m~^        source:\s+\$\{PWD\}/volumes/~) {
+                #   $service_volume =~ s~^        source:\s+\$\{PWD\}/volumes/~        source: genoring-volume-~;
+                #   $service_volume =~ s~[^\w\s:\-]~-~g;
+                #   my ($unexposed_volume) = $service_volume =~ m~^        source: (\S+)~;
+                #   $volumes{$unexposed_volume} = {
+                #     'module' => $module,
+                #     # We create (below) and manage non-exposed volumes before
+                #     # the use of Docker Compose.
+                #     'definition' => "    external: true\n",
+                #   };
+                # }
+                push(@new_service_volumes, $service_volume);
+              }
+            } while($next_bind_line);
+          }
+          elsif ($service_volume =~ m~^      - \$\{PWD\}/volumes/~) {
+            $service_volume =~ s~^      - \$\{PWD\}/volumes/~      - genoring-volume-~;
+            $service_volume =~ s~/(?=.*:)~-~g;
+            my ($unexposed_volume) = $service_volume =~ m~^      - (\S+)\s*:~;
+            $volumes{$unexposed_volume} = {
+              'module' => $module,
+              # We create (below) and manage non-exposed volumes before the use
+              # of Docker Compose.
+              'definition' => "    external: true\n",
+            };
+          }
+          if ($service_volume) {
+            push(@new_service_volumes, $service_volume);
+          }
+        }
+        my $new_service_vol = join("\n", @new_service_volumes);
+        $services{$service}->{'definition'} =~ s~^    volumes:\n~    volumes:\n$new_service_vol\n~gsm;
+      }
       close($svc_fh);
     }
 
@@ -1206,11 +1280,14 @@ sub GenerateDockerComposeFile {
       };
       if ($g_flags->{'no-exposed-volumes'}) {
         $volumes{$volume}->{'definition'} =~ s/^(\s+)driver[^\n]+\n?(?:\g1 [^\n]+\n?)*//gms;
+        # We create (below) and manage non-exposed volumes before the use of
+        # Docker Compose.
+        $volumes{$volume}->{'definition'} .= "    external: true\n";
       }
       close($vl_fh);
     }
     # Check required shared volume are available.
-    foreach my $volume_dep (@{$module_info->{'dependencies'}{'volumes'} || []}) {
+    foreach my $volume_dep (@{$module_info->{'dependencies'}{'volumes'}}) {
       my $dependencies = ParseDependencies($volume_dep);
       if ('requires' eq $dependencies->{'constraint'}) {
         $volume_dependencies->{$module} ||= [];
@@ -1267,14 +1344,38 @@ sub GenerateDockerComposeFile {
   }
 
   # Done with all modules, add proxy dependencies.
+  # @todo Manage proxy dependencies differently as it can be replaced.
   if (exists($services{'genoring-proxy'})) {
     $services{'genoring-proxy'}->{'dependencies'} = [@proxy_dependencies];
   }
 
   # Generate "services" and "volumes" sections from enabled services.
   print "  All modules processed.\n";
-  # Add other modules to genoring container dependencies (depends_on:).
   my $dc_fh;
+  # If $DOCKER_COMPOSE_FILE already exists, remove unused volumes.
+  if (open($dc_fh, '<:utf8', $DOCKER_COMPOSE_FILE)) {
+    my $compose_data = do { local $/; <$dc_fh> };
+    close($dc_fh);
+    if ($compose_data =~ m/(?:^|.*\n)volumes:/) {
+      # Removes what is before "volumes:".
+      $compose_data =~ s/(?:^|.*\n)volumes:\s*\n//s;
+      # Removes what is after.
+      $compose_data =~ s/^\S.*//sm;
+      # Get all currently defined volumes.
+      my @existing_volumes = $compose_data =~ m/^  ([\w\-]+):/gm;
+      # Remove unused volumes.
+      foreach my $unused_volume (@existing_volumes) {
+        if (!exists($volumes{$unused_volume})) {
+          Run(
+            "docker volume rm -f $unused_volume",
+            "Failed to remove GenoRing volume '$unused_volume'!"
+          );
+        }
+      }
+    }
+  }
+  
+  # Add other modules to genoring container dependencies (depends_on:).
   if (open($dc_fh, '>:utf8', $DOCKER_COMPOSE_FILE)) {
     print {$dc_fh} "# GenoRing docker compose file\n# WARNING: This file is auto-generated by genoring.sh script. Any direct\n# modification may be lost when genoring.pl will need to regenerate it.\n";
     # For each enabled service, add the section name, the indented definition,
@@ -1299,6 +1400,13 @@ sub GenerateDockerComposeFile {
       print {$dc_fh} "  $volume:\n";
       print {$dc_fh} $volumes{$volume}->{'definition'};
       print {$dc_fh} "    name: \"$volume\"\n";
+      # Manage non-exposed volumes.
+      if ($g_flags->{'no-exposed-volumes'}) {
+        Run(
+          "docker volume create $volume",
+          "Failed to create volume '$volume'."
+        );
+      }
     }
 
     # Check for extra hosts to add.
@@ -1786,6 +1894,11 @@ sub InstallModule {
 
     # Setup new environment variables.
     SetupGenoringEnvironment(undef, $module);
+
+    if (!exists($g_flags->{'hide-compile'})) {
+      # Compile missing containers with sources.
+      CompileMissingContainers();
+    }
 
     PerformLocalOperations($context);
 
@@ -2591,7 +2704,7 @@ sub Backup {
 
 B<Description>: Restores GenoRing from a given backup.
 
-B<ArgsCount>: 0-2
+B<ArgsCount>: 1-2
 
 =over 4
 
@@ -2692,6 +2805,47 @@ sub Restore {
 
   if ($@) {
     print "ERROR: Restore failed!\n$@\n";
+  }
+}
+
+=pod
+
+=head2 SyncVolumes
+
+B<Description>: Synchronizes files to or from local "volumes" directory to
+containers. This is only used when container volumes are not exposed to local
+file system.
+
+B<ArgsCount>: 0-2
+
+=over 4
+
+=item $to_local: (bool) (U)
+
+If not set (or false value), it will synchronize from local "volumes" directory
+to container directories. If set to a true value, it will synchronize container
+directories to local "volumes" directory.
+
+=item $module: (string) (O)
+
+Module machine name if only one module should be processed.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub SyncVolumes {
+  my ($to_local, $module) = @_;
+
+  if ($g_flags->{'no-exposed-volumes'}) {
+    my $errors = ApplyLocalHooks('volumes_sync', $module, $to_local);
+    if ($errors) {
+      foreach my $err_module (keys(%$errors)) {
+        warn "ERROR: $err_module: " . $errors->{$err_module} . "\n";
+      }
+    }
   }
 }
 
@@ -3591,7 +3745,7 @@ sub GetModuleVolumes {
     # Other cases.
     my $module_info = GetModuleInfo($module);
     if (('used' eq $type) || ('all' eq $type)) {
-      foreach my $volume_dep (keys(%{$module_info->{'dependencies'}{'volumes'} || {}})) {
+      foreach my $volume_dep (keys(%{$module_info->{'dependencies'}{'volumes'}})) {
         my $dependencies = ParseDependencies($volume_dep);
         foreach my $dependency (@{$dependencies->{'dependencies'}}) {
           if ($dependency->{'element'}) {
@@ -3609,7 +3763,7 @@ sub GetModuleVolumes {
       }
     }
     if (('shared' eq $type) || ('exposed' eq $type) || ('all' eq $type)) {
-      foreach my $volume (keys(%{$module_info->{'volumes'} || {}})) {
+      foreach my $volume (keys(%{$module_info->{'volumes'}})) {
         if ($type eq $module_info->{'volumes'}{$volume}->{'type'}) {
           push(@volumes, $volume);
         }
@@ -4386,8 +4540,9 @@ in such cases in reasonable time.
 
 =item B<-no-exposed-volumes>:
 
-Disables Docker exposed volumes. Must be used at installation time and each time
-the Docker Compose file is regenerated (module/service changes).
+Disables Docker exposed named (shared) volumes. Must be used at installation
+time and each time the Docker Compose file is regenerated (module/service
+changes).
 
 =item B<-no-backup>:
 
@@ -4554,11 +4709,16 @@ elsif ($g_flags->{'platform'} && ('1' ne $g_flags->{'platform'})) {
 #   $ENV{'DOCKER_DEFAULT_PLATFORM'} = $g_flags->{'platform'};
 # }
 
-# For Windows FS, we can't use exposed FS as it crashes so we force set the
-# appropriate flag.
+# For Windows FS, we can't use exposed shared FS as it crashes so we force set
+# the appropriate flag.
 if (('Win32' eq $os) && (!defined($g_flags->{'no-exposed-volumes'}))) {
-  print "NOTE: Exposed volumes are disabled in Windows system to avoid issues.\n";
+  print "NOTE: Exposed named (shared) volumes are disabled in Windows system to avoid issues.\n";
   $g_flags->{'no-exposed-volumes'} = 1;
+}
+
+if ($g_flags->{'no-exposed-volumes'}) {
+  # Set environment variable for other scripts.
+  $ENV{'GENORING_NO_EXPOSED_VOLUMES'} = '1';
 }
 
 # Set waiting time.
@@ -4688,8 +4848,8 @@ elsif ($command =~ m/^moduleinfo$/i) {
   $description =~ s/\n/\n    /g;
   print "Description: " . $description . "\n";
   print "Version: " . ($module_info->{'version'} || 'n/a') . "\n";
-  print "Services: " . join(', ', keys(%{$module_info->{'services'} || {}})) . "\n";
-  print "Volumes: " . join(', ', keys(%{$module_info->{'volumes'} || {}})) . "\n";
+  print "Services: " . join(', ', keys(%{$module_info->{'services'}})) . "\n";
+  print "Volumes: " . join(', ', keys(%{$module_info->{'volumes'}})) . "\n";
   # @todo Add alternatives and dependencies.
 }
 elsif ($command =~ m/^volumes$/i) {

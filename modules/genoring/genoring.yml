@@ -33,26 +33,22 @@ volumes:
     description: "Contains all the Drupal file structure with config."
     type: "shared"
     mapping: "volumes/drupal"
-  genoring-core-offline-volume:
+  genoring-volume-offline:
     name: "Offline files"
     description: "Contains offline static HTML files."
     type: "exposed"
     mapping: "volumes/offline"
-  genoring-core-pgdata-volume:
+  genoring-volume-db-pgdata:
     name: "PostgreSQL data"
     description: "Contains PostgreSQL data file structure. Those files should not be edited and are there for system backup purposes."
     type: "exposed"
     mapping: "volumes/db/pgdata"
-  genoring-core-nginx-conf-file:
-    name: "NGINX configuration file"
-    type: "exposed"
-    mapping: "volumes/proxy/nginx/genoring-fpm.conf"
-  genoring-core-nginx-includes-volume:
+  genoring-volume-proxy-nginx-includes:
     name: "NGINX includes"
     description: "Contains NGINX virtual host definitions to include."
     type: "exposed"
     mapping: "volumes/proxy/nginx/includes"
-  genoring-core-nginx-genoring-volume:
+  genoring-volume-proxy-nginx-genoring:
     name: "NGINX genoring location includes"
     description: "Contains NGINX location (or other directives) to include into the main genoring web host."
     type: "exposed"
