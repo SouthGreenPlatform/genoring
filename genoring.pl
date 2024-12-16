@@ -403,11 +403,13 @@ B<Return>: (nothing)
 =cut
 
 sub StopGenoring {
-  Run(
-    "docker compose --profile \"*\" down --remove-orphans",
-    "Failed to stop GenoRing!",
-    1
-  );
+  if (-e $DOCKER_COMPOSE_FILE) {
+    Run(
+      "docker compose --profile \"*\" down --remove-orphans",
+      "Failed to stop GenoRing!",
+      1
+    );
+  }
   ApplyLocalHooks('stop');
 }
 
