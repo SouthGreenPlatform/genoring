@@ -18,11 +18,11 @@ Syntax:
   | modules | services | volumes | alternatives <MODULE> | moduleinfo <MODULE>
   | setup [-auto | -minimal] [-reset]
   | reset [-f] [-delete-containers] [-keep-env]
-  | enable <MODULE> | disable <MODULE> | uninstall <MODULE>
+  | enable <MODULE> | disable <MODULE> | uninstall <MODULE> [-keep-env]
   | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
   | update [MODULE] | upgrade [MODULE]
-  | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-cache]
+  | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-no-cache]
   | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
   [-yes|-no] [-hide-compile]
@@ -1812,7 +1812,7 @@ sub Upgrade {
   else {
     print "Upgrading GenoRing...\n";
   }
-
+  # @todo Implement.
   die "EROR: Not implemented yet!\n";
 }
 
@@ -2110,7 +2110,7 @@ sub DisableModule {
     # Perform local hooks if needed.
     PerformLocalOperations($context);
 
-    if ($uninstall) {
+    if ($uninstall && !$g_flags->{'keep-env'}) {
       # Remove module environment files.
       RemoveEnvFiles($module);
     }
@@ -2893,8 +2893,10 @@ sub ApplyLocalHooks {
       }
       print "  Processing $module module hook $hook_name...";
       my $hook_script = File::Spec->catfile($MODULE_DIR, $module, 'hooks', "$hook_name.pl");
+      # @todo Add environment variables.
       eval {
         Run(
+          # "export \$(cat env/*.env | grep '^\w'| xargs -d '\\n') && perl $hook_script $args",
           "perl $hook_script $args",
           "Failed to process $module module hook $hook_name!",
           1
@@ -3064,6 +3066,7 @@ APPLYCONTAINERHOOKS_HOOKS:
             $initialized_containers{$service} = 1;
           }
           # Make sure script is executable.
+          # @todo Provide environment variables.
           my $output = Run(
             "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service sh -c \"chmod +x /genoring/$MODULE_DIR/$module/hooks/$hook && /genoring/$MODULE_DIR/$module/hooks/$hook $args\"",
             "Failed to run hook of $module in $service (hook $hook)"
@@ -3216,9 +3219,9 @@ sub Compile {
     1
   );
   my $service_src_path = File::Spec->catfile($MODULE_DIR, $module, 'src' , $service);
-  my $no_cache = '--no-cache';
-  if ($g_flags->{'cache'}) {
-    $no_cache = '';
+  my $no_cache = '';
+  if ($g_flags->{'no-cache'}) {
+    $no_cache = '--no-cache';
   }
   Run(
     "docker build $no_cache -t $service $service_src_path",
@@ -4397,9 +4400,10 @@ Installs and enables the given GenoRing module.
 
 Disables the given GenoRing module.
 
-=item B<uninstall MODULE>:
+=item B<uninstall MODULE [-keep-env]>:
 
-Uninstalls the given GenoRing module.
+Uninstalls the given GenoRing module. If -keep-env flag is used, settings are
+not removed.
 
 =item B<enalt MODULE SERVICE>:
 
@@ -4450,7 +4454,7 @@ of the GenoRing module: for instance, "updating" GenoRing core will update
 Drupal modules while upgrading will change the version of GenoRing used which
 may bring new features or a different behavior of the GenoRing platform.
 
-=item B<compile MODULE SERVICE [-arm[=ARCH]]>:
+=item B<compile MODULE SERVICE [-arm[=ARCH]] [-no-cache]>:
 
 Compiles the Docker container corresponding to the given module service if
 sources are available. For ARM systems, you must use the "-arm" flag. It is also

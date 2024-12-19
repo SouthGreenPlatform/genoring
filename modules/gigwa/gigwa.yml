@@ -12,12 +12,12 @@ services:
     description: "The Mongo database service used by Gigwa."
     version: 1.0
 volumes:
-  gigwa-config-volume:
+  genoring-volume-gigwa-config:
     name: "Gigwa config files"
     description: "Contains Gigwa Tomcat config files."
     type: "exposed"
     mapping: "volumes/gigwa/config"
-  gigwa-mongodb-volume:
+  genoring-volume-mongodb:
     name: "MongoDB files"
     description: "Contains MongoDB file system. Those files should not be edited and are there for system backup purposes."
     type: "exposed"

@@ -7,7 +7,8 @@ Remaining tasks:
 - Improve permissions/owners on "volumes" files
 - Have backup volume only writable during backup operations (or for "backend"
   profile?)
-- Use a common compose file for data and backup volumes?
-  https://docs.docker.com/compose/how-tos/multiple-compose-files/extends/
 - See how to manage local file system operations (hooks) on Windows systems
   since there is no exposed volumes. Work through a container?
+- "genoring" container script API should be defined and documented. Several
+  functions should use YAML input file for better evolution and optional support
+  for extra features.

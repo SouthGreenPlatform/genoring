@@ -1,0 +1,16 @@
+name: 'Gigwa'
+uri: 'http://genoring-gigwa:8080/gigwa/'
+path: '/gigwa'
+passthrough:
+  - '/docs/gigwa_docs.html'
+filtering:
+  -
+    type: selector
+    filter: 'nav.navbar ul.nav'
+    operation: replace
+    new_content: " <ul class=\"nav navbar-nav navbar-right\">\r\n            <li><a href=\"/gigwa/rest/swagger-ui/index.html\" target=\"_blank\" data-toggle=\"tooltip\" data-placement=\"bottom\" title=\"\" data-original-title=\"Rest API Swagger\"><span class=\"glyphicon glyphicon-leaf margin-icon\" aria-hidden=\"true\"></span>Rest APIs</a></li>\r\n            <li><a href=\"#\" onclick=\"$('#manual').modal('show');\" data-toggle=\"tooltip\" data-placement=\"bottom\" title=\"\" data-original-title=\"Display online documentation\"><span class=\"glyphicon glyphicon-book margin-icon\" aria-hidden=\"true\"></span>Docs</a></li>\r\n          </ul>"
+  -
+    type: regexp
+    filter: '<nav\s+'
+    operation: replace
+    new_content: '<nav style="background: #607080;" '

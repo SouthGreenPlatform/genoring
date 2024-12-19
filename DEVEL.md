@@ -8,6 +8,7 @@ develop GenoRing modules.
 - Directory structure of GenoRing
 - Structure of a GenoRing module
 - Implementing a GenoRing module
+- GenoRing core API
 
 ## Directory structure of GenoRing
 
@@ -213,6 +214,10 @@ directory. A GenoRing module is a directory with the following structure:
     "offline" mode.
   - "online_<service_name>.sh" will be triggered when GenoRing is started
     normally (online mode).
+  - "requirements.pl" will be called on the local system to check a module
+    requirements when a module is installed. If the "requirements.pl" returns a
+    non-zero exit code, it means some requirements are not met. Message output
+    will be displayed to help the user know what is missing.
   - "restore.pl" will be called on the local system when a backup should be
     restored. The first argument provided is the backup machine name.
   - "restore_<service_name>.sh" will be called on the corresponding container
@@ -230,9 +235,18 @@ directory. A GenoRing module is a directory with the following structure:
   - "uninstall.pl" will be called on the local system when the module is
     disabled and uninstalled. The module will be disabled first and "disable.pl"
     will be called by the system before "uninstall.pl".
-  - "update.pl" will be called on the local system when the module is updated.
+  - "update.pl" will be called on the local system when what is managed by the
+    module (tools, data, etc.) needs to/should be updated.
   - "update_<service_name>.sh" will be called on the corresponding container
-    to perform updates.
+    to perform updates on things managed by the module (tools, data, etc.).
+  - "upgrade.pl" will be called on the local system when the *GenoRing* module
+    is updated to a newer version. The first parameter is the previous version
+    of the module that needs to be upgraded using currently installed newer
+    version.
+  - "upgrade_<service_name>.sh" will be called on the corresponding container
+    to perform upgrade of a GenoRing module. The first parameter is the previous
+    version of the module that needs to be upgraded using currently installed
+    newer version.
   Note: When running shell scripts inside containers, the GenoRing "modules"
   directory is copied in the container as "/genoring/modules" and allow access
   to module's files if needed (like the module "res" directory for instance).
@@ -260,4 +274,157 @@ directory. A GenoRing module is a directory with the following structure:
 
 
 ## Implementing a GenoRing module
-@todo To be documented...
+
+Use material provided in "modules/TEMPLATE".
+@todo To be documented/completed...
+
+
+## GenoRing core API
+
+"GenoRing core module" refers to the "genoring" module in the "modules"
+directory. It is responsible of running the CMS -by default Drupal-. The core
+module uses 3 containers: one for the database, one for the HTTP proxy and one
+holding the CMS code. The main container is the one holding the CMS and
+refered as the "genoring" container. That container holds a script named
+"genoring" that is responsible of "running" the CMS as well as performing a set
+of commands on that CMS.
+
+Using such a script allows to replace the Drupal CMS by any other CMS as long as
+the commands of the "genoring" script are implemented. For interactions with
+the "genoring" container, other modules must (should) only rely on that script
+rather than directly issuing a complex series of shell commands.
+
+For instance, to install a new Drupal module on the Drupal CMS, it could be
+achieved using "composer require drupal/some_module" and then enable it using
+"drush pm-enable some_module". But if somebody wants to implement a replacement
+GenoRing core module using a different CMS, the "composer" and "drush" script
+will not be available and the module hooks calling them will fail. However, if
+a "genoring" script is used to handle generic tasks such as installing a CMS
+module on the main "genoring" container, it becomes possible for a core
+replacement to implement such a script, handle the commands and adapt them as
+needed. Now, it is up to the core replacement developer to handle or not the
+installation of a "some_module" module on the replacement CMS.
+
+Most of the commands of the "genoring" script work with a YAML file to allow
+more flexibility. In the future, if there are GenoRing core alternatives, some
+additional YAML fields may be used specificly by an implementation and ignored
+by others. However, GenoRing modules must provide a minimum YAML file structure
+as described below for each command.
+
+The commands supported by the main "genoring" container script "genoring" are:
+
+* help: displays a help message explaining the supported commands.
+
+* start: starts the CMS in foreground mode. It is the endpoint command to use
+  for the container.
+
+* install_module <module>: downloads and installs the given module.
+
+* uninstall_module <module>: uninstalls and removes the given module.
+
+* add_menuitem <YAML>: adds the given menu item to a given CMS menu. If the URI
+  is already in use, the menu item is not added.
+  YAML file structure:
+    ---
+    uri: <string>   # URI of the menu link.
+    label: <string> # Label of the menu item.
+    menu: <string>  # Optional machine name of the target menu.
+                    # Default to "main".
+
+* remove_menuitem <YAML>: removes all the menu items with the given URI.
+  YAML file structure:
+    ---
+    uri: <string> # URI of the menu link.
+
+* add_page <YAML>: adds a page to the site.
+  YAML file structure:
+    ---
+    name: <string>    # Page machine name. Can be used as URL path name.
+    title: <string>   # Page title.
+    content: <string> # Page HTML content.
+
+* remove_page <YAML>: removes a page from the site.
+  YAML file structure:
+    ---
+    name: <string>    # Page machine name.
+
+* add_integration <YAML>:
+  YAML file structure:
+    ---
+    name: <string> # Integration name.
+    uri: <string>  # URI of the site to integrate.
+    path: <string> # Site path to access the integration.
+
+* remove_integration <YAML>:
+  YAML file structure:
+    ---
+    name: <string> # Integration name.
+
+* add_user <YAML>: adds the user with the given 'user_name', 'email' and
+  'password' to the CMS.
+  YAML file structure:
+    ---
+    user_name: <string> # User login.
+    email: <string>     # User e-mail address.
+    password: <string>  # User password.
+
+* remove_user <user_name>: removes the user that uses the name 'user_name' from
+  the CMS (reassigning owned content to 'anonymous').
+  YAML file structure:
+    ---
+    user_name: <string> # User login.
+
+* add_group <YAML>: adds the role 'group_name' to the CMS.
+  YAML file structure:
+    ---
+    group_name: <string> # The group or role name.
+
+* remove_group <group_name>: removes the role 'group_name' from the CMS.
+  YAML file structure:
+    ---
+    group_name: <string> # The group or role name.
+
+* add_user_to_group <YAML>: gives the given role to the given user.
+  YAML file structure:
+    ---
+    user_name: <string>  # User login.
+    group_name: <string> # The group or role name.
+
+* remove_user_from_group <YAML>: removes the given role from the given user.
+  YAML file structure:
+    ---
+    user_name: <string>  # User login.
+    group_name: <string> # The group or role name.
+
+* add_permission <YAML>: grants the given permission to the given group.
+  YAML file structure:
+    ---
+    permission: <string> # Permission name.
+    group_name: <string> # Optional group or role name. If not set, gives the
+                         # permission to everybody.
+
+* remove_permission <YAML>: removes the given permission from the given group.
+  YAML file structure:
+    ---
+    permission: <string> # Permission name.
+    group_name: <string> # Optional group or role name. If not set, remove the
+                         # permission from everybody.
+
+* backup [backup_name]: generates a CMS site archive using the given name.
+  Default name should include the date in the format 'backup_YYYYMMDD_HHIISS'
+  where YYYY is the year, MM the month, DD the day of the month, HH current hour
+  (24H format), II current minute and SS current second.
+
+* restore <backup_name>: restores a CMS site archive from the given backup name.
+
+* command <command> [arguments...]: runs a shell command. Using
+  `genoring command ...` rather than the shell command directly allows genoring
+   core replacement to handle and replaces some specific commands such as
+   "drush" commands or "composer" commands.
+
+* update: performs the CMS and extensions updates. Handles site backup and
+  restore in case of update failure.
+
+* offline: sets the site offline and displays a maintenance message.
+
+* online: sets the site back online (after an "offline" command).

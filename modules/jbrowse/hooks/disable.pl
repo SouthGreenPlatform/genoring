@@ -7,13 +7,13 @@ use warnings;
 
 # Remove proxy configs.
 if (-d './volumes/proxy/nginx/genoring') {
-  if (-e './volumes/proxy/nginx/genoring/gigwa.conf') {
-    unlink './volumes/proxy/nginx/genoring/gigwa.conf';
+  if (-e './volumes/proxy/nginx/genoring/jbrowse.conf') {
+    unlink './volumes/proxy/nginx/genoring/jbrowse.conf';
   }
 }
 if (-d './volumes/proxy/httpd/genoring') {
-  if (-e './volumes/proxy/httpd/genoring/gigwa.conf') {
-    unlink './volumes/proxy/httpd/genoring/gigwa.conf';
+  if (-e './volumes/proxy/httpd/genoring/jbrowse.conf') {
+    unlink './volumes/proxy/httpd/genoring/jbrowse.conf';
   }
 }
 

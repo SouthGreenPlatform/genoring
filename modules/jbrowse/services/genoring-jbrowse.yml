@@ -1,7 +1,7 @@
 image: genoring-jbrowse
 build: ${PWD}/modules/jbrowse/src/genoring-jbrowse
 pull_policy: never
-
+profiles: ["backend"]
 env_file:
   - ${PWD}/env/jbrowse_jbrowse.env
 ports:
