@@ -1,7 +1,10 @@
 # GenoRing
 
-GenoRing is a platform for genomic tools that fulfills GenoRing framework.
+GenoRing is both a platform and a framework designed to handle biological data
+through an easy-to-deploy web portal that integrates "à la carte" bioinformatics
+tools.
 
+[![MIT license](https://img.shields.io/badge/License-MIT-blue.svg)](https://lbesson.mit-license.org/)
 
 ## Table of contents
 
@@ -15,10 +18,41 @@ GenoRing is a platform for genomic tools that fulfills GenoRing framework.
 
 ## Description
 
-GenoRing is a platform for genomic tools that fulfills GenoRing framework.
-The core of GenoRing is the GenoRing Drupal distribution that articulates other
-tools all together using Docker features. GenoRing can operate on a variety of
-genomic data as well as other types of scientific data through modules.
+GenoRing is both a platform and a framework designed to handle biological data
+through an easy-to-deploy web portal that integrates "à la carte" bioinformatics
+tools. By promoting open science principles, GenoRing aims to empower
+laboratories and research teams -particularly those with limited resources- to
+effortlessly establish and maintain bioinformatics tools for curating and
+sharing their data.
+
+The platform serves as a central hub for data exploration, ensuring efficient
+storage, usage, and accessibility with minimal effort. Installation, startup,
+and maintenance are simplified, requiring only a few command lines and minimal
+software prerequisites. The user-friendly graphical interface enables easy
+configuration, alignment with standard data models, and utilization of
+preconfigured tools, including data-sharing functionalities, thereby minimizing
+setup challenges and saving time.
+
+The framework features a highly flexible and easily extensible architecture.
+GenoRing employs a modular approach: each component of GenoRing, including its
+core, is a module that can be deployed individually while maintaining tight
+integration with other enabled modules. It uses a hooking mechanism to allow
+modules to handle a wide range of events, interact with each other, and manage
+data. Modules can range from simple scripts to complex applications, which are
+easily deployed using Docker containers. The framework supports module
+alternatives, enabling users to switch between multiple tool variants to select
+the most appropriate one for a given problem. Furthermore, provided Docker
+services can be replaced with local or external services -particularly if they
+are more efficient (ie. HPC)— with minimal configuration changes.
+
+The base version of the GenoRing platform is shipped with the Drupal CMS and a
+basic set of modules, primarily based on Docker. It only requires PERL (core) to
+manage the platform and Docker for easy deployment. Once the GenoRing platform
+is downloaded from the GitHub project, it can be set up and launched with a
+single command line. Customizable settings are managed through an interactive
+prompt. After the Drupal portal is fully initialized, additional customization
+and data-loading features become available through the web interface.
+
 
 ### Features
 
@@ -241,6 +275,10 @@ If you still encounter problems, try:
 ```
   # perl genoring.pl reset -delete-containers
 ```
+To clear all previous trials and get a clean install but keep current config:
+```
+  # perl genoring.pl reset -keep-env
+```
 
 Generate a backup:
 ```
@@ -316,9 +354,9 @@ A. Just open a web browser and use the URL http://your.host.name-or-ip:8080/
    access it through: http://localhost:8080/
    Currently, HTTPS (SSL) is not supported but it will in future versions.
 
-Q. Why GenoRing relies on a PREL script to manage everything?
+Q. Why GenoRing relies on a PERL script to manage everything?
 A. The main goals of GenoRing are to be easy to use, with very few requirements,
-  to be modulable and, easy to maintain.
+  to be modular and, easy to maintain.
   Running it with a single command line was a key point. Several choices were
   possible:
   - Aks the user to use Docker compose commands but it would require the user to
@@ -329,15 +367,15 @@ A. The main goals of GenoRing are to be easy to use, with very few requirements,
     well. That's why using a script was unavoidable for simplicity.
   - A shell script could have been used. While shell scripts don't require any
     software installation on Linux or Mac systems, they would not work on
-    Windows systems. Furthernore, there are many reasons to avoid shell scripts:
+    Windows systems. Furthermore, there are many reasons to avoid shell scripts:
     https://mywiki.wooledge.org/BashPitfalls
   - A PERL Script: that's the solution we choose because PERL is natively
     available on most systems and easy (and free) to install on Windows as well.
     And to reduce any other requirements, only standard PERL libraries are used.
   - A python script, a PHP script,... could have been used but they all require
-    a language interpretor to be installed which would mean additional
+    a language interpreter to be installed which would mean additional
     requirements. There also could be issues due to incompatibles versions of
-    installed softwares.
+    installed software.
   - Maybe other more complex solutions exist as well but a PERL script remains a
     simple choice and still not too complex to maintain.
 

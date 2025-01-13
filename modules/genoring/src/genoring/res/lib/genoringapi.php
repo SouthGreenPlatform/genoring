@@ -97,7 +97,7 @@ switch ($command) {
     if (empty($yaml['menu'])) {
       $yaml['menu'] = 'main';
     }
-    
+
     if (0 !== stripos($yaml['uri'], 'http')) {
       if ('/' == $yaml['uri'][0]) {
         $yaml['uri'] = 'internal:' . $yaml['uri'];
@@ -272,7 +272,7 @@ switch ($command) {
       fwrite(STDERR, "ERROR: GenoRing API: Missing user password ('password' field in '$yaml_path')!\n");
       exit(1);
     }
-    
+
     // Add user.
     $site_alias = Drush::service('site.alias.manager')->getSelf();
     $process = Drush::processManager()->drush(
@@ -299,7 +299,7 @@ switch ($command) {
       fwrite(STDERR, "ERROR: GenoRing API: Missing user name ('user_name' field in '$yaml_path')!\n");
       exit(1);
     }
-    
+
     // Remove user.
     $site_alias = Drush::service('site.alias.manager')->getSelf();
     $process = Drush::processManager()->drush(
@@ -323,7 +323,7 @@ switch ($command) {
       fwrite(STDERR, "ERROR: GenoRing API: Missing group name ('group_name' field in '$yaml_path')!\n");
       exit(1);
     }
-    
+
     // Add role.
     $site_alias = Drush::service('site.alias.manager')->getSelf();
     $process = Drush::processManager()->drush(
@@ -349,7 +349,7 @@ switch ($command) {
       fwrite(STDERR, "ERROR: GenoRing API: Missing group name ('group_name' field in '$yaml_path')!\n");
       exit(1);
     }
-    
+
     // Remove role.
     $site_alias = Drush::service('site.alias.manager')->getSelf();
     $process = Drush::processManager()->drush(
@@ -378,7 +378,7 @@ switch ($command) {
       fwrite(STDERR, "ERROR: GenoRing API: Missing group name ('group_name' field in '$yaml_path')!\n");
       exit(1);
     }
-    
+
     // Add user to role.
     $site_alias = Drush::service('site.alias.manager')->getSelf();
     $process = Drush::processManager()->drush(
@@ -408,7 +408,7 @@ switch ($command) {
       fwrite(STDERR, "ERROR: GenoRing API: Missing group name ('group_name' field in '$yaml_path')!\n");
       exit(1);
     }
-    
+
     // Remove user from role.
     $site_alias = Drush::service('site.alias.manager')->getSelf();
     $process = Drush::processManager()->drush(
@@ -438,7 +438,7 @@ switch ($command) {
       fwrite(STDERR, "ERROR: GenoRing API: Missing permission name ('permission' field in '$yaml_path')!\n");
       exit(1);
     }
-    
+
     // Add permission to role.
     $site_alias = Drush::service('site.alias.manager')->getSelf();
     $process = Drush::processManager()->drush(
@@ -467,7 +467,7 @@ switch ($command) {
       fwrite(STDERR, "ERROR: GenoRing API: Missing permission name ('permission' field in '$yaml_path')!\n");
       exit(1);
     }
-    
+
     // Remove permission from role.
     $site_alias = Drush::service('site.alias.manager')->getSelf();
     $process = Drush::processManager()->drush(
@@ -492,4 +492,3 @@ switch ($command) {
     exit(1);
     break;
 }
-

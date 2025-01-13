@@ -39,7 +39,9 @@ The "SERVICE" part of the name of a container hook should be replaced by the
 name of a service (ie. Docker container name). The given container hook will be
 executed in that container, using the container specificities (ie. if it is a
 Linux image with bash, the script could start with "#!/bin/bash", but if it's an
-Alpine image, using "#!/bin/ash" would be more appropriate).
+Alpine image, using "#!/bin/ash" would be more appropriate, and in both cases,
+using "#!/bin/sh" would work and ensure future compatibility in case of image
+changes).
 
 Container hook scripts are always made executable in the container to avoid
 issues with local script that do not have the appropriate execution permission
