@@ -27,6 +27,10 @@
 
 FROM nginx
 ENV DEBIAN_FRONTEND noninteractive
+ENV JBROWSE_SAMPLE_DATA=/jbrowse/sample_data/
+ENV JBROWSE_DATA=/jbrowse/data/
+ENV JBROWSE=/jbrowse/
+ENV DATA_DIR=/data/
 
 RUN apt-get -qq update --fix-missing
 RUN apt-get --no-install-recommends -y install git build-essential zlib1g-dev libxml2-dev libexpat-dev postgresql-client libpq-dev npm

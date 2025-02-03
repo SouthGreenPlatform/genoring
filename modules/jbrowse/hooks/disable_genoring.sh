@@ -1,8 +1,9 @@
-#!/bin/bash
+#!/bin/sh
 
 # Automatically exit on error.
 set -e
 
 # Add JBrowse menu item.
-genoring remove_menuitem '/jbrowse/'
+genoring remove_menuitem /genoring/modules/jbrowse/res/menu.yml
 
+genoring command drush cr
