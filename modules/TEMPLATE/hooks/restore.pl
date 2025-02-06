@@ -14,7 +14,7 @@ use File::Spec;
 ++$|; # No buffering.
 my ($backup) = @ARGV;
 $backup ||= 'default';
-my $backup_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'backups', $backup, 'MODULE');
+my $backup_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'MODULE');
 
 # This script should be able to reverse the work done by its sibbling backup
 # hook script.

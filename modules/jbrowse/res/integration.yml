@@ -1,0 +1,6 @@
+name: 'JBrowse'
+uri: 'http://genoring-jbrowse:80/'
+path: '/jbrowse'
+height: '500px'
+passthrough: []
+filtering: []

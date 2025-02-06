@@ -19,6 +19,6 @@ examples. Only shared volumes specificaly provided and shared by this module
 should be defined here. Other used shared volumes, used by this module, can be
 set in the module main YAML file.
 
-Note: When using local path, use the syntax "${PWD}/volumes/[...]", where
-"[...]" is a sub-directory of the local "volumes" directory. This is required to
-support Win32 systems as well as the "-no-exposed-volumes" option.
+Note: When using local path, use the syntax "$GENORING_VOLUMES_DIR/[...]",
+where "[...]" is a sub-directory of the local "volumes" directory. This is
+required to support Win32 systems as well as the "-no-exposed-volumes" option.

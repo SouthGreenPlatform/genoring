@@ -78,7 +78,7 @@ B<$GENORING_VERSION>: (string)
 
 Current GenoRing script version.
 
-B<$BASEDIR>: (string)
+B<$GENORING_DIR>: (string)
 
 Installation directory of GenoRing.
 
@@ -93,6 +93,10 @@ Name of the module config file.
 B<$MODULE_DIR>: (string)
 
 Name of the module directory.
+
+B<$VOLUME_DIR>: (string)
+
+Name of the shared docker volume directory.
 
 B<$EXTRA_HOSTS>: (string)
 
@@ -145,11 +149,12 @@ Hash associating an OS name ($^O) to a normalized OS architecture.
 =cut
 
 our $GENORING_VERSION = '1.0';
-our $BASEDIR = dirname(__FILE__);
-$BASEDIR = Cwd::cwd() if ('.' eq $BASEDIR);
+our $GENORING_DIR = dirname(__FILE__);
+$GENORING_DIR = Cwd::cwd() if ('.' eq $GENORING_DIR);
 our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
 our $MODULE_FILE = 'modules.yml';
-our $MODULE_DIR = 'modules';
+our $MODULE_DIR = File::Spec->catfile($GENORING_DIR, 'modules');
+our $VOLUME_DIR = $ENV{'GENORING_VOLUMES_DIR'} || File::Spec->catfile(Cwd::cwd(), 'volumes');
 our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $STATE_MAX_TRIES = 300;
 our $DEFAULT_ARCHITECTURE = 'linux/amd64';
@@ -362,7 +367,7 @@ sub StartGenoring {
     $ENV{'COMPOSE_PROFILES'} = 'offline';
   }
   # Check that genoring docker is not already running.
-  my ($id, $state, $name, $image) = IsContainerRunning('genoring');
+  my ($id, $state, $name, $image) = IsContainerRunning($ENV{'COMPOSE_PROJECT_NAME'});
   if (!$state || ($state !~ m/running/)) {
     ApplyLocalHooks('start');
     # Not running, start it.
@@ -516,6 +521,7 @@ sub GetState {
   my $state = '';
   if ($container) {
     (undef, $state) = IsContainerRunning($container);
+    $state ||= '';
   }
   else {
     my $states = qx(docker compose ps --all --format "{{.Names}} {{.State}}");
@@ -571,7 +577,7 @@ sub IsContainerRunning {
 
   if (!$container) {
     warn "WARNING: IsContainerRunning: Missing container name!";
-    return '';
+    return ();
   }
   my $ps_all = qx(docker ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}");
   my @ps = split(/\n+/, $ps_all);
@@ -659,8 +665,9 @@ sub GetModuleRealState {
         }
         $logs = '';
         foreach my $service (@{GetModuleServices($module)}) {
-          if (IsContainerRunning($service)) {
-            $logs .= "==> $service:\n" . qx(docker logs -n 4 $service 2>&1) . "\n";
+          my $service_name = GetContainerName($service);
+          if (IsContainerRunning($service_name)) {
+            $logs .= "==> $service:\n" . qx(docker logs -n 4 $service_name 2>&1) . "\n";
           }
         }
         # Remove non-printable characters (but keep line breaks).
@@ -718,7 +725,8 @@ sub GetModuleRealState {
     # Get module services.
     foreach my $service (@{GetModuleServices($module)}) {
       # Check service is running.
-      my $service_state = GetState($service);
+      my $service_name = GetContainerName($service);
+      my $service_state = GetState($service_name);
       if ($service_state !~ m/^(?:running|backend|offline)$/) {
         return $service_state;
       }
@@ -749,9 +757,10 @@ sub WaitModulesReady {
     if ($state && ($state !~ m/running/i)) {
       my $logs = '';
       foreach my $service (@{GetModuleServices($module)}) {
-        my $service_state = GetState($service);
+        my $service_name = GetContainerName($service);
+        my $service_state = GetState($service_name);
         if ($service_state && ($service_state !~ m/running/)) {
-          $logs .= "==> $service:\n" . qx(docker logs -n 10 $service 2>&1) . "\n\n";
+          $logs .= "==> $service:\n" . qx(docker logs -n 10 $service_name 2>&1) . "\n\n";
         }
       }
       die sprintf(
@@ -816,7 +825,7 @@ sub Reinitialize {
     my $volumes = GetModuleVolumes($module);
     if (@$volumes) {
       Run(
-        "docker volume rm -f " . join(' ', @$volumes),
+        "docker volume rm -f " . join(' ', map { GetVolumeName($_) } @$volumes),
         "Failed to remove GenoRing volumes for module '$module'!"
       );
     }
@@ -832,7 +841,7 @@ sub Reinitialize {
       }
       if (@module_volumes) {
         Run(
-          "docker volume rm -f " . join(' ', @module_volumes),
+          "docker volume rm -f " . join(' ', map { GetVolumeName($_) } @module_volumes),
           "Failed to remove GenoRing internal volumes for module '$module'!"
         );
       }
@@ -1230,8 +1239,8 @@ sub GenerateDockerComposeFile {
                 $service_volume = undef;
               }
               else {
-                # if ($service_volume =~ m~^        source:\s+\$\{PWD\}/volumes/~) {
-                #   $service_volume =~ s~^        source:\s+\$\{PWD\}/volumes/~        source: genoring-volume-~;
+                # if ($service_volume =~ m~^        source:\s+\$\{VOLUMES_DIR\}/~) {
+                #   $service_volume =~ s~^        source:\s+\$\{VOLUMES_DIR\}/~        source: genoring-volume-~;
                 #   $service_volume =~ s~[^\w\s:\-]~-~g;
                 #   my ($unexposed_volume) = $service_volume =~ m~^        source: (\S+)~;
                 #   $volumes{$unexposed_volume} = {
@@ -1245,8 +1254,8 @@ sub GenerateDockerComposeFile {
               }
             } while($next_bind_line);
           }
-          elsif ($service_volume =~ m~^      - \$\{PWD\}/volumes/~) {
-            $service_volume =~ s~^      - \$\{PWD\}/volumes/~      - genoring-volume-~;
+          elsif ($service_volume =~ m~^      - \$\{GENORING_VOLUMES_DIR\}/~) {
+            $service_volume =~ s~^      - \$\{GENORING_VOLUMES_DIR\}/~      - genoring-volume-~;
             $service_volume =~ s~/(?=.*:)~-~g;
             my ($unexposed_volume) = $service_volume =~ m~^      - (\S+)\s*:~;
             $volumes{$unexposed_volume} = {
@@ -1368,9 +1377,10 @@ sub GenerateDockerComposeFile {
       # Remove unused volumes.
       foreach my $unused_volume (@existing_volumes) {
         if (!exists($volumes{$unused_volume})) {
+          my $unused_volume_name = GetVolumeName($unused_volume);
           Run(
-            "docker volume rm -f $unused_volume",
-            "Failed to remove GenoRing volume '$unused_volume'!"
+            "docker volume rm -f $unused_volume_name",
+            "Failed to remove GenoRing volume '$unused_volume_name'!"
           );
         }
       }
@@ -1379,14 +1389,15 @@ sub GenerateDockerComposeFile {
 
   # Add other modules to genoring container dependencies (depends_on:).
   if (open($dc_fh, '>:utf8', $DOCKER_COMPOSE_FILE)) {
-    print {$dc_fh} "# GenoRing docker compose file\n# WARNING: This file is auto-generated by genoring.sh script. Any direct\n# modification may be lost when genoring.pl will need to regenerate it.\n";
+    print {$dc_fh} "# GenoRing docker compose file\n# COMPOSE_PROJECT_NAME=$ENV{'COMPOSE_PROJECT_NAME'}\n# WARNING: This file is auto-generated by genoring.sh script. Any direct\n# modification may be lost when genoring.pl will need to regenerate it.\n";
     # For each enabled service, add the section name, the indented definition,
     # and the 'container_name:' field.
     print {$dc_fh} "\nservices:\n";
     foreach my $service (sort keys(%services)) {
+      my $service_name = GetContainerName($service);
       print {$dc_fh} "\n  $service:\n";
       print {$dc_fh} $services{$service}->{'definition'};
-      print {$dc_fh} "    container_name: $service\n";
+      print {$dc_fh} "    container_name: $service_name\n";
       # For proxy, add dependencies of all other services.
       if (exists($services{$service}->{'dependencies'})
         && scalar(@{$services{$service}->{'dependencies'}})
@@ -1399,14 +1410,15 @@ sub GenerateDockerComposeFile {
     # 'genoring-'.
     print {$dc_fh} "\nvolumes:\n";
     foreach my $volume (sort keys(%volumes)) {
+      my $volume_name = GetVolumeName($volume);
       print {$dc_fh} "  $volume:\n";
       print {$dc_fh} $volumes{$volume}->{'definition'};
-      print {$dc_fh} "    name: \"$volume\"\n";
+      print {$dc_fh} "    name: \"$volume_name\"\n";
       # Manage non-exposed volumes.
       if ($g_flags->{'no-exposed-volumes'}) {
         Run(
-          "docker volume create $volume",
-          "Failed to create volume '$volume'."
+          "docker volume create $volume_name",
+          "Failed to create volume '$volume_name'."
         );
       }
     }
@@ -2601,7 +2613,7 @@ sub Backup {
     die "ERROR: Backup: Invalid back name '$backup_name'. Only letters, numbers, dots, underscores and dashes are allowed and the name must begin with a letter.\n";
   }
 
-  my $backupdir = "volumes/backups/$backup_name";
+  my $backupdir = "$VOLUME_DIR/backups/$backup_name";
   if (-d $backupdir) {
     # Check if directory is not empty.
     opendir(my $dh, $backupdir)
@@ -2732,7 +2744,7 @@ sub Restore {
 
   print "Restore GenoRing...\n";
   # Restore GenoRing config.
-  my $backupdir = "volumes/backups/$backup_name";
+  my $backupdir = "$VOLUME_DIR/backups/$backup_name";
   if (!$module) {
     print "- Restoring GenoRing config...\n";
     if (-e "$backupdir/config/$DOCKER_COMPOSE_FILE"
@@ -3047,29 +3059,30 @@ APPLYCONTAINERHOOKS_HOOKS:
             print "  Processing $module module hook $hook_name in '$service' container...";
           }
           # Check if container is running.
-          my ($id, $state, $name, $image) = IsContainerRunning($service);
+          my $service_name = GetContainerName($service);
+          my ($id, $state, $name, $image) = IsContainerRunning($service_name);
           if ($state && ($state !~ m/running/)) {
             $state ||= 'not running';
-            warn "WARNING: Failed to run $module module hook in $service (hook $hook): $service is $state.";
+            warn "WARNING: Failed to run $module module hook in $service (hook $hook): $service_name is $state.";
             next APPLYCONTAINERHOOKS_HOOKS;
           }
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
             Run(
-              "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
-              "Failed to prepare module file copy in $service ($module $hook hook)"
+              "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
+              "Failed to prepare module file copy in $service_name ($module $hook hook)"
             );
             Run(
-              "docker cp ./$MODULE_DIR/ $service:/genoring/$MODULE_DIR",
-              "Failed to copy module files in $service ($module $hook hook)"
+              "docker cp $MODULE_DIR/ $service_name:/genoring/$MODULE_DIR",
+              "Failed to copy module files in $service_name ($module $hook hook)"
             );
             $initialized_containers{$service} = 1;
           }
           # Make sure script is executable.
           # @todo Provide environment variables.
           my $output = Run(
-            "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service sh -c \"chmod +x /genoring/$MODULE_DIR/$module/hooks/$hook && /genoring/$MODULE_DIR/$module/hooks/$hook $args\"",
-            "Failed to run hook of $module in $service (hook $hook)"
+            "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service_name sh -c \"chmod +x /genoring/$MODULE_DIR/$module/hooks/$hook && /genoring/$MODULE_DIR/$module/hooks/$hook $args\"",
+            "Failed to run hook of $module in $service_name (hook $hook)"
           );
           if ($?) {
             print "  Failed.\n$output\n";
@@ -3198,6 +3211,9 @@ sub Compile {
 
   # Check if container is running and stop it unless it is not running the same
   # image.
+  # @todo The following code does not take into account non-genoring project
+  # names (ie. my $service_name = GetContainerName($service)). Since multiple
+  # projects may run with the same image, each should be checked.
   my ($id, $state, $name, $image) = IsContainerRunning($service);
   if ($id) {
     if ($image && ($image ne $service)) {
@@ -3296,6 +3312,9 @@ sub DeleteAllContainers {
       print "  - Removing container '$service'...\n";
       # Check if container is running and stop it unless it is not running the
       # same image.
+      # @todo The following code does not take into account non-genoring project
+      # names (ie. my $service_name = GetContainerName($service)). Since multiple
+      # projects may run with the same image, each should be checked.
       my ($id, $state, $name, $image) = IsContainerRunning($service);
       if ($id) {
         if ($image && ($image ne $service)) {
@@ -3473,6 +3492,74 @@ sub GetServices {
   }
 
   return $_g_services;
+}
+
+=pod
+
+=head2 GetContainerName
+
+B<Description>: Returns the container service name of a given service.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $service: (string) (R)
+
+Service name.
+
+=back
+
+B<Return>: (string)
+
+The container service name.
+
+=cut
+
+sub GetContainerName {
+  my ($service) = @_;
+
+  if (!defined($service)) {
+    die "ERROR: GetContainerName: No service provided!";
+  }
+
+  my $service_name = $service;
+  $service_name =~ s/^genoring/$ENV{'COMPOSE_PROJECT_NAME'}/;
+  return $service_name;
+}
+
+=pod
+
+=head2 GetVolumeName
+
+B<Description>: Returns the Docker volume name of a given volume.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $volume: (string) (R)
+
+Volume name.
+
+=back
+
+B<Return>: (string)
+
+The Docker volume name.
+
+=cut
+
+sub GetVolumeName {
+  my ($volume) = @_;
+
+  if (!defined($volume)) {
+    die "ERROR: GetVolumeName: No volume provided!";
+  }
+
+  my $volume_name = $volume;
+  $volume_name =~ s/^genoring-/$ENV{'COMPOSE_PROJECT_NAME'}-/;
+  return $volume_name;
 }
 
 =pod
@@ -3692,7 +3779,6 @@ sub GetModuleVolumes {
   if (!defined($module)) {
     die "ERROR: GetModuleVolumes: No module name provided!";
   }
-
   my @volumes;
   if (!$type || ('defined' eq $type)) {
     # Get all defined volumes.
@@ -3709,7 +3795,7 @@ sub GetModuleVolumes {
     # Other cases.
     my $module_info = GetModuleInfo($module);
     if (('used' eq $type) || ('all' eq $type)) {
-      foreach my $volume_dep (keys(%{$module_info->{'dependencies'}{'volumes'}})) {
+      foreach my $volume_dep (@{$module_info->{'dependencies'}{'volumes'}}) {
         my $dependencies = ParseDependencies($volume_dep);
         foreach my $dependency (@{$dependencies->{'dependencies'}}) {
           if ($dependency->{'element'}) {
@@ -3728,13 +3814,14 @@ sub GetModuleVolumes {
     }
     if (('shared' eq $type) || ('exposed' eq $type) || ('all' eq $type)) {
       foreach my $volume (keys(%{$module_info->{'volumes'}})) {
-        if ($type eq $module_info->{'volumes'}{$volume}->{'type'}) {
+        if (('all' eq $type)
+            || ($type eq $module_info->{'volumes'}{$volume}->{'type'})
+        ) {
           push(@volumes, $volume);
         }
       }
     }
   }
-
   return \@volumes;
 }
 
@@ -3924,6 +4011,40 @@ sub RemoveEnvFiles {
       warn "WARNING: Failed to access 'env' directory!\n$!";
     }
   }
+}
+
+=pod
+
+=head2 GetProjectName
+
+B<Description>: Returns current project name.
+
+B<Return>: (string)
+
+The project name.
+
+=cut
+
+sub GetProjectName {
+  my $project_name = 'genoring';
+  my $dc_fh;
+  if (open($dc_fh, '<:utf8', $DOCKER_COMPOSE_FILE)) {
+    # Get project name from docker compose file if available.
+    while (my $line = <$dc_fh>) {
+      if ($line =~ /#\s*COMPOSE_PROJECT_NAME=(\S+)/) {
+        $project_name = $1;
+        last;
+      }
+    }
+  }
+  elsif (exists($ENV{'COMPOSE_PROJECT_NAME'})
+      && ($ENV{'COMPOSE_PROJECT_NAME'} =~ m/\w/)
+  ) {
+    # Otherwise, try to get it form environment variable.
+    $project_name = $ENV{'COMPOSE_PROJECT_NAME'};
+  }
+
+  return $project_name;
 }
 
 =pod
@@ -4535,17 +4656,19 @@ Enables debug mode.
 # CODE START
 #############
 
-# Change working directory to where the script is to later use relative paths.
-chdir $BASEDIR;
+# For Windows env, add PWD.
+if (!defined($ENV{'PWD'})) {
+  $ENV{'PWD'} = Cwd::cwd();
+}
 
 print "GenoRing script v$GENORING_VERSION\n";
 
 # Test license agreement.
-if (!-e "agreed.txt") {
+if (!-e "$GENORING_DIR/agreed.txt") {
   my $message = "License Agreement\n=================\nGenoRing is under *MIT License*. It is free and open-source software that will *always remain free to use*. Please read the provided LICENSE file for details.\nDo you agree with those conditions?";
   if (Confirm($message)) {
     my $agreed_fh;
-    if (open($agreed_fh, '>:utf8', "agreed.txt")) {
+    if (open($agreed_fh, '>:utf8', "$GENORING_DIR/agreed.txt")) {
       print {$agreed_fh} "License agreed on the " . localtime->strftime('%Y-%m-%d') . "\n";
       close($agreed_fh);
     }
@@ -4563,7 +4686,27 @@ if (!-e "agreed.txt") {
 my $os = $OS{$^O} || $OS{''};
 
 # Prepare environment.
-$ENV{'COMPOSE_PROJECT_NAME'} = 'genoring';
+if (!exists($ENV{'COMPOSE_PROJECT_NAME'})
+    || ($ENV{'COMPOSE_PROJECT_NAME'} !~ m/\w/)
+) {
+  # If COMPOSE_PROJECT_NAME is not set, try to use the one from docker compose
+  # file or use default.
+  $ENV{'COMPOSE_PROJECT_NAME'} = GetProjectName();
+}
+elsif ((GetProjectName() ne $ENV{'COMPOSE_PROJECT_NAME'})
+  && (-e $DOCKER_COMPOSE_FILE)
+) {
+  # Make sure we use the correct project name.
+  if (!Confirm("WARNING: You are trying to run an already configured GenoRing instance with a different COMPOSE_PROJECT_NAME (configured: '" . GetProjectName() . "', requested: '" . $ENV{'COMPOSE_PROJECT_NAME'} . "'). This may not work as expected. Do you want to continue anyway?")) {
+    die "Stopped due to incorrect COMPOSE_PROJECT_NAME value.\n";
+  }
+}
+if ($g_debug) {
+  print "DEBUG: Using project name $ENV{'COMPOSE_PROJECT_NAME'}.\n";
+}
+
+
+
 # Set COMPOSE_PROFILES to an empty string to prevent warning 'The
 # "COMPOSE_PROFILES" variable is not set. Defaulting to a blank string.'.
 if (!defined($ENV{'COMPOSE_PROFILES'})) {
@@ -4581,9 +4724,15 @@ if (!defined($ENV{'GENORING_PORT'})) {
   $ENV{'GENORING_PORT'} = '8080';
 }
 
-# For Windows env, add PWD.
-if (!defined($ENV{'PWD'})) {
-  $ENV{'PWD'} = $BASEDIR;
+# Set GENORING_DIR environment variable.
+$ENV{'GENORING_DIR'} = $GENORING_DIR;
+
+# Adjust GENORING_VOLUMES_DIR environment variable and $VOLUME_DIR.
+if (!defined($ENV{'GENORING_VOLUMES_DIR'})) {
+  $ENV{'GENORING_VOLUMES_DIR'} = $VOLUME_DIR;
+}
+else {
+  $VOLUME_DIR = $ENV{'GENORING_VOLUMES_DIR'};
 }
 
 # Options processing.
@@ -4629,7 +4778,7 @@ if ($man) {pod2usage('-verbose' => 1, '-exitval' => 0);}
 # Change debug mode if requested/forced.
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
 
-# Allow alternative syntax.
+# Allow alternative syntax for no-backups without "s".
 if ($g_flags->{'no-backups'}) {
   $g_flags->{'no-backup'} = $g_flags->{'no-backups'};
 }
@@ -4692,6 +4841,15 @@ if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {
 }
 
 if ($command =~ m/^(?:start|online|offline|backend)$/i) {
+  if (!-d $VOLUME_DIR) {
+    if (Confirm("GenoRing was not started in that directory before. Do you want to initialize current directory (" . $ENV{'PWD'} . ") as a GenoRing instance directory?")) {
+      mkdir($VOLUME_DIR);
+    }
+    else {
+      die("No \"volumes\" directory. Stopping here.");
+    }
+  }
+
   if (!exists($g_flags->{'hide-compile'})) {
     # Compile missing containers with sources.
     CompileMissingContainers();
@@ -4849,19 +5007,19 @@ elsif ($command =~ m/^shell$/i) {
   if (!$service) {
     $service = 'genoring';
   }
-
-  my $message = "Failed to open a '$service' shell!";
-
+  my $service_name = GetContainerName($service);
+  my $message = "'$service' shell ended.";
+  
   my $command = 'bash';
   if ($g_flags->{'cmd'} && ($g_flags->{'cmd'} =~ m/[a-zA-Z]/)) {
     $command = $g_flags->{'cmd'};
     $message = "Failed to run '$command' in '$service' container!";
   }
 
-  my ($id, $state, $name, $image) = IsContainerRunning($service);
+  my ($id, $state, $name, $image) = IsContainerRunning($service_name);
   if ($state && ($state =~ m/running/)) {
     Run(
-      "docker exec -it $service $command",
+      "docker exec -it $service_name $command",
       $message,
       1,
       1
@@ -4907,7 +5065,7 @@ Valentin GUIGNON (Bioversity), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 05/11/2024
+Date 06/02/2025
 
 =head1 SEE ALSO
 

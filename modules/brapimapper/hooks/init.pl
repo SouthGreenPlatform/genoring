@@ -8,7 +8,7 @@ use File::Spec;
 ++$|; # No buffering.
 
 # Add proxy configs.
-require './modules/brapimapper/hooks/enable.pl';
+require $ENV{'GENORING_DIR'} . '/modules/brapimapper/hooks/enable.pl';
 
 # Returns 1 when called by "require".
 1;

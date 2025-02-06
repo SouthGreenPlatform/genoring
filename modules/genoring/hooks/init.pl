@@ -45,53 +45,53 @@ sub dircopy {
 }
 
 ++$|; #no buffering
-if (!-d './volumes/') {
-  mkdir './volumes/';
+if (!-d $ENV{'GENORING_VOLUMES_DIR'}) {
+  mkdir $ENV{'GENORING_VOLUMES_DIR'};
 }
 if (!$ENV{'GENORING_NO_EXPOSED_VOLUMES'}) {
-  if (!-e './volumes/drupal') {
-    mkdir './volumes/drupal'
+  if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/drupal') {
+    mkdir $ENV{'GENORING_VOLUMES_DIR'} . '/drupal'
   }
   else {
-    opendir(my $dh, './volumes/drupal') or die "ERROR: './volumes/drupal' is not a directory!";
+    opendir(my $dh, $ENV{'GENORING_VOLUMES_DIR'} . '/drupal') or die "ERROR: '$ENV{'GENORING_VOLUMES_DIR'}/drupal' is not a directory!";
     my @dir_content = grep { $_ ne "." && $_ ne ".." } readdir($dh);
     closedir($dh);
     if (scalar(@dir_content) != 0) {
-      die "ERROR: './volumes/drupal' is not empty! Please empty it before installation.\nContent:\n\"" . join('", "', @dir_content) . '".';
+      die "ERROR: '$ENV{'GENORING_VOLUMES_DIR'}/drupal' is not empty! Please empty it before installation.\nContent:\n\"" . join('", "', @dir_content) . '".';
     }
   }
 
-  if (!-d './volumes/proxy/nginx/includes') {
-    make_path('./volumes/proxy/nginx/includes');
+  if (!-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes') {
+    make_path($ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes');
   }
 
-  if (!-d './volumes/proxy/nginx/genoring') {
-    make_path('./volumes/proxy/nginx/genoring');
+  if (!-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring') {
+    make_path($ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring');
   }
 
-  if (!-e './volumes/proxy/nginx/genoring-fpm.conf') {
-    copy('./modules/genoring/res/nginx/genoring-fpm.conf', './volumes/proxy/nginx/genoring-fpm.conf');
+  if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring-fpm.conf') {
+    copy($ENV{'GENORING_DIR'} . '/modules/genoring/res/nginx/genoring-fpm.conf', $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring-fpm.conf');
   }
 
-  if (!-d './volumes/offline') {
-    my $offline_src_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'modules', 'genoring', 'res', 'offline');
-    my $offline_vol_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'offline');
+  if (!-d $ENV{'GENORING_VOLUMES_DIR'} . '/offline') {
+    my $offline_src_path = File::Spec->catfile($ENV{'GENORING_DIR'}, 'modules', 'genoring', 'res', 'offline');
+    my $offline_vol_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'offline');
     dircopy($offline_src_path, $offline_vol_path);
   }
 
-  if (!-d './volumes/data') {
-    mkdir './volumes/data';
+  if (!-d $ENV{'GENORING_VOLUMES_DIR'} . '/data') {
+    mkdir $ENV{'GENORING_VOLUMES_DIR'} . '/data';
   }
 
-  if (!-d './volumes/backups') {
-    mkdir './volumes/backups';
+  if (!-d $ENV{'GENORING_VOLUMES_DIR'} . '/backups') {
+    mkdir $ENV{'GENORING_VOLUMES_DIR'} . '/backups';
   }
 }
 else {
-  if (!-d './volumes/proxy/nginx') {
-    make_path('./volumes/proxy/nginx');
+  if (!-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx') {
+    make_path($ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx');
   }
-  if (!-e './volumes/proxy/nginx/genoring-fpm.conf') {
-    copy('./modules/genoring/res/nginx/genoring-fpm.conf', './volumes/proxy/nginx/genoring-fpm.conf');
+  if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring-fpm.conf') {
+    copy($ENV{'GENORING_DIR'} . '/modules/genoring/res/nginx/genoring-fpm.conf', $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring-fpm.conf');
   }
 }

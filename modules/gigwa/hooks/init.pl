@@ -8,11 +8,11 @@ use File::Spec;
 ++$|; # No buffering.
 
 # Install Gigwa config.
-my $gigwa_volume_path = File::Spec->catfile(' .', 'volumes', 'gigwa');
+my $gigwa_volume_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'gigwa');
 my $output = qx(docker run -it -v $gigwa_volume_path:/confcopy --entrypoint=/bin/cp guilhemsempere/gigwa:2.8-RELEASE -r /usr/local/tomcat/config /confcopy);
 
 # Add proxy configs.
-require './modules/gigwa/hooks/enable.pl';
+require $ENV{'GENORING_DIR'} . '/modules/gigwa/hooks/enable.pl';
 
 # Returns 1 when called by "require".
 1;

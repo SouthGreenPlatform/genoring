@@ -6,14 +6,14 @@ use warnings;
 ++$|; #no buffering
 
 # Remove proxy configs.
-if (-d './volumes/proxy/nginx/genoring') {
-  if (-e './volumes/proxy/nginx/genoring/gigwa.conf') {
-    unlink './volumes/proxy/nginx/genoring/gigwa.conf';
+if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring') {
+  if (-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring/gigwa.conf') {
+    unlink $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring/gigwa.conf';
   }
 }
-if (-d './volumes/proxy/httpd/genoring') {
-  if (-e './volumes/proxy/httpd/genoring/gigwa.conf') {
-    unlink './volumes/proxy/httpd/genoring/gigwa.conf';
+if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/genoring') {
+  if (-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/genoring/gigwa.conf') {
+    unlink $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/genoring/gigwa.conf';
   }
 }
 

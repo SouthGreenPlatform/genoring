@@ -5,7 +5,7 @@ env_file:
 ports:
   - 8123:8080
 volumes:
-  - ${PWD}/volumes/gigwa/config:/usr/local/tomcat/config
+  - ${GENORING_VOLUMES_DIR}/gigwa/config:/usr/local/tomcat/config
   - genoring-data-volume:/data
   - genoring-backups-volume:/backups
 depends_on:

@@ -7,15 +7,15 @@ use warnings;
 
 # Remove proxy configs.
 # Nginx.
-if (-d './volumes/proxy/nginx/includes') {
-  if (-e './volumes/proxy/nginx/includes/brapimapper.conf') {
-    unlink './volumes/proxy/nginx/includes/brapimapper.conf';
+if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes') {
+  if (-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes/brapimapper.conf') {
+    unlink $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes/brapimapper.conf';
   }
 }
 
 # Apache2.
-if (-d './volumes/proxy/httpd/includes') {
-  if (-e './volumes/proxy/httpd/includes/brapimapper.conf') {
-    unlink './volumes/proxy/httpd/includes/brapimapper.conf';
+if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes') {
+  if (-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes/brapimapper.conf') {
+    unlink $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes/brapimapper.conf';
   }
 }

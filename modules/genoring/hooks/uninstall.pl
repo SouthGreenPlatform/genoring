@@ -6,10 +6,10 @@ use File::Spec;
 
 ++$|; #no buffering
 
-if (-e './volumes') {
+if (-e $ENV{'GENORING_VOLUMES_DIR'}) {
   # Remove all data directories. (the space before the dot is required for
   # Windows)
-  my $volumes_path = File::Spec->catfile(' .', 'volumes');
+  my $volumes_path = $ENV{'GENORING_VOLUMES_DIR'};
   my $output = qx(
     docker run --rm -v $volumes_path:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data
   );

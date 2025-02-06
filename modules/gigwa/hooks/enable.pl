@@ -8,15 +8,15 @@ use warnings;
 if ($ENV{'GIGWA_DIRECT_ACCESS'}) {
   # Add proxy configs.
   # NGINX.
-  if (-d './volumes/proxy/nginx/genoring') {
-    if (!-e './volumes/proxy/nginx/genoring/gigwa.conf') {
-      copy('./modules/gigwa/res/nginx/gigwa.conf', './volumes/proxy/nginx/genoring/gigwa.conf');
+  if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring') {
+    if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring/gigwa.conf') {
+      copy($ENV{'GENORING_DIR'} . '/modules/gigwa/res/nginx/gigwa.conf', $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/genoring/gigwa.conf');
     }
   }
   # Apache 2.
-  if (-d './volumes/proxy/httpd/genoring') {
-    if (!-e './volumes/proxy/httpd/genoring/gigwa.conf') {
-      copy('./modules/gigwa/res/httpd/gigwa.conf', './volumes/proxy/httpd/genoring/gigwa.conf');
+  if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/genoring') {
+    if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/genoring/gigwa.conf') {
+      copy($ENV{'GENORING_DIR'} . '/modules/gigwa/res/httpd/gigwa.conf', $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/genoring/gigwa.conf');
     }
   }
 }

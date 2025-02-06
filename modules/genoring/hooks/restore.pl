@@ -48,16 +48,16 @@ sub dircopy {
 my ($backup) = @ARGV;
 $backup ||= 'default';
 
-if (-d "./volumes/backups/$backup/genoring/proxy") {
-  my $proxy_backup_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'backups', $backup, 'genoring', 'proxy');
-  my $proxy_restore_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'proxy');
+if (-d $ENV{'GENORING_VOLUMES_DIR'} . "/backups/$backup/genoring/proxy") {
+  my $proxy_backup_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'genoring', 'proxy');
+  my $proxy_restore_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'proxy');
   remove_tree($proxy_restore_path);
   dircopy($proxy_backup_path, $proxy_restore_path);
 }
 
-if (-d "./volumes/backups/$backup/genoring/offline") {
-  my $offline_backup_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'backups', $backup, 'genoring', 'offline');
-  my $offline_restore_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes', 'offline');
+if (-d $ENV{'GENORING_VOLUMES_DIR'} . "/backups/$backup/genoring/offline") {
+  my $offline_backup_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'genoring', 'offline');
+  my $offline_restore_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'offline');
   remove_tree($offline_restore_path);
   dircopy($offline_backup_path, $offline_restore_path);
 }

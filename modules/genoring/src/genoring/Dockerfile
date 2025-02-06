@@ -23,6 +23,7 @@ ENV DRUPAL_AUTO_UPDATE=1
 ENV COMPOSER_ALLOW_SUPERUSER=1
 ENV COMPOSER_HOME=/root/.composer
 ENV PATH=${PATH}:/opt/drupal/vendor/bin:/opt/genoring
+ENV PHP_INI_SCAN_DIR=:/opt/genoring/php
 
 # Add genoring user and group.
 RUN groupadd -r genoring && useradd --no-log-init -r -g genoring genoring

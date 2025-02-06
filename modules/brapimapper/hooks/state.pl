@@ -3,4 +3,4 @@
 use strict;
 use warnings;
 
-require './modules/genoring/hooks/state.pl';
+require $ENV{'GENORING_DIR'} . '/modules/genoring/hooks/state.pl';

@@ -52,7 +52,7 @@ alternatives:
 # start with "genoring-" followed by a dash and the local "volumes" path where
 # "volumes" is replaced by "volume" (no "s") and non-word characters are
 # replaced by dashes. For example, the Docker volume of the genoring module
-# using the path "${PWD}/volumes/subdir/some-dir.index" becomes
+# using the path "${GENORING_VOLUMES_DIR}/subdir/some-dir.index" becomes
 # "genoring-subdir-some-dir-index".
 # Note: anonymous volumes that are not shared nor exposed (in the "volumes"
 # directory) do not need to appear here.
@@ -68,8 +68,8 @@ volumes:
     type: "shared"
     # mapping: Optional. Provides the name of the corresponding directory (or
     # file) in the local file system relative to the GenoRing directory. Do not
-    # prefix with "./" or use a trailing slash. A starting slash indicates an
-    # absolute local file system path.
+    # prefix with "./" or use a trailing slash or environment variables.
+    # A starting slash indicates an absolute local file system path.
     mapping: "volumes/somedir"
   module-some-specific-volume:
     name: "Specific volume name"

@@ -1,5 +1,5 @@
 driver: local
 driver_opts:
   type: none
-  device: ${PWD}/volumes/my_module
+  device: ${GENORING_VOLUMES_DIR}/my_module
   o: bind

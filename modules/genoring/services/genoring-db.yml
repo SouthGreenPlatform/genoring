@@ -2,6 +2,6 @@ image: postgres:15
 env_file:
   - ${PWD}/env/genoring_db.env
 volumes:
-  - ${PWD}/volumes/db/pgdata:/var/lib/postgresql/data
+  - ${GENORING_VOLUMES_DIR}/db/pgdata:/var/lib/postgresql/data
   - genoring-data-volume:/data
 restart: always

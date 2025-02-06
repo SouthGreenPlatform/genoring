@@ -7,5 +7,11 @@ use File::Spec;
 
 ++$|; #no buffering
 
+# Create JBrowse data directory.
+my $jbrowse_volume_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'data', 'jbrowse');
+
 # Add proxy configs.
-require './modules/jbrowse/hooks/enable.pl';
+require $ENV{'GENORING_DIR'} . '/modules/jbrowse/hooks/enable.pl';
+
+# Returns 1 when called by "require".
+1;

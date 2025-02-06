@@ -301,6 +301,16 @@ Access to Drupal shell or composer:
   # exit
 ```
 
+Run multiple instances of GenoRing:
+You will have to create a volume directory for each instance.
+```
+
+  # COMPOSE_PROJECT_NAME=gr_inst1 perl genoring.pl start
+  # COMPOSE_PROJECT_NAME=gr_inst2 perl genoring.pl start
+  # COMPOSE_PROJECT_NAME=gr_inst3 perl genoring.pl start
+  ...
+```
+
 For more commands, just run "perl genoring.pl" or "perl genoring.pl man".
 
 

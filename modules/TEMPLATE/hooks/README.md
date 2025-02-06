@@ -32,6 +32,15 @@ Local hooks are perl scripts with the following recommandations:
 - when using file path, make sure function used support automatic path
   conversion, otherwise, use File::Spec->catfile() for compatibility with
   Windows.
+- You can use environment variables provided by GenoRing:
+  - $ENV{'GENORING_DIR'}: Path to current GenoRing installation.
+  - $ENV{'GENORING_VOLUMES_DIR'}: path to current shared docker "volumes"
+    directory.
+  Note: both of them have no trailing slash and may contain absolute or relative
+  path.
+- $ENV{'PWD'} is provided by "genoring.pl" on Windows systems and is "native" on
+  Linux systems.
+
 
 ## Container hooks
 
@@ -59,25 +68,25 @@ Here are some code recipes that may help in common tasks.
 
 ### Working with file path on local hooks.
 ```
-  # The two approaches can be used.
-  # First approach:
   use File::Spec;
-  # Note: we use ' .' instead of '.' because otherwise we would get
+  # To access GenoRing directory:
+  my $modules_path = File::Spec->catfile($ENV{'GENORING_DIR'}, 'modules', 'res');
+
+  # To access GenoRing directory:
+  my $volumes_path = $ENV{'GENORING_VOLUMES_DIR'};
+  
+  # Warning:
+  # Note: use ' .' instead of '.' because otherwise we would get
   # "modules\res" instead of " .\modules\res" on Windows systems. Therefore, the
   # leading space may need to be removed depending how/where the path is used.
-  my $res_modules_path = File::Spec->catfile(' .', 'modules', 'res');
-  
-  # Other approach:
-  use Cwd qw();
-  use File::Spec;
-  # Note: $ENV{'PWD'} is provided by "genoring.pl" on Windows systems and is
-  # "native" on Linux systems.
-  my $volumes_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'volumes');
+  my $env_path = File::Spec->catfile(' .', 'env');
+  # or use:
+  my $env_path = File::Spec->catfile($ENV{'PWD'} || Cwd::cwd(), 'env');
 ```
 
 ### Running a perl script from a local hook.
 ```
-  require './modules/somemodule/res/somescript.pl';
+  require $ENV{'GENORING_DIR'} . '/modules/somemodule/res/somescript.pl';
 ```
 
 ### Executing a command line from a local hook.
@@ -112,7 +121,7 @@ perl.
 ### Processing a file to replace environment variables from a local hook.
 ```
   my $res_path = File::Spec->catfile(' .', 'modules', 'somemodule', 'res');
-  my $volumes_path = File::Spec->catfile(' .', 'volumes', 'targetdir');
+  my $volumes_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'targetdir');
   # Process file to replace environment variables.
   # Note: do not forget env files in "./env" directory are prefixed by their
   # module name to avoid conflicts.
@@ -177,7 +186,7 @@ perl.
 ```
   use File::Path qw(make_path);
   # ...
-  my $path = './volumes/some/path'
+  my $path = $ENV{'GENORING_VOLUMES_DIR'} . '/some/path'
   if (!-d $path) {
     make_path($path);
   }
@@ -189,8 +198,8 @@ may not be removed by current local user running the "genoring.pl" script. To
 avoid permission issues, it is better to make those files and directories
 removed by Docker the following way:
 ```
-  # Ex.: remove "./volumes/some/subdirectory".
-  my $volumes_path = File::Spec->catfile(' .', 'volumes');
+  # Ex.: remove "$GENORING_VOLUMES_DIR/some/subdirectory".
+  my $volumes_path = $ENV{'GENORING_VOLUMES_DIR'};
   my $output = qx(
     docker run --rm -v $volumes_path:/genoring -w / alpine rm -rf /genoring/some/subdirectory
   );

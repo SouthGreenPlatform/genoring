@@ -23,7 +23,7 @@ use File::Spec;
 # Remove all the content of data/my_module directory.
 # Note: we use File::Spec to be Windows-compatible and "--platform linux/amd64"
 # to be ARM compatible.
-my $volumes_path = File::Spec->catfile('.', 'volumes');
+my $volumes_path = $ENV{'GENORING_VOLUMES_DIR'};
 my $output = qx(
   docker run --rm -v $volumes_path:/genoring -w / --platform linux/amd64 alpine rm -rf /genoring/my_module 2>&1
 );

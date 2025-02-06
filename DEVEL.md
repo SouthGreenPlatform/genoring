@@ -276,6 +276,12 @@ directory. A GenoRing module is a directory with the following structure:
 ## Implementing a GenoRing module
 
 Use material provided in "modules/TEMPLATE".
+When using other genoring services in a module, find the service server using
+"${COMPOSE_PROJECT_NAME}-SERVICE_NAME" where "SERVICE_NAME" is the name of the
+service. For instance, if you want to access JBrowse service, you would use
+"${COMPOSE_PROJECT_NAME}-jbrowse". This is necessary to support multiple
+GenoRing instances running on a same system.
+
 @todo To be documented/completed...
 
 

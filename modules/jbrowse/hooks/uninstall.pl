@@ -7,10 +7,10 @@ use File::Spec;
 
 ++$|; #no buffering
 
-# Remove Gigwa config.
+# Remove JBrowse data.
 my $volume_path = $ENV{'GENORING_VOLUMES_DIR'};
 my $output = qx(
-  docker run --rm -v $volume_path:/genoring -w / alpine rm -rf /genoring/gigwa /genoring/mongodb
+  docker run --rm -v $volume_path:/genoring -w / alpine rm -rf /genoring/data/jbrowse
 );
 
 if ($?) {

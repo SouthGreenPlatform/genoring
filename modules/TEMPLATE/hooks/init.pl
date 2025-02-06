@@ -15,14 +15,14 @@ use File::Spec;
 
 # The purpose of this script is generally to make sure directories that will be
 # mounted by docker exist. Ex.:
-if (!-e './volumes/my_module') {
-  mkdir './volumes/my_module';
+if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/my_module') {
+  mkdir $ENV{'GENORING_VOLUMES_DIR'} . '/my_module';
 }
 
 # It can also be used to copy files from the module resource directory (res) to
 # a future shared docker volume. Ex.
-if (!-e './volumes/my_module/somefile.ext') {
-  copy('./modules/my_module/res/somefile.ext', './volumes/my_module/somefile.ext');
+if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/my_module/somefile.ext') {
+  copy($ENV{'GENORING_DIR'} . '/modules/my_module/res/somefile.ext', $ENV{'GENORING_VOLUMES_DIR'} . '/my_module/somefile.ext');
 }
 
 # Returns 1 when called by "require".

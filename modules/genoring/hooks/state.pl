@@ -5,7 +5,7 @@ use warnings;
 
 # Checks if php-fpm is running. If not, it means the system is still
 # initializing.
-my $is_running = qx(docker exec -it genoring pidof php-fpm);
+my $is_running = qx(docker exec -it $ENV{'COMPOSE_PROJECT_NAME'} pidof php-fpm);
 if ($is_running && ($is_running =~ m/^[\d\s]+$/)) {
   print 'running';
 }

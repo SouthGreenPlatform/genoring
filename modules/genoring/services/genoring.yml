@@ -1,5 +1,5 @@
 image: genoring
-build: ${PWD}/modules/genoring/src/genoring
+build: ${GENORING_DIR}/modules/genoring/src/genoring
 pull_policy: never
 profiles: ["prod","staging","dev","backend","offline"]
 env_file:
@@ -10,7 +10,7 @@ volumes:
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
   - genoring-backups-volume:/backups
-  - ${PWD}/volumes/offline:/opt/offline
+  - ${GENORING_VOLUMES_DIR}/offline:/opt/offline
 depends_on:
   - genoring-db
 restart: unless-stopped

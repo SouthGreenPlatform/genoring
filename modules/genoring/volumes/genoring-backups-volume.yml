@@ -1,5 +1,5 @@
 driver: local
 driver_opts:
   type: none
-  device: ${PWD}/volumes/backups
+  device: ${GENORING_VOLUMES_DIR}/backups
   o: bind
