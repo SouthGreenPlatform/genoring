@@ -3069,11 +3069,11 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
             Run(
-              "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/$MODULE_DIR\"",
+              "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
               "Failed to prepare module file copy in $service_name ($module $hook hook)"
             );
             Run(
-              "docker cp $MODULE_DIR/ $service_name:/genoring/$MODULE_DIR",
+              "docker cp $MODULE_DIR/ $service_name:/genoring/modules",
               "Failed to copy module files in $service_name ($module $hook hook)"
             );
             $initialized_containers{$service} = 1;
@@ -3081,7 +3081,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Make sure script is executable.
           # @todo Provide environment variables.
           my $output = Run(
-            "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service_name sh -c \"chmod +x /genoring/$MODULE_DIR/$module/hooks/$hook && /genoring/$MODULE_DIR/$module/hooks/$hook $args\"",
+            "docker exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service_name sh -c \"chmod +x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
             "Failed to run hook of $module in $service_name (hook $hook)"
           );
           if ($?) {
