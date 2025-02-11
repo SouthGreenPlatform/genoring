@@ -5,12 +5,15 @@ genoring_script_version: 1.0
 services:
   genoring:
     name: "GenoRing CMS"
+    description: "GenoRing service running Drupal and PHP-FPM (fastCGI)."
     version: 1.0
   genoring-db:
-    name: "GenoRing main PostgreSQL database service"
+    name: "GenoRing Database"
+    description: "GenoRing main PostgreSQL database service"
     version: 1.0
   genoring-proxy:
-    name: "GenoRing NGINX proxy service"
+    name: "GenoRing proxy service"
+    description: "GenoRing proxy service using NGINX HTTP server"
     version: 1.0
 alternatives:
   httpd:
@@ -53,3 +56,7 @@ volumes:
     description: "Contains NGINX location (or other directives) to include into the main genoring web host."
     type: "exposed"
     mapping: "volumes/proxy/nginx/genoring"
+dependencies:
+  services:
+    - "genoring-db BEFORE genoring genoring"
+    - "genoring BEFORE genoring genoring-proxy"

@@ -8,5 +8,7 @@ services:
     description: "The JBrowse web application."
     version: 1.0
 dependencies:
+  services:
+    - "backend,offline:genoring-jbrowse BEFORE genoring genoring-proxy"
   volumes:
     - "requires genoring genoring-data-volume"

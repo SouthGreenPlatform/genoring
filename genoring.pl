@@ -127,10 +127,10 @@ B<$VOLUME_NAME_REGEX>: (string)
 
 Regular expression used to match valid volume names.
 
-B<$CONSTRAINT_REGEX>: (string)
+B<$CONSTRAINT_TYPE_REGEX>: (string)
 
-Regular expression used to match a dependency constraint. One of "requires" or
-"conflicts".
+Regular expression used to match a dependency constraint. One of "REQUIRES",
+"CONFLICTS", "BEFORE" and "AFTER".
 
 B<$DEPENDENCY_REGEX>: (string)
 
@@ -162,8 +162,10 @@ our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';
 our $MODULE_NAME_REGEX = '[a-z][a-z0-9_]*';
 our $SERVICE_NAME_REGEX = '[a-z][a-z0-9\-]*';
 our $VOLUME_NAME_REGEX = '[a-z][a-z0-9\-]*';
-our $CONSTRAINT_REGEX = "(requires|conflicts)";
-our $DEPENDENCY_REGEX = "(?:\\s+or\\s+)?($MODULE_NAME_REGEX)(?:\\s+(?:([<>]?=?)\\s*)(\\d+)(?:\\.(\\d+))?(alpha|beta|dev)?)?(?:\\s+($SERVICE_NAME_REGEX|$VOLUME_NAME_REGEX))?";
+our $PROFILE_CONSTRAINT_REGEX = '(?:((?:dev|staging|prod|backend|offline)(?:\s*,\s*(?:dev|staging|prod|backend|offline))*):)?';
+our $SERVICE_CONSTRAINT_REGEX = '([a-z0-9\-\_]+)?';
+our $CONSTRAINT_TYPE_REGEX = '(REQUIRES|CONFLICTS|BEFORE|AFTER)';
+our $DEPENDENCY_REGEX = "(?:\\s+[oO][rR]\\s+)?($MODULE_NAME_REGEX)(?:\\s+(?:([<>]?=?)\\s*)(\\d+)(?:\\.(\\d+))?(alpha|beta|dev)?)?(?:\\s+($SERVICE_NAME_REGEX|$VOLUME_NAME_REGEX))?";
 our %OS = (
   ''        => 'Unix',
   'MSWin32' => 'Win32',
@@ -335,8 +337,8 @@ B<ArgsCount>: 0-1
 
 =item $mode: (string) (O)
 
-Running mode (ie. dev|staging|prod|backend|offline mode). Must be one of:
-- online: starts normally.
+Running mode (ie. online|backend|offline mode). Must be one of:
+- online: starts normally (in dev, staging or prod mode, according to config).
 - backend: starts but disables CMS (no frontend).
 - offline: starts CMS but in "offline" mode (admin can login and access the web
   interface while regular users can only access a maintenance page).
@@ -1185,8 +1187,8 @@ sub GenerateDockerComposeFile {
 
   my %services;
   my %volumes;
+  my $service_dependencies = {};
   my $volume_dependencies = {};
-  my @proxy_dependencies;
   foreach my $module (@$modules) {
     print "  - Processing $module module\n";
 
@@ -1207,14 +1209,14 @@ sub GenerateDockerComposeFile {
         or die "ERROR: GenerateDockerComposeFile: Failed to open module service file '$service_yml'.\n$!";
       # Trim extension.
       my $service = substr($service_yml, 0, -4);
-      if (($module ne 'genoring') || ($service eq 'genoring')) {
-        push(@proxy_dependencies, $service);
-      }
       $services{$service} = {
         'version' => $module_info->{'version'} || '',
         'module' => $module,
         'definition' => '    ' . join('    ', <$svc_fh>),
       };
+      # Remove dependencies as they are managed after.
+      $services{$service}->{'definition'} =~ s~^    depends_on:\s*\n(?:^      [^\n]*\n)+~~gsm;
+
       if ($g_flags->{'no-exposed-volumes'}) {
         # Replace all exposed volumes by named volumes instead.
         $services{$service}->{'definition'} =~ m~^    volumes:\s*\n((?:^      [^\n]*\n)+)~gsm;
@@ -1274,6 +1276,79 @@ sub GenerateDockerComposeFile {
       }
       close($svc_fh);
     }
+    
+    # Parse module dependencies to compute service dependencies.
+    # @todo Take into account versions.
+    foreach my $module_dep (@{$module_info->{'dependencies'}{'services'} || []}) {
+      my $dependencies = ParseDependencies($module_dep);
+      my @mod_services;
+      if (!$dependencies->{'service'}) {
+        push(@mod_services, keys(%{$module_info->{'services'} || {}}));
+      }
+      else {
+        push(@mod_services, $dependencies->{'service'});
+      }
+      my @dep_services;
+      foreach my $dependency (@{$dependencies->{'dependencies'} || []}) {
+        if ($dependency->{'element'}) {
+          push(@dep_services, $dependency->{'element'});
+        }
+        else {
+          # @todo If no element specified, get all dependent module services.
+          warn "Module dependency calculation currently does not manage implicit services.\n";
+        }
+      }
+      if (@dep_services && @mod_services) {
+        if ('BEFORE' eq $dependencies->{'constraint'}) {
+          # The dependency service(s) ('element') must be started after the module
+          # service.
+          foreach my $dep_service (@dep_services) {
+            $service_dependencies->{$dep_service} ||= {};
+            if ($dependencies->{'profiles'} && @{$dependencies->{'profiles'}}) {
+              foreach my $dep_profile (@{$dependencies->{'profiles'}}) {
+                $service_dependencies->{$dep_service}{$dep_profile} ||= [];
+                push(@{$service_dependencies->{$dep_service}{$dep_profile}}, @mod_services);
+              }
+            }
+            else {
+              $service_dependencies->{$dep_service}{''} ||= [];
+              push(@{$service_dependencies->{$dep_service}{''}}, @mod_services);
+            }
+          }
+        }
+        elsif ('AFTER' eq $dependencies->{'constraint'}) {
+          # The module service must be started after the dependency service(s)
+          # ('element').
+          foreach my $mod_service (@mod_services) {
+            $service_dependencies->{$mod_service} ||= {};
+            if ($dependencies->{'profiles'} && @{$dependencies->{'profiles'}}) {
+              foreach my $dep_profile (@{$dependencies->{'profiles'}}) {
+                if ('online' eq $dep_profile) {
+                  foreach $dep_profile ('dev', 'staging', 'prod') {
+                    $service_dependencies->{$mod_service}{$dep_profile} ||= [];
+                    push(
+                      @{$service_dependencies->{$mod_service}{$dep_profile}},
+                      @dep_services
+                    );
+                  }
+                }
+                else {
+                  $service_dependencies->{$mod_service}{$dep_profile} ||= [];
+                  push(
+                    @{$service_dependencies->{$mod_service}{$dep_profile}},
+                    @dep_services
+                  );
+                }
+              }
+            }
+            else {
+              $service_dependencies->{$mod_service}{''} ||= [];
+              push(@{$service_dependencies->{$mod_service}{''}}, @dep_services);
+            }
+          }
+        }
+      }
+    }
 
     # Work on module volumes.
     opendir($dh, "$MODULE_DIR/$module/volumes")
@@ -1298,9 +1373,9 @@ sub GenerateDockerComposeFile {
       close($vl_fh);
     }
     # Check required shared volume are available.
-    foreach my $volume_dep (@{$module_info->{'dependencies'}{'volumes'}}) {
+    foreach my $volume_dep (@{$module_info->{'dependencies'}{'volumes'} || []}) {
       my $dependencies = ParseDependencies($volume_dep);
-      if ('requires' eq $dependencies->{'constraint'}) {
+      if ('REQUIRES' eq $dependencies->{'constraint'}) {
         $volume_dependencies->{$module} ||= [];
         push(@{$volume_dependencies->{$module}}, $dependencies->{'dependencies'});
       }
@@ -1353,12 +1428,7 @@ sub GenerateDockerComposeFile {
       }
     }
   }
-
-  # Done with all modules, add proxy dependencies.
-  # @todo Manage proxy dependencies differently as it can be replaced.
-  if (exists($services{'genoring-proxy'})) {
-    $services{'genoring-proxy'}->{'dependencies'} = [@proxy_dependencies];
-  }
+  # Done with all modules info.
 
   # Generate "services" and "volumes" sections from enabled services.
   print "  All modules processed.\n";
@@ -1398,11 +1468,43 @@ sub GenerateDockerComposeFile {
       print {$dc_fh} "\n  $service:\n";
       print {$dc_fh} $services{$service}->{'definition'};
       print {$dc_fh} "    container_name: $service_name\n";
-      # For proxy, add dependencies of all other services.
-      if (exists($services{$service}->{'dependencies'})
-        && scalar(@{$services{$service}->{'dependencies'}})
+      # Add dependencies between services.
+      if (exists($service_dependencies->{$service})
+        && (my $profile_count = scalar(keys(%{$service_dependencies->{$service}})))
       ) {
-        print {$dc_fh} "    depends_on:\n      - " . join("\n      - ", @{$services{$service}->{'dependencies'}}) . "\n";
+        # Filter service dependencies to only keep used services.
+        if ((1 < $profile_count) || !exists($service_dependencies->{$service}->{''})) {
+          # Profile-specific.
+          foreach my $dep_profile ('dev', 'staging', 'prod', 'backend', 'offline') {
+            my %higher_services = map
+              { $_ => 1 }
+              grep
+                {exists($services{$_})}
+                (
+                  @{$service_dependencies->{$service}->{$dep_profile} || []},
+                  @{$service_dependencies->{$service}->{''} || []}
+                );
+            my @higher_services = sort keys(%higher_services);
+            my $ds_fh;
+            if (open($ds_fh, '>:utf8', "dependencies/$service.$dep_profile.yml")) {
+              print {$ds_fh} "services:\n  $service:\n";
+              if (@higher_services) {
+                print {$ds_fh}
+                  "    depends_on:\n      - "
+                  . join("\n      - ", @higher_services)
+                  . "\n";
+              }
+              close($ds_fh);
+            }
+          }
+          print {$dc_fh} "    extends:\n      file: \${PWD}/dependencies/$service.\${COMPOSE_PROFILES}.yml\n      service: $service\n";
+        }
+        else {
+          # All profiles.
+          my %higher_services = map { $_ => 1 } grep {exists($services{$_})} @{$service_dependencies->{$service}->{''}};
+          my @higher_services = sort keys(%higher_services);
+          print {$dc_fh} "    depends_on:\n      - " . join("\n      - ", @higher_services) . "\n";
+        }
       }
     }
     # For volumes, add the section name, the indented definition and the
@@ -4198,7 +4300,7 @@ sub RemoveModuleConf {
 =head2 ParseDependencies
 
 B<Description>: Parses a dependency line to extract dependencies. See
-$CONSTRAINT_REGEX and $DEPENDENCY_REGEX.
+$CONSTRAINT_TYPE_REGEX and $DEPENDENCY_REGEX.
 
 B<ArgsCount>: 1
 
@@ -4239,11 +4341,11 @@ A dependency hash of the form:
 sub ParseDependencies {
   my ($dependencies) = @_;
 
-  my ($constraint) = $dependencies =~ m/^$CONSTRAINT_REGEX/;
+  my ($profiles, $service, $constraint) = $dependencies =~ m/^$PROFILE_CONSTRAINT_REGEX\s*$SERVICE_CONSTRAINT_REGEX\s+$CONSTRAINT_TYPE_REGEX/;
   if (!$constraint) {
     return {};
   }
-  $dependencies =~ s/^$CONSTRAINT_REGEX\s+//;
+  $dependencies =~ s/^$PROFILE_CONSTRAINT_REGEX\s*$SERVICE_CONSTRAINT_REGEX\s+$CONSTRAINT_TYPE_REGEX\s+//;
   my @module_dependencies;
   while ($dependencies =~ m/$DEPENDENCY_REGEX/g) {
     push(
@@ -4259,6 +4361,8 @@ sub ParseDependencies {
     );
   }
   return {
+    'profiles' => [split(/\s*,\s*/, $profiles)],
+    'service' => $service,
     'constraint' => $constraint,
     'dependencies' => \@module_dependencies,
   };

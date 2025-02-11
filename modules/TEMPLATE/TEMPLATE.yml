@@ -82,16 +82,31 @@ volumes:
 dependencies:
   # Lists required module services (or alternatives) with optional version
   # constraint.
-  # Syntax: <"requires"|"conflicts"> CONSTRAINT [or CONSTRAINT] ...
+  # Constraints:
+  # - REQUIRES: means the module cannot be enabled if the required
+  #   module/service (with the optional given version constraint) is not enabled
+  #   as well.
+  # - CONFLICTS: means the module can not be used of the given module/service
+  #   (with the optional given version constraint) is enabled.
+  # - BEFORE: means the module service must be started before the given
+  #   module/service.
+  # - AFTER: means the module service must be started after the given
+  #   module/service.
+  # Syntax: [PROFILE:][SERVICE] <"REQUIRES"|"CONFLICTS"|"BEFORE"|"AFTER"> CONSTRAINT [or CONSTRAINT] ...
+  #   PROFILE: one of "online", "offline" or "backend" (followed by colon). If
+  #     no profile is provided, it means it applies to all profiles.
+  #   SERVICE: one of the services or alternative services defined in this YAML.
+  #     If no service is provided, it means the constraint applies to all the
+  #     services defined in this YAML.
   #   CONSTRAINT: <module_name> [[VERSION_CONSTRAINT] major_version.minor_version] [service_name]
   #   VERSION_CONSTRAINT: [=, <, <=, >, >=]
   services:
-    - "requires genoring >=1.0"
-    - "requires genoring genoring-db"
-    - "requires genoring >=1.0 genoring-proxy or genoring 1.0 genoring-httpd"
-    - "conflicts genoring genoring-mysql"
-  # Lists required volumes from other modules with optional module version
-  # constraint.
+    - "REQUIRES genoring >=1.0"
+    - "REQUIRES genoring genoring-db"
+    - "jbrowse REQUIRES genoring >=1.0 genoring-proxy or genoring 1.0 genoring-httpd"
+    - "CONFLICTS genoring genoring-mysql"
+    - "backend:biotools BEFORE genoring genoring-proxy"
+  # Lists required volumes from other modules.
   volumes:
-    - "requires genoring genoring-data-volume"
-    - "requires genoring >= 1.0 genoring-backups-volume"
+    - "REQUIRES genoring genoring-data-volume"
+    - "REQUIRES genoring >= 1.0 genoring-backups-volume"

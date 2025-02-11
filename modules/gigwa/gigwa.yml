@@ -23,6 +23,9 @@ volumes:
     type: "exposed"
     mapping: "volumes/mongodb"
 dependencies:
+  services:
+    - "genoring-gigwa BEFORE genoring genoring-proxy"
+    - "genoring-gigwa AFTER gigwa genoring-mongodb"
   volumes:
     - "requires genoring genoring-data-volume"
     - "requires genoring genoring-backups-volume"

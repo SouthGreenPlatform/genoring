@@ -13,6 +13,3 @@ volumes:
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
 restart: always
-# Depencies will be added automatically for the proxy.
-# depends_on:
-#   - genoring

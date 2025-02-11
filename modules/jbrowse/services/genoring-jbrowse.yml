@@ -1,9 +1,7 @@
 image: genoring-jbrowse
 build: ${GENORING_DIR}/modules/jbrowse/src/genoring-jbrowse
 pull_policy: never
-# @todo See how to switch to a backned only docker container only for loading
-# tasks.
-# profiles: ["backend"]
+profiles: ["backend","offline"]
 env_file:
   - ${PWD}/env/jbrowse_jbrowse.env
 ports:

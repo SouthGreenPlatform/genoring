@@ -3,4 +3,5 @@ modules.yml
 extra_hosts.yml
 env
 agreed.txt
+dependencies
 !.gitignore
