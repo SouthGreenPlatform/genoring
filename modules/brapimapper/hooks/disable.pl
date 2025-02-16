@@ -2,20 +2,14 @@
 
 use strict;
 use warnings;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; # No buffering.
 
 # Remove proxy configs.
 # Nginx.
-if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes') {
-  if (-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes/brapimapper.conf') {
-    unlink $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes/brapimapper.conf';
-  }
-}
+RemoveVolumeFiles('proxy/nginx/includes/brapimapper.conf');
 
 # Apache2.
-if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes') {
-  if (-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes/brapimapper.conf') {
-    unlink $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes/brapimapper.conf';
-  }
-}
+RemoveVolumeFiles('proxy/httpd/includes/brapimapper.conf');

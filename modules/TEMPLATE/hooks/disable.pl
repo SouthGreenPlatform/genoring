@@ -7,10 +7,14 @@
 
 use strict;
 use warnings;
+use Env;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; # No buffering.
 
 # This type of hook can be used to manage external services or log events.
+# To remove files, you can use RemoveVolumeFiles().
 
 # Returns 1 when called by "require".
 1;

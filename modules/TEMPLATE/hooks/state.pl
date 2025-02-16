@@ -27,10 +27,12 @@
 
 use strict;
 use warnings;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 # Example: checks if php-fpm is running in the genoring docker container. If
 # not, it means the system is still initializing.
-my $is_running = qx(docker exec -it genoring pidof php-fpm);
+my $is_running = qx($Genoring::DOCKER_COMMAND exec -it $ENV{'COMPOSE_PROJECT_NAME'} pidof php-fpm);
 if ($is_running && ($is_running =~ m/^[\d\s]+$/)) {
   print 'running';
 }

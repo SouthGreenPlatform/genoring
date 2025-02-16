@@ -8,12 +8,16 @@
 
 use strict;
 use warnings;
+use Env;
 use File::Spec;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; # No buffering.
 my ($backup) = @ARGV;
 $backup ||= 'default';
-my $backup_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'MODULE');
+# Replace 'MY_MODULE' by your module name.
+my $backup_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'MY_MODULE');
 
 # This script might work on backup data provided by container backup hooks to
 # create a global archive of serveral services for instance.

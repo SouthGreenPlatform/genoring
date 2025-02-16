@@ -8,7 +8,8 @@
 
 use strict;
 use warnings;
-use File::Spec;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; # No buffering.
 
@@ -21,30 +22,10 @@ use File::Spec;
 # perform a "rm -rf" on the directory we want.
 
 # Remove all the content of data/my_module directory.
-# Note: we use File::Spec to be Windows-compatible and "--platform linux/amd64"
-# to be ARM compatible.
-my $volumes_path = $ENV{'GENORING_VOLUMES_DIR'};
 my $output = qx(
-  docker run --rm -v $volumes_path:/genoring -w / --platform linux/amd64 alpine rm -rf /genoring/my_module 2>&1
+  $Genoring::DOCKER_COMMAND run --rm -v $ENV{'GENORING_VOLUMES_DIR'}:/genoring -w / alpine rm -rf /genoring/my_module 2>&1
 );
-
-# Then we need to report any problem encountered to the user.
-if ($?) {
-  my $error_message = 'ERROR';
-  if ($? == -1) {
-    $error_message = "ERROR $?\n$!";
-  }
-  elsif ($? & 127) {
-    $error_message = sprintf(
-      "ERROR: Child died with signal %d, %s coredump\n",
-      ($? & 127), ($? & 128) ? 'with' : 'without'
-    );
-  }
-  elsif ($?) {
-    $error_message = sprintf("ERROR %d", $? >> 8);
-  }
-  warn($error_message);
-}
+HandleShellExecutionError();
 
 # Returns 1 when called by "require".
 1;

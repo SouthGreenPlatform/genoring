@@ -10,8 +10,11 @@
 use strict;
 use warnings;
 use File::Spec;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; # No buffering.
+
 my ($backup) = @ARGV;
 $backup ||= 'default';
 my $backup_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'MODULE');

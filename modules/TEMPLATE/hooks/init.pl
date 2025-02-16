@@ -8,22 +8,18 @@
 
 use strict;
 use warnings;
-use File::Copy;
-use File::Spec;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; # No buffering.
 
 # The purpose of this script is generally to make sure directories that will be
-# mounted by docker exist. Ex.:
-if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/my_module') {
-  mkdir $ENV{'GENORING_VOLUMES_DIR'} . '/my_module';
-}
-
-# It can also be used to copy files from the module resource directory (res) to
-# a future shared docker volume. Ex.
-if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/my_module/somefile.ext') {
-  copy($ENV{'GENORING_DIR'} . '/modules/my_module/res/somefile.ext', $ENV{'GENORING_VOLUMES_DIR'} . '/my_module/somefile.ext');
-}
+# mounted by docker exist. Ex.: CreateVolumeDirectory('my_module/subdir');
+# To copy files, you can use CopyModuleFiles() and CopyVolumeFiles().
+# To copy a directory, you can use CopyDirectory().
+# Also, to avoid code duplication, it is possible to call the 'enable.pl' hook
+# script from here: 
+require $ENV{'GENORING_DIR'} . '/modules/MY_MODULE/hooks/enable.pl';
 
 # Returns 1 when called by "require".
 1;

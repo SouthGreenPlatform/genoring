@@ -7,6 +7,8 @@
 
 use strict;
 use warnings;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; # No buffering.
 

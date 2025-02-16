@@ -3,31 +3,16 @@
 use strict;
 use warnings;
 use File::Spec;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; #no buffering
 
 if (-e $ENV{'GENORING_VOLUMES_DIR'}) {
   # Remove all data directories. (the space before the dot is required for
   # Windows)
-  my $volumes_path = $ENV{'GENORING_VOLUMES_DIR'};
   my $output = qx(
-    docker run --rm -v $volumes_path:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data
+    $Genoring::DOCKER_COMMAND run --rm -v $ENV{'GENORING_VOLUMES_DIR'}:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/offline /genoring/data
   );
-
-  if ($?) {
-    my $error_message = 'ERROR';
-    if ($? == -1) {
-      $error_message = "ERROR $?\n$!";
-    }
-    elsif ($? & 127) {
-      $error_message = sprintf(
-        "ERROR: Child died with signal %d, %s coredump\n",
-        ($? & 127), ($? & 128) ? 'with' : 'without'
-      );
-    }
-    elsif ($?) {
-      $error_message = sprintf("ERROR %d", $? >> 8);
-    }
-    warn($error_message);
-  }
+  HandleShellExecutionError();
 }

@@ -7,10 +7,15 @@
 
 use strict;
 use warnings;
+use Env;
+use lib "$ENV{'GENORING_DIR'}/perllib";
+use Genoring;
 
 ++$|; # No buffering.
 
 # This type of hook can be used to manage external services or log events.
+# To copy files, you can use CopyModuleFiles and CopyVolumeFiles().
+# To copy a directory, you can use CopyDirectory().
 
 # Returns 1 when called by "require".
 1;
