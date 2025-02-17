@@ -92,7 +92,7 @@ dependencies:
   #   module/service.
   # - AFTER: means the module service must be started after the given
   #   module/service.
-  # Syntax: [PROFILE:][SERVICE] <"REQUIRES"|"CONFLICTS"|"BEFORE"|"AFTER"> CONSTRAINT [or CONSTRAINT] ...
+  # Syntax: [PROFILE:][SERVICE] <"REQUIRES"|"CONFLICTS"|"BEFORE"|"AFTER"> CONSTRAINT [OR CONSTRAINT] ...
   #   PROFILE: one of "online", "offline" or "backend" (followed by colon). If
   #     no profile is provided, it means it applies to all profiles.
   #   SERVICE: one of the services or alternative services defined in this YAML.

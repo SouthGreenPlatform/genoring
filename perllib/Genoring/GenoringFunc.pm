@@ -1856,14 +1856,42 @@ sub InstallModule {
     return;
   }
 
-  # @todo Check module dependencies.
+  # Check module requirements.
   my $errors = ApplyLocalHooks('requirements', $module);
   if (scalar(values(%$errors))) {
     die
       "ERROR: Could not install module '$module': some requirements were not met.\n"
       . $errors->{$module};
   }
-
+  # Check module dependencies.
+  foreach my $service_dep (@{$module_info->{'dependencies'}->{'services'}}) {
+    my $constraint = ParseDependencies($service_dep);
+    next if !%$constraint;
+    # Only look for requirements or conflicts.
+    if ('REQUIRES' eq $constraint->{'constraint'}) {
+      # Check if one of the required modules is installed.
+      my $dependency_ok = 0;
+      foreach my $dependency (@{$constraint->{'dependencies'}}) {
+        if (exists($enabled_modules{$dependency->{'module'}})) {
+          # @todo Check version.
+          # $dependency->{'version_constraint'}
+          # $dependency->{'major_version'}
+          # $dependency->{'minor_version'}
+          # my $dep_service = $dependency->{'element'}
+          $dependency_ok = 1;
+          last;
+        }
+      }
+      if (!$dependency_ok) {
+        die
+          "ERROR: Could not install module '$module': some required modules are not enabled:\n- "
+          . join("\n- ", map { $_->{'module'}; } @{$constraint->{'dependencies'}});
+      }
+    }
+    elsif ('CONFLICTS' eq $constraint->{'constraint'}) {
+      # @todo To implement...
+    }
+  }
   my $context = PrepareOperations();
   $context->{'module'} = $module;
   $context->{'local_hooks'} = {
@@ -1880,7 +1908,6 @@ sub InstallModule {
   # Setup environment files.
   eval {
     # Enable module.
-    my $module_info = GetModuleInfo($module);
     SetModuleConf(
       $module,
       {
@@ -3688,6 +3715,38 @@ The module name.
 B<Return>: (hash ref)
 
 The module details or an empty hash if the module is not available.
+Ex.:
+  {
+    'name' => 'Gigwa',
+    'version' => '1.0',
+    'volumes' => {
+      'genoring-volume-gigwa-config' => {
+        'mapping' => 'volumes/gigwa/config',
+        'type' => 'exposed',
+        'name' => 'Gigwa config files',
+        'description' => 'Contains Gigwa Tomcat config files.',
+      },
+    },
+    'dependencies' => {
+      'volumes' => [
+        'requires genoring genoring-data-volume',
+        'requires genoring genoring-backups-volume',
+      ],
+      'services' => [
+        'genoring-gigwa BEFORE genoring genoring-proxy',
+        'genoring-gigwa AFTER gigwa genoring-mongodb',
+      ],
+    },
+    'description' => 'A tool to explore large amounts of genotyping data by filtering it.',
+    'genoring_script_version' => '1.0',
+    'services' => {
+      'genoring-gigwa' => {
+        'name' => 'Gigwa Tomcat',
+        'description' => 'The Gigwa web application part.',
+        'version' => '1.0',
+      },
+    },
+  };
 
 =cut
 
@@ -4267,7 +4326,14 @@ B<ArgsCount>: 1
 
 =item $dependencies: (string) (R)
 
-A dependency string.
+A dependency string of the following format:
+  [PROFILE:][SERVICE] <"REQUIRES"|"CONFLICTS"|"BEFORE"|"AFTER"> CONSTRAINT [or CONSTRAINT] ...
+Ex.:
+  # Volume examples:
+  'REQUIRES genoring >= 1.0 genoring-backups-volume'
+  'REQUIRES genoring genoring-backups-volume'
+  # Service examples:
+  'genoring-gigwa BEFORE genoring genoring-proxy'
 
 =back
 
@@ -4300,24 +4366,32 @@ A dependency hash of the form:
 sub ParseDependencies {
   my ($dependencies) = @_;
 
-  my ($profiles, $service, $constraint) = $dependencies =~ m/^$Genoring::PROFILE_CONSTRAINT_REGEX\s*$Genoring::SERVICE_CONSTRAINT_REGEX\s+$Genoring::CONSTRAINT_TYPE_REGEX/;
+  my ($profiles, $service, $constraint) = $dependencies =~ m/^$Genoring::PROFILE_CONSTRAINT_REGEX\s*$Genoring::SERVICE_CONSTRAINT_REGEX\s*$Genoring::CONSTRAINT_TYPE_REGEX/;
   if (!$constraint) {
     return {};
   }
-  $dependencies =~ s/^$Genoring::PROFILE_CONSTRAINT_REGEX\s*$Genoring::SERVICE_CONSTRAINT_REGEX\s+$Genoring::CONSTRAINT_TYPE_REGEX\s+//;
+  # Remove what has been matched already.
+  $dependencies =~ s/^$Genoring::PROFILE_CONSTRAINT_REGEX\s*$Genoring::SERVICE_CONSTRAINT_REGEX\s*$Genoring::CONSTRAINT_TYPE_REGEX\s+//;
   my @module_dependencies;
-  while ($dependencies =~ m/$Genoring::DEPENDENCY_REGEX/g) {
+  my @module_dependencies_to_parse = split(/\s+[oO][rR]\s+/, $dependencies);
+  my $dep;
+  while (($dep = shift(@module_dependencies_to_parse))
+    && ($dep =~ m/$Genoring::DEPENDENCY_REGEX/g)
+  ) {
     push(
       @module_dependencies,
       {
         'module' => $1,
-        'version_constraint' => $2,
+        'version_constraint' => $2 || '=',
         'major_version' => $3,
         'minor_version' => $4,
         'stability' => $5,
         'element' => $6,
       }
     );
+  }
+  if (@module_dependencies_to_parse) {
+    die "ERROR: Failed to parse module dependency line:\n  $dependencies\n";
   }
   return {
     'profiles' => [split(/\s*,\s*/, $profiles || '')],
@@ -4706,8 +4780,8 @@ B<Return>: (nothing)
 
 B<Example>:
 
-    $source = $MODULES_DIR . '/brapimapper/res/nginx/brapimapper.conf';
-    $target = $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes/brapimapper.conf';
+    $source = $Genoring::MODULES_DIR . '/brapimapper/res/nginx/brapimapper.conf';
+    $target = $Genoring::VOLUMES_DIR . '/proxy/nginx/includes/brapimapper.conf';
     CopyFiles($source, $target);
 
 =cut
@@ -4715,7 +4789,6 @@ B<Example>:
 sub CopyFiles
 {
   my ($files, $single_target, $source_base, $target_base, $replace_existing) = @_;
-print "DEBUG: $files, $single_target\n"; #+debug
   return if (!$files);
   $source_base ||= '';
   $target_base ||= '';

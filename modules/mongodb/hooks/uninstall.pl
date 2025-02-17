@@ -2,6 +2,8 @@
 
 use strict;
 use warnings;
+use File::Path;
+use File::Spec;
 use lib "$ENV{'GENORING_DIR'}/perllib";
 use Genoring;
 
@@ -9,7 +11,7 @@ use Genoring;
 
 # Remove Gigwa config.
 my $output = qx(
-  $Genoring::DOCKER_COMMAND run --rm -v $Genoring::VOLUMES_DIR:/genoring -w / alpine rm -rf /genoring/gigwa
+  $Genoring::DOCKER_COMMAND run --rm -v $Genoring::VOLUMES_DIR:/genoring -w / alpine rm -rf /genoring/mongodb
 );
 HandleShellExecutionError();
 

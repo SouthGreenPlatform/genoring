@@ -164,13 +164,13 @@ our %OS = (
   'amigaos' => 'unsup',
 );
 our $PROFILE_CONSTRAINT_REGEX = '(?:((?:dev|staging|prod|backend|offline)(?:\s*,\s*(?:dev|staging|prod|backend|offline))*):)?';
-our $SERVICE_CONSTRAINT_REGEX = '([a-z0-9\-\_]+)?';
+our $SERVICE_CONSTRAINT_REGEX = '(?:([a-z0-9\-\_]+)\s)?';
 our $SERVICE_NAME_REGEX = '[a-z][a-z0-9\-]*';
 our $STATE_MAX_TRIES = 300;
 our $VOLUMES_DIR = $ENV{'GENORING_VOLUMES_DIR'} || File::Spec->catfile(Cwd::cwd(), 'volumes');
 our $VOLUME_NAME_REGEX = '[a-z][a-z0-9\-]*';
 # Constants that depends on others.
-our $DEPENDENCY_REGEX = "(?:\\s+[oO][rR]\\s+)?($MODULE_NAME_REGEX)(?:\\s+(?:([<>]?=?)\\s*)(\\d+)(?:\\.(\\d+))?(alpha|beta|dev)?)?(?:\\s+($SERVICE_NAME_REGEX|$VOLUME_NAME_REGEX))?";
+our $DEPENDENCY_REGEX = "($MODULE_NAME_REGEX)(?:\\s+(?:([<>]?=?)\\s*)(\\d+)(?:\\.(\\d+))?(alpha|beta|dev)?)?(?:\\s+($SERVICE_NAME_REGEX|$VOLUME_NAME_REGEX))?";
 our $IS_CGI = $IS_MOD_PERL || (exists($ENV{'GATEWAY_INTERFACE'}) && $ENV{'GATEWAY_INTERFACE'});
 our $MODULES_DIR = File::Spec->catfile($GENORING_DIR, 'modules');
 

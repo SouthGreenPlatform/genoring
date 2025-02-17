@@ -1,0 +1,18 @@
+name: "MongoDB"
+description: "MongoDB service."
+version: 1.0
+genoring_script_version: 1.0
+services:
+  genoring-mongodb:
+    name: "MongoDB"
+    description: "The Mongo database service."
+    version: 1.0
+volumes:
+  genoring-volume-mongodb:
+    name: "MongoDB files"
+    description: "Contains MongoDB file system. Those files should not be edited and are there for system backup purposes."
+    type: "exposed"
+    mapping: "volumes/mongodb"
+dependencies:
+  volumes:
+    - "REQUIRES genoring genoring-data-volume"
