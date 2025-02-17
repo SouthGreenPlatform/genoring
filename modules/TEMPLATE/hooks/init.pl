@@ -19,7 +19,7 @@ use Genoring;
 # To copy a directory, you can use CopyDirectory().
 # Also, to avoid code duplication, it is possible to call the 'enable.pl' hook
 # script from here: 
-require $ENV{'GENORING_DIR'} . '/modules/MY_MODULE/hooks/enable.pl';
+require $Genoring::MODULES_DIR . '/MY_MODULE/hooks/enable.pl';
 
 # Returns 1 when called by "require".
 1;

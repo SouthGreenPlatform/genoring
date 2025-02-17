@@ -96,9 +96,9 @@ B<$IS_MOD_PERL>: (boolean)
 
 Tells if GenoRing is currently running as Apache Perl mod (true).
 
-B<$MODULE_DIR>: (string)
+B<$MODULES_DIR>: (string)
 
-Name of the module directory.
+Name of the modules directory.
 
 B<$MODULE_FILE>: (string)
 
@@ -129,7 +129,7 @@ B<$STATE_MAX_TRIES>: (integer)
 
 Maximum number of seconds to wait for a service to be ready (running).
 
-B<$VOLUME_DIR>: (string)
+B<$VOLUMES_DIR>: (string)
 
 Name of the shared docker volume directory.
 
@@ -167,12 +167,12 @@ our $PROFILE_CONSTRAINT_REGEX = '(?:((?:dev|staging|prod|backend|offline)(?:\s*,
 our $SERVICE_CONSTRAINT_REGEX = '([a-z0-9\-\_]+)?';
 our $SERVICE_NAME_REGEX = '[a-z][a-z0-9\-]*';
 our $STATE_MAX_TRIES = 300;
-our $VOLUME_DIR = $ENV{'GENORING_VOLUMES_DIR'} || File::Spec->catfile(Cwd::cwd(), 'volumes');
+our $VOLUMES_DIR = $ENV{'GENORING_VOLUMES_DIR'} || File::Spec->catfile(Cwd::cwd(), 'volumes');
 our $VOLUME_NAME_REGEX = '[a-z][a-z0-9\-]*';
 # Constants that depends on others.
 our $DEPENDENCY_REGEX = "(?:\\s+[oO][rR]\\s+)?($MODULE_NAME_REGEX)(?:\\s+(?:([<>]?=?)\\s*)(\\d+)(?:\\.(\\d+))?(alpha|beta|dev)?)?(?:\\s+($SERVICE_NAME_REGEX|$VOLUME_NAME_REGEX))?";
 our $IS_CGI = $IS_MOD_PERL || (exists($ENV{'GATEWAY_INTERFACE'}) && $ENV{'GATEWAY_INTERFACE'});
-our $MODULE_DIR = File::Spec->catfile($GENORING_DIR, 'modules');
+our $MODULES_DIR = File::Spec->catfile($GENORING_DIR, 'modules');
 
 
 

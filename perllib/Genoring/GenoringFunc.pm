@@ -498,7 +498,7 @@ sub GetModuleRealState {
   }
 
   my $state = '';
-  my $state_hook = File::Spec->catfile($Genoring::MODULE_DIR, $module, 'hooks', 'state.pl');
+  my $state_hook = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', 'state.pl');
   if (-e $state_hook) {
     my $tries = $g_flags->{'wait-ready'};
     $state = qx(perl $state_hook);
@@ -851,12 +851,12 @@ SETUPGENORINGENVIRONMENT_MODULES:
   foreach my $module (@$modules) {
     $env_vars{$module} = {};
     # List module env files.
-    if (!-d "$Genoring::MODULE_DIR/$module/env") {
+    if (!-d "$Genoring::MODULES_DIR/$module/env") {
       next SETUPGENORINGENVIRONMENT_MODULES;
     }
-    opendir(my $dh, "$Genoring::MODULE_DIR/$module/env")
-      or die "ERROR: SetupGenoringEnvironment: Failed to access '$Genoring::MODULE_DIR/$module/env' directory!\n$!";
-    my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$Genoring::MODULE_DIR/$module/env/$_" } readdir($dh));
+    opendir(my $dh, "$Genoring::MODULES_DIR/$module/env")
+      or die "ERROR: SetupGenoringEnvironment: Failed to access '$Genoring::MODULES_DIR/$module/env' directory!\n$!";
+    my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$Genoring::MODULES_DIR/$module/env/$_" } readdir($dh));
     closedir($dh);
 SETUPGENORINGENVIRONMENT_ENV_FILES:
     foreach my $env_file (@env_files) {
@@ -866,7 +866,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
       }
       # Parse each env file to get parametrable elements.
       my $env_fh;
-      if (open($env_fh, '<:utf8', "$Genoring::MODULE_DIR/$module/env/$env_file")) {
+      if (open($env_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/env/$env_file")) {
         my ($envvar_name, $envvar_desc, $envvar_default, $is_setting, $is_optional, $previous_content) = ('', '', '', 0, 0, '');
         $env_vars{$module}->{$env_file} = [];
         while (my $line = <$env_fh>) {
@@ -930,7 +930,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
           }
           else {
             # Unsupported line.
-            # warn "WARNING: Unsupported line in '$Genoring::MODULE_DIR/$module/env/$env_file':\n$line\n";
+            # warn "WARNING: Unsupported line in '$Genoring::MODULES_DIR/$module/env/$env_file':\n$line\n";
             ($envvar_name, $envvar_desc, $envvar_default, $is_setting, $is_optional) = ('', '', '', 0, 0);
           }
           $previous_content .= $line;
@@ -1032,7 +1032,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
         }
       }
       else {
-        die "ERROR: failed to open environment file '$Genoring::MODULE_DIR/$module/env/$env_file':\n$!\n";
+        die "ERROR: failed to open environment file '$Genoring::MODULES_DIR/$module/env/$env_file':\n$!\n";
       }
     }
   }
@@ -1065,20 +1065,20 @@ sub GenerateDockerComposeFile {
   foreach my $module (@$modules) {
     print "  - Processing $module module\n";
 
-    if (!-d "$Genoring::MODULE_DIR/$module/services") {
+    if (!-d "$Genoring::MODULES_DIR/$module/services") {
       # No service to enable.
       next;
     }
     # Get version.
     my $module_info = GetModuleInfo($module);
     # Work on module services.
-    opendir(my $dh, "$Genoring::MODULE_DIR/$module/services")
-      or die "ERROR: GenerateDockerComposeFile: Failed to access '$Genoring::MODULE_DIR/$module/services' directory!\n$!";
-    my @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULE_DIR/$module/services/$_" } readdir($dh));
+    opendir(my $dh, "$Genoring::MODULES_DIR/$module/services")
+      or die "ERROR: GenerateDockerComposeFile: Failed to access '$Genoring::MODULES_DIR/$module/services' directory!\n$!";
+    my @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/services/$_" } readdir($dh));
     closedir($dh);
     foreach my $service_yml (@services) {
       my $svc_fh;
-      open($svc_fh, '<:utf8', "$Genoring::MODULE_DIR/$module/services/$service_yml")
+      open($svc_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/services/$service_yml")
         or die "ERROR: GenerateDockerComposeFile: Failed to open module service file '$service_yml'.\n$!";
       # Trim extension.
       my $service = substr($service_yml, 0, -4);
@@ -1224,13 +1224,13 @@ sub GenerateDockerComposeFile {
     }
 
     # Work on module volumes.
-    opendir($dh, "$Genoring::MODULE_DIR/$module/volumes")
+    opendir($dh, "$Genoring::MODULES_DIR/$module/volumes")
       or next;
-    my @volumes = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULE_DIR/$module/volumes/$_" } readdir($dh));
+    my @volumes = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/volumes/$_" } readdir($dh));
     closedir($dh);
     foreach my $volume_yml (@volumes) {
       my $vl_fh;
-      open($vl_fh, '<:utf8', "$Genoring::MODULE_DIR/$module/volumes/$volume_yml")
+      open($vl_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/volumes/$volume_yml")
         or die "ERROR: GenerateDockerComposeFile: Failed to open module volume file '$volume_yml'.\n$!";
       my $volume = substr($volume_yml, 0, -4);
       $volumes{$volume} = {
@@ -1837,7 +1837,7 @@ sub InstallModule {
     die "ERROR: InstallModule: Missing module name!\n";
   }
 
-  if (! -d "$Genoring::MODULE_DIR/$module") {
+  if (! -d "$Genoring::MODULES_DIR/$module") {
     die "ERROR: InstallModule: Module '$module' not found!\n";
   }
 
@@ -1954,7 +1954,7 @@ sub EnableModule {
     die "ERROR: EnableModule: Missing module name!\n";
   }
 
-  if (! -d "$Genoring::MODULE_DIR/$module") {
+  if (! -d "$Genoring::MODULES_DIR/$module") {
     die "ERROR: EnableModule: Module '$module' not found!\n";
   }
 
@@ -2050,7 +2050,7 @@ sub DisableModule {
     die "ERROR: DisableModule: Missing module name!\n";
   }
 
-  if (! -d "$Genoring::MODULE_DIR/$module") {
+  if (! -d "$Genoring::MODULES_DIR/$module") {
     warn "WARNING: DisableModule: Module '$module' not found!\n";
   }
 
@@ -2152,7 +2152,7 @@ sub UninstallModule {
     die "ERROR: UninstallModule: Missing module name!\n";
   }
 
-  if (! -d "$Genoring::MODULE_DIR/$module") {
+  if (! -d "$Genoring::MODULES_DIR/$module") {
     warn "WARNING: UninstallModule: Module '$module' not found!\n";
   }
 
@@ -2272,18 +2272,18 @@ sub EnableAlternative {
     }
 
     # Ensure directory permissions.
-    if (!-w "$Genoring::MODULE_DIR/$module/services") {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': the service directory ($Genoring::MODULE_DIR/$module/services) is write-protected.\n";
+    if (!-w "$Genoring::MODULES_DIR/$module/services") {
+      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': the service directory ($Genoring::MODULES_DIR/$module/services) is write-protected.\n";
     }
 
     # Make sure services have not been already altered.
     my $alternative = $alternatives->{$alternative_name};
     my (@missing_services, @disabled_services);
     foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-      if (-e "$Genoring::MODULE_DIR/$module/services/$old_service.yml.dis") {
+      if (-e "$Genoring::MODULES_DIR/$module/services/$old_service.yml.dis") {
         push(@disabled_services, $old_service);
       }
-      if (!-e "$Genoring::MODULE_DIR/$module/services/alt/$old_service.yml") {
+      if (!-e "$Genoring::MODULES_DIR/$module/services/alt/$old_service.yml") {
         push(@missing_services, $old_service);
       }
     }
@@ -2292,10 +2292,10 @@ sub EnableAlternative {
     }
     my @added_services;
     foreach my $new_service (keys(%{$alternative->{'add'} || {}})) {
-      if (-e "$Genoring::MODULE_DIR/$module/services/$new_service.yml") {
+      if (-e "$Genoring::MODULES_DIR/$module/services/$new_service.yml") {
         push(@added_services, $new_service);
       }
-      if (!-e "$Genoring::MODULE_DIR/$module/services/alt/$new_service.yml") {
+      if (!-e "$Genoring::MODULES_DIR/$module/services/alt/$new_service.yml") {
         push(@missing_services, $new_service);
       }
     }
@@ -2310,13 +2310,13 @@ sub EnableAlternative {
     my (@renamed, @copied);
     eval {
       foreach my $to_rename (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-        if (!rename("$Genoring::MODULE_DIR/$module/services/$to_rename.yml", "$Genoring::MODULE_DIR/$module/services/$to_rename.yml.dis")) {
+        if (!rename("$Genoring::MODULES_DIR/$module/services/$to_rename.yml", "$Genoring::MODULES_DIR/$module/services/$to_rename.yml.dis")) {
           die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': service '$to_rename' could not be replaced/removed.\n$!";
         }
         push(@renamed, $to_rename);
       }
       foreach my $to_add (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'add'} || {}})) {
-        if (!copy("$Genoring::MODULE_DIR/$module/services/alt/$to_add.yml", "$Genoring::MODULE_DIR/$module/services/$to_add.yml")) {
+        if (!copy("$Genoring::MODULES_DIR/$module/services/alt/$to_add.yml", "$Genoring::MODULES_DIR/$module/services/$to_add.yml")) {
           die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': service '$to_add' could not be added/replaced.\n$!";
         }
         push(@copied, $to_add);
@@ -2326,11 +2326,11 @@ sub EnableAlternative {
       # Undo changes.
       foreach my $to_remove (@copied) {
         # Remove added files.
-        unlink("$Genoring::MODULE_DIR/$module/services/$to_remove.yml");
+        unlink("$Genoring::MODULES_DIR/$module/services/$to_remove.yml");
       }
       foreach my $to_restore (@renamed) {
         # Revert renaming.
-        rename("$Genoring::MODULE_DIR/$module/services/$to_restore.yml.dis", "$Genoring::MODULE_DIR/$module/services/$to_restore.yml");
+        rename("$Genoring::MODULES_DIR/$module/services/$to_restore.yml.dis", "$Genoring::MODULES_DIR/$module/services/$to_restore.yml");
       }
       die $@;
     }
@@ -2380,15 +2380,15 @@ sub DisableAlternative {
     }
 
     # Ensure directory permissions.
-    if (!-w "$Genoring::MODULE_DIR/$module/services") {
-      die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': the service directory ($Genoring::MODULE_DIR/$module/services) is write-protected.\n";
+    if (!-w "$Genoring::MODULES_DIR/$module/services") {
+      die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': the service directory ($Genoring::MODULES_DIR/$module/services) is write-protected.\n";
     }
 
     # Make sure services have already been altered.
     my $alternative = $alternatives->{$alternative_name};
     my @missing_services;
     foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-      if (!-e "$Genoring::MODULE_DIR/$module/services/alt/$old_service.yml.dis") {
+      if (!-e "$Genoring::MODULES_DIR/$module/services/alt/$old_service.yml.dis") {
         push(@missing_services, $old_service);
       }
     }
@@ -2400,14 +2400,14 @@ sub DisableAlternative {
     my (@renamed);
     eval {
       foreach my $to_remove (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'add'} || {}})) {
-        if (-e "$Genoring::MODULE_DIR/$module/services/$to_remove.yml"
-          && !unlink("$Genoring::MODULE_DIR/$module/services/$to_remove.yml")
+        if (-e "$Genoring::MODULES_DIR/$module/services/$to_remove.yml"
+          && !unlink("$Genoring::MODULES_DIR/$module/services/$to_remove.yml")
         ) {
           die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': altered service '$to_remove' could not be removed.\n$!";
         }
       }
       foreach my $to_rename (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-        if (!rename("$Genoring::MODULE_DIR/$module/services/$to_rename.yml.dis", "$Genoring::MODULE_DIR/$module/services/$to_rename.yml")) {
+        if (!rename("$Genoring::MODULES_DIR/$module/services/$to_rename.yml.dis", "$Genoring::MODULES_DIR/$module/services/$to_rename.yml")) {
           die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': service '$to_rename' could not be put back.\n$!";
         }
         push(@renamed, $to_rename);
@@ -2417,7 +2417,7 @@ sub DisableAlternative {
       # Undo changes.
       foreach my $to_restore (@renamed) {
         # Revert renaming.
-        rename("$Genoring::MODULE_DIR/$module/services/$to_restore.yml", "$Genoring::MODULE_DIR/$module/services/$to_restore.yml.dis");
+        rename("$Genoring::MODULES_DIR/$module/services/$to_restore.yml", "$Genoring::MODULES_DIR/$module/services/$to_restore.yml.dis");
       }
       die $@;
     }
@@ -2489,14 +2489,14 @@ sub ToLocalService {
   }
   my $module = $services->{$service};
   # Disable the service.
-  if (-e "$Genoring::MODULE_DIR/$module/services/alt/$service.yml.dis") {
+  if (-e "$Genoring::MODULES_DIR/$module/services/alt/$service.yml.dis") {
     # Using an alternative, remove it.
-    if (!unlink("$Genoring::MODULE_DIR/$module/services/$service.yml")) {
+    if (!unlink("$Genoring::MODULES_DIR/$module/services/$service.yml")) {
       die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
     }
   }
   else {
-    if (!rename("$Genoring::MODULE_DIR/$module/services/$service.yml", "$Genoring::MODULE_DIR/$module/services/$service.yml.dis")) {
+    if (!rename("$Genoring::MODULES_DIR/$module/services/$service.yml", "$Genoring::MODULES_DIR/$module/services/$service.yml.dis")) {
       die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
     }
   }
@@ -2605,7 +2605,7 @@ sub Backup {
     die "ERROR: Backup: Invalid back name '$backup_name'. Only letters, numbers, dots, underscores and dashes are allowed and the name must begin with a letter.\n";
   }
 
-  my $backupdir = "$Genoring::VOLUME_DIR/backups/$backup_name";
+  my $backupdir = "$Genoring::VOLUMES_DIR/backups/$backup_name";
   if (-d $backupdir) {
     # Check if directory is not empty.
     opendir(my $dh, $backupdir)
@@ -2737,7 +2737,7 @@ sub Restore {
 
   print "Restore GenoRing...\n";
   # Restore GenoRing config.
-  my $backupdir = "$Genoring::VOLUME_DIR/backups/$backup_name";
+  my $backupdir = "$Genoring::VOLUMES_DIR/backups/$backup_name";
   if (!$module) {
     print "- Restoring GenoRing config...\n";
     if (-e "$backupdir/config/$Genoring::DOCKER_COMPOSE_FILE"
@@ -2893,12 +2893,12 @@ sub ApplyLocalHooks {
   }
 
   foreach $module (@$modules) {
-    if (-e "$Genoring::MODULE_DIR/$module/hooks/$hook_name.pl") {
+    if (-e "$Genoring::MODULES_DIR/$module/hooks/$hook_name.pl") {
       if ($g_debug) {
-        print "DEBUG: Applying '$module' local hook '$Genoring::MODULE_DIR/$module/hooks/$hook_name.pl'...\n";
+        print "DEBUG: Applying '$module' local hook '$Genoring::MODULES_DIR/$module/hooks/$hook_name.pl'...\n";
       }
       print "  Processing $module module hook $hook_name...";
-      my $hook_script = File::Spec->catfile($Genoring::MODULE_DIR, $module, 'hooks', "$hook_name.pl");
+      my $hook_script = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', "$hook_name.pl");
       # @todo Add environment variables.
       eval {
         Run(
@@ -3025,11 +3025,11 @@ APPLYCONTAINERHOOKS_MODULES:
     if ($g_debug) {
       print "DEBUG: Processing '$module' container '$hook_name' hooks...\n";
     }
-    if (-d "$Genoring::MODULE_DIR/$module/hooks/") {
+    if (-d "$Genoring::MODULES_DIR/$module/hooks/") {
       # Read directory and filter on services.
-      opendir(my $dh, "$Genoring::MODULE_DIR/$module/hooks")
-        or die "ERROR: ApplyContainerHooks: Failed to list '$Genoring::MODULE_DIR/$module/hooks' directory!\n$!";
-      my @hooks = (grep { $_ =~ m/^${hook_name}_.+\.sh$/ && -r "$Genoring::MODULE_DIR/$module/hooks/$_" } readdir($dh));
+      opendir(my $dh, "$Genoring::MODULES_DIR/$module/hooks")
+        or die "ERROR: ApplyContainerHooks: Failed to list '$Genoring::MODULES_DIR/$module/hooks' directory!\n$!";
+      my @hooks = (grep { $_ =~ m/^${hook_name}_.+\.sh$/ && -r "$Genoring::MODULES_DIR/$module/hooks/$_" } readdir($dh));
       # Process all module hooks that can be run.
 APPLYCONTAINERHOOKS_HOOKS:
       foreach my $hook (@hooks) {
@@ -3042,13 +3042,13 @@ APPLYCONTAINERHOOKS_HOOKS:
           # as $modules would only contain the given module.
           if ($spec_module && ($spec_module ne $module) && ($services->{$service} ne $spec_module)) {
             if ($g_debug) {
-              print "DEBUG: non-matching container hook '$Genoring::MODULE_DIR/$module/hooks/$hook' for '$service' container.\n";
+              print "DEBUG: non-matching container hook '$Genoring::MODULES_DIR/$module/hooks/$hook' for '$service' container.\n";
             }
             # Skip non-matching hooks.
             next APPLYCONTAINERHOOKS_HOOKS;
           }
           if ($g_debug) {
-            print "DEBUG: Applying container hook '$Genoring::MODULE_DIR/$module/hooks/$hook' in '$service' container.\n";
+            print "DEBUG: Applying container hook '$Genoring::MODULES_DIR/$module/hooks/$hook' in '$service' container.\n";
           }
           else {
             print "  Processing $module module hook $hook_name in '$service' container...";
@@ -3068,7 +3068,7 @@ APPLYCONTAINERHOOKS_HOOKS:
               "Failed to prepare module file copy in $service_name ($module $hook hook)"
             );
             Run(
-              "$Genoring::DOCKER_COMMAND cp $Genoring::MODULE_DIR/ $service_name:/genoring/modules",
+              "$Genoring::DOCKER_COMMAND cp $Genoring::MODULES_DIR/ $service_name:/genoring/modules",
               "Failed to copy module files in $service_name ($module $hook hook)"
             );
             $initialized_containers{$service} = 1;
@@ -3125,18 +3125,18 @@ sub Compile {
   if (!$module) {
     die "ERROR: Compile: Missing module name!";
   }
-  elsif (!-d "$Genoring::MODULE_DIR/$module") {
+  elsif (!-d "$Genoring::MODULES_DIR/$module") {
     die "ERROR: Compile: The given module ($module) was not found in the module directory!";
   }
-  elsif (!-d "$Genoring::MODULE_DIR/$module/src") {
+  elsif (!-d "$Genoring::MODULES_DIR/$module/src") {
     die "ERROR: Compile: The given module ($module) does not have sources!";
   }
 
   if (!$service) {
     # Try to get default service.
-    opendir(my $dh, "$Genoring::MODULE_DIR/$module/src")
-      or die "ERROR: Compile: Failed to access '$Genoring::MODULE_DIR/$module/src' directory!";
-    my @services = (grep { $_ ne '.' && $_ ne '..' && -d "$Genoring::MODULE_DIR/$module/src/$_" } readdir($dh));
+    opendir(my $dh, "$Genoring::MODULES_DIR/$module/src")
+      or die "ERROR: Compile: Failed to access '$Genoring::MODULES_DIR/$module/src' directory!";
+    my @services = (grep { $_ ne '.' && $_ ne '..' && -d "$Genoring::MODULES_DIR/$module/src/$_" } readdir($dh));
     if (1 == scalar(@services)) {
       $service = shift(@services);
     }
@@ -3146,11 +3146,11 @@ sub Compile {
   }
 
   # Get service sub-directory for sources (take into account ARM support).
-  if (!-d "$Genoring::MODULE_DIR/$module/src/$service") {
+  if (!-d "$Genoring::MODULES_DIR/$module/src/$service") {
     die "ERROR: Compile: The given service (${module}[$service]) does not have sources!";
   }
-  elsif ((!-r "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile")
-    && (!-r "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile.default")
+  elsif ((!-r "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile")
+    && (!-r "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default")
   ) {
     die "ERROR: Compile: Unable to access the Dockerfile of the given service (${module}[$service])!";
   }
@@ -3160,33 +3160,33 @@ sub Compile {
     my $platform_arch = $g_flags->{'platform'};
 
     # Make sure we got a linux/amd64 version.
-    if (!-e "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile.default") {
+    if (!-e "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default") {
       # No linux/amd64 version, assume current one is.
-      if (!rename("$Genoring::MODULE_DIR/$module/src/$service/Dockerfile", "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile.default")) {
-        die "ERROR: Cannot rename '$Genoring::MODULE_DIR/$module/src/$service/Dockerfile'.\n$!";
+      if (!rename("$Genoring::MODULES_DIR/$module/src/$service/Dockerfile", "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default")) {
+        die "ERROR: Cannot rename '$Genoring::MODULES_DIR/$module/src/$service/Dockerfile'.\n$!";
       }
     }
     # Here we got a 'Dockerfile.default'.
 
     # Now generate a new platform version.
-    if (-e "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile") {
+    if (-e "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile") {
       # Remove current 'Dockerfile'.
-      unlink("$Genoring::MODULE_DIR/$module/src/$service/Dockerfile");
+      unlink("$Genoring::MODULES_DIR/$module/src/$service/Dockerfile");
     }
     # Replace "FROM xxx:yyy" by "FROM --platform=*** xxx:yyy".
     my $dockerfile_fh;
-    if (open($dockerfile_fh, '<:utf8', "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile.default")) {
+    if (open($dockerfile_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default")) {
       my $docker_source = do { local $/; <$dockerfile_fh> };
       close($dockerfile_fh);
       $docker_source =~ s~^FROM\s+(?:--platform=\S+\s+)?([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM --platform=$platform_arch $1$2$3~mg;
-      if (open($dockerfile_fh, '>:utf8', "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile")) {
+      if (open($dockerfile_fh, '>:utf8', "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile")) {
         print {$dockerfile_fh} $docker_source;
         close($dockerfile_fh);
       }
     }
   }
-  elsif (-e "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile.default"
-    || !-e "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile"
+  elsif (-e "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default"
+    || !-e "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile"
   ) {
     # Compiling for linux/amd64, make sure we got a 'Dockerfile' in linux/amd64
     # version.
@@ -3194,13 +3194,13 @@ sub Compile {
     # '-arm' or '--platform' compile flag were used before and may have changed
     # the 'Dockerfile' or because we don't have any 'Dockerfile' at all but we
     # got a 'Dockerfile.default'.
-    if (-e "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile") {
+    if (-e "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile") {
       # Remove current 'Dockerfile'.
-      unlink("$Genoring::MODULE_DIR/$module/src/$service/Dockerfile");
+      unlink("$Genoring::MODULES_DIR/$module/src/$service/Dockerfile");
     }
     # Copy linux/amd64 Dockerfile.
-    if (!copy("$Genoring::MODULE_DIR/$module/src/$service/Dockerfile.default", "$Genoring::MODULE_DIR/$module/src/$service/Dockerfile")) {
-      die "ERROR: Cannot copy '$Genoring::MODULE_DIR/$module/src/$service/Dockerfile.default'.\n$!";
+    if (!copy("$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default", "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile")) {
+      die "ERROR: Cannot copy '$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default'.\n$!";
     }
   }
   print "Compiling service ${module}[$service]...\n";
@@ -3230,7 +3230,7 @@ sub Compile {
     "Failed to remove previous image (service ${module}[$service])!",
     1
   );
-  my $service_src_path = File::Spec->catfile($Genoring::MODULE_DIR, $module, 'src' , $service);
+  my $service_src_path = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'src' , $service);
   my $no_cache = '';
   if ($g_flags->{'no-cache'}) {
     $no_cache = '--no-cache';
@@ -3268,7 +3268,7 @@ sub CompileMissingContainers {
     if (!$image_id) {
       # Check if we got sources
       my $module = $services->{$service};
-      if (-d "$Genoring::MODULE_DIR/$module/src/$service") {
+      if (-d "$Genoring::MODULES_DIR/$module/src/$service") {
         # Got sources, compile.
         print "Compile missing service $module:$service.\n";
         Compile($module, $service);
@@ -3416,9 +3416,9 @@ sub GetModules {
   if (!defined($module_mode)) {
     if (!exists($_g_modules->{'all'})) {
       # Get all available modules.
-      opendir(my $dh, "$Genoring::MODULE_DIR")
-        or die "ERROR: GetModules: Failed to list '$Genoring::MODULE_DIR' directory!\n$!";
-      $_g_modules->{'all'} = [ sort grep { $_ =~ m/^$Genoring::MODULE_NAME_REGEX$/ && -d "$Genoring::MODULE_DIR/$_" } readdir($dh) ];
+      opendir(my $dh, "$Genoring::MODULES_DIR")
+        or die "ERROR: GetModules: Failed to list '$Genoring::MODULES_DIR' directory!\n$!";
+      $_g_modules->{'all'} = [ sort grep { $_ =~ m/^$Genoring::MODULE_NAME_REGEX$/ && -d "$Genoring::MODULES_DIR/$_" } readdir($dh) ];
     }
     $modules = $_g_modules->{'all'};
   }
@@ -3602,24 +3602,24 @@ sub GetModuleServices {
 
   # Get all available services.
   my @services;
-  if (-d "$Genoring::MODULE_DIR/$module/services") {
-    if (opendir(my $dh, "$Genoring::MODULE_DIR/$module/services")) {
+  if (-d "$Genoring::MODULES_DIR/$module/services") {
+    if (opendir(my $dh, "$Genoring::MODULES_DIR/$module/services")) {
       if (!$include || ('enabled' eq $include) || ('all' eq $include)) {
-        push(@services, map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULE_DIR/$module/services/$_" } readdir($dh)));
+        push(@services, map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/services/$_" } readdir($dh)));
       }
       if ($include) {
          if (('disabled' eq $include) || ('all' eq $include)) {
-          push(@services, map { s/\.yml\.dis$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml\.dis$/ && -r "$Genoring::MODULE_DIR/$module/services/$_" } readdir($dh)));
+          push(@services, map { s/\.yml\.dis$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml\.dis$/ && -r "$Genoring::MODULES_DIR/$module/services/$_" } readdir($dh)));
         }
         if (('alt' eq $include) || ('all' eq $include)) {
-          push(@services,  map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULE_DIR/$module/services/alt/$_" } readdir($dh)));
+          push(@services,  map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/services/alt/$_" } readdir($dh)));
         }
       }
       my %seen = map {$_ => $_} @services;
       @services = sort values(%seen);
     }
     else {
-      warn "WARNING: GetModuleServices: Failed to list '$Genoring::MODULE_DIR/$module/services' directory!\n$!";
+      warn "WARNING: GetModuleServices: Failed to list '$Genoring::MODULES_DIR/$module/services' directory!\n$!";
     }
   }
 
@@ -3700,18 +3700,18 @@ sub GetModuleInfo {
 
   if (!$_g_modules_info->{$module}) {
     $_g_modules_info->{$module} = {};
-    if (-f "$Genoring::MODULE_DIR/$module/$module.yml") {
-      if (open(my $alt_fh, '<:utf8', "$Genoring::MODULE_DIR/$module/$module.yml")) {
+    if (-f "$Genoring::MODULES_DIR/$module/$module.yml") {
+      if (open(my $alt_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/$module.yml")) {
         my $yaml_text = do { local $/; <$alt_fh> };
         close($alt_fh);
         my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
           or die
-            "ERROR: failed to parse module info file '$Genoring::MODULE_DIR/$module/$module.yml':\n"
+            "ERROR: failed to parse module info file '$Genoring::MODULES_DIR/$module/$module.yml':\n"
             . CPAN::Meta::YAML->errstr;
         $_g_modules_info->{$module} = $yaml->[0];
       }
       else {
-        warn "WARNING: GetModuleInfo: Failed to open module info file '$Genoring::MODULE_DIR/$module/$module.yml'!\n$!";
+        warn "WARNING: GetModuleInfo: Failed to open module info file '$Genoring::MODULES_DIR/$module/$module.yml'!\n$!";
       }
     }
   }
@@ -3789,12 +3789,12 @@ sub GetModuleVolumes {
   my @volumes;
   if (!$type || ('defined' eq $type)) {
     # Get all defined volumes.
-    if (-d "$Genoring::MODULE_DIR/$module/volumes") {
-      if (opendir(my $dh, "$Genoring::MODULE_DIR/$module/volumes")) {
-        @volumes = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULE_DIR/$module/volumes/$_" } readdir($dh));
+    if (-d "$Genoring::MODULES_DIR/$module/volumes") {
+      if (opendir(my $dh, "$Genoring::MODULES_DIR/$module/volumes")) {
+        @volumes = sort map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/volumes/$_" } readdir($dh));
       }
       else {
-        warn "WARNING: GetModuleVolumes: Failed to list '$Genoring::MODULE_DIR/$module/volumes' directory!\n$!";
+        warn "WARNING: GetModuleVolumes: Failed to list '$Genoring::MODULES_DIR/$module/volumes' directory!\n$!";
       }
     }
   }
@@ -4036,10 +4036,10 @@ sub RemoveEnvFiles {
   my ($module) = @_;
   if ($module) {
     # Remove module environment files.
-    if (-d "$Genoring::MODULE_DIR/$module/env") {
+    if (-d "$Genoring::MODULES_DIR/$module/env") {
       # List module env files.
-      if (opendir(my $dh, "$Genoring::MODULE_DIR/$module/env")) {
-        my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$Genoring::MODULE_DIR/$module/env/$_" } readdir($dh));
+      if (opendir(my $dh, "$Genoring::MODULES_DIR/$module/env")) {
+        my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$Genoring::MODULES_DIR/$module/env/$_" } readdir($dh));
         closedir($dh);
         foreach my $env_file (@env_files) {
           # Check if environment file exist.
@@ -4049,7 +4049,7 @@ sub RemoveEnvFiles {
         }
       }
       else {
-        warn "WARNING: Failed to access '$Genoring::MODULE_DIR/$module/env' directory!\n$!";
+        warn "WARNING: Failed to access '$Genoring::MODULES_DIR/$module/env' directory!\n$!";
       }
     }
   }
@@ -4118,10 +4118,10 @@ The site environment type. Must be one of 'dev', 'staging', 'prod' or 'backend'.
 
 sub GetProfile {
   my $site_env =
-    GetEnvVariable("$Genoring::MODULE_DIR/genoring/env/genoring.env", 'GENORING_ENVIRONMENT')
+    GetEnvVariable("$Genoring::MODULES_DIR/genoring/env/genoring.env", 'GENORING_ENVIRONMENT')
     || 'dev';
   if ($site_env !~ m/^(?:dev|staging|prod|backend)$/) {
-    die "ERROR: GetProfile: Invalid site environment : '$site_env' in '$Genoring::MODULE_DIR/genoring/env/genoring.env'! Valid profile should be one of 'dev', 'staging', 'prod' or 'backend'.\n";
+    die "ERROR: GetProfile: Invalid site environment : '$site_env' in '$Genoring::MODULES_DIR/genoring/env/genoring.env'! Valid profile should be one of 'dev', 'staging', 'prod' or 'backend'.\n";
   }
   return $site_env;
 }
@@ -4706,7 +4706,7 @@ B<Return>: (nothing)
 
 B<Example>:
 
-    $source = $ENV{'MODULE_DIR'} . '/brapimapper/res/nginx/brapimapper.conf';
+    $source = $MODULES_DIR . '/brapimapper/res/nginx/brapimapper.conf';
     $target = $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes/brapimapper.conf';
     CopyFiles($source, $target);
 
@@ -4820,7 +4820,7 @@ B<Example>:
 sub CopyVolumeFiles
 {
   my ($files, $single_target, $replace_existing) = @_;
-  CopyFiles($files, $single_target, $Genoring::VOLUME_DIR, $Genoring::VOLUME_DIR, $replace_existing);
+  CopyFiles($files, $single_target, $Genoring::VOLUMES_DIR, $Genoring::VOLUMES_DIR, $replace_existing);
 }
 
 
@@ -4867,7 +4867,7 @@ B<Example>:
 sub CopyModuleFiles
 {
   my ($files, $single_target, $replace_existing) = @_;
-  CopyFiles($files, $single_target, $Genoring::MODULE_DIR, $Genoring::VOLUME_DIR, $replace_existing);
+  CopyFiles($files, $single_target, $Genoring::MODULES_DIR, $Genoring::VOLUMES_DIR, $replace_existing);
 }
 
 

@@ -120,12 +120,12 @@ if (!defined($ENV{'GENORING_PORT'})) {
 # Set/update GENORING_DIR environment variable.
 $ENV{'GENORING_DIR'} = $Genoring::GENORING_DIR;
 
-# Adjust GENORING_VOLUMES_DIR environment variable and $Genoring::VOLUME_DIR.
+# Adjust GENORING_VOLUMES_DIR environment variable and $Genoring::VOLUMES_DIR.
 if (!defined($ENV{'GENORING_VOLUMES_DIR'})) {
-  $ENV{'GENORING_VOLUMES_DIR'} = $Genoring::VOLUME_DIR;
+  $ENV{'GENORING_VOLUMES_DIR'} = $Genoring::VOLUMES_DIR;
 }
 else {
-  $Genoring::VOLUME_DIR = $ENV{'GENORING_VOLUMES_DIR'};
+  $Genoring::VOLUMES_DIR = $ENV{'GENORING_VOLUMES_DIR'};
 }
 
 $ENV{'GENORING_NO_EXPOSED_VOLUMES'} = '';

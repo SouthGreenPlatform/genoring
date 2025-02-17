@@ -69,11 +69,13 @@ Here are some code recipes that may help in common tasks.
 ### Working with file path on local hooks.
 ```
   use File::Spec;
-  # To access GenoRing directory:
-  my $modules_path = File::Spec->catfile($ENV{'GENORING_DIR'}, 'modules', 'res');
+  use lib "$ENV{'GENORING_DIR'}/perllib";
+  use Genoring;
+  # To access GenoRing module sub-directory:
+  my $modules_path = File::Spec->catfile($Genoring::MODULES_DIR, 'module_name', 'res');
 
-  # To access GenoRing directory:
-  my $volumes_path = $ENV{'GENORING_VOLUMES_DIR'};
+  # To access GenoRing volumes directory:
+  my $volumes_path = $Genoring::VOLUMES_DIR;
   
   # Warning:
   # Note: use ' .' instead of '.' because otherwise we would get
@@ -86,7 +88,7 @@ Here are some code recipes that may help in common tasks.
 
 ### Running a perl script from a local hook.
 ```
-  require $ENV{'GENORING_DIR'} . '/modules/somemodule/res/somescript.pl';
+  require $Genoring::GENORING_DIR . '/modules/somemodule/res/somescript.pl';
 ```
 
 ### Executing a command line from a local hook.

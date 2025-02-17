@@ -14,7 +14,7 @@ use Genoring;
 # NGINX.
 if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes') {
   if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes/brapimapper.conf') {
-    my $res_path = File::Spec->catfile($ENV{'GENORING_DIR'}, 'modules', 'brapimapper', 'res', 'nginx');
+    my $res_path = File::Spec->catfile($Genoring::MODULES_DIR, 'brapimapper', 'res', 'nginx');
     my $volumes_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'proxy', 'nginx', 'includes');
     # Process NGINX config template to replace environment variables.
     my $output = qx(
@@ -26,7 +26,7 @@ if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes') {
 if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes') {
   if (!-e $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes/brapimapper.conf') {
     # @todo
-    # copy($ENV{'GENORING_DIR'} . '/modules/brapimapper/res/httpd/brapimapper.conf', $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes/brapimapper.conf');
+    # copy($Genoring::MODULES_DIR . '/brapimapper/res/httpd/brapimapper.conf', $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/httpd/includes/brapimapper.conf');
   }
 }
 

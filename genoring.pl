@@ -72,7 +72,7 @@ B<$Genoring::GENORING_DIR>: (string)
 Installation directory of GenoRing. This "constant" from the GenoRing package is
 ajusted to reflect current script path.
 
-B<$Genoring::MODULE_DIR>: (string)
+B<$Genoring::MODULES_DIR>: (string)
 
 Name of the module directory. This "constant" from the GenoRing package is
 ajusted to reflect current script path.
@@ -81,7 +81,7 @@ ajusted to reflect current script path.
 
 $Genoring::GENORING_DIR = dirname(__FILE__);
 $Genoring::GENORING_DIR = Cwd::cwd() if ('.' eq $Genoring::GENORING_DIR);
-$Genoring::MODULE_DIR = File::Spec->catfile($Genoring::GENORING_DIR, 'modules');
+$Genoring::MODULES_DIR = File::Spec->catfile($Genoring::GENORING_DIR, 'modules');
 
 
 
@@ -447,9 +447,9 @@ if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {
 }
 
 if ($command =~ m/^(?:start|online|offline|backend)$/i) {
-  if (!-d $Genoring::VOLUME_DIR) {
+  if (!-d $Genoring::VOLUMES_DIR) {
     if (Confirm("GenoRing was not started in that directory before. Do you want to initialize current directory (" . $ENV{'PWD'} . ") as a GenoRing instance directory?")) {
-      mkdir($Genoring::VOLUME_DIR);
+      mkdir($Genoring::VOLUMES_DIR);
     }
     else {
       die("No \"volumes\" directory. Stopping here.");
