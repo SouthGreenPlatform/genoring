@@ -1,0 +1,5 @@
+driver: local
+driver_opts:
+  type: none
+  device: ${GENORING_VOLUMES_DIR}/www
+  o: bind

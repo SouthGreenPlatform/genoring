@@ -5,9 +5,9 @@ set -e
 
 # Set offline mode by copying offline file.
 mkdir -p /opt/drupal/web/
-if test -f /opt/offline/offline.html; then
+if test -f /opt/www/offline.html; then
   printf 'Set site offline.\n'
-  cp /opt/offline/offline.html /opt/drupal/web/offline.html
+  cp /opt/www/offline.html /opt/drupal/web/offline.html
 else
   printf 'Offline file not found, using an empty one.\n'
   # Create a default empty file.

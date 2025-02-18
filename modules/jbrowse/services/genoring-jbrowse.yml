@@ -8,5 +8,5 @@ ports:
   - 8125:80
 restart: unless-stopped
 volumes:
-  - ${GENORING_VOLUMES_DIR}/jbrowse/data:/jbrowse/data
   - genoring-data-volume:/data
+  - genoring-www-volume:/usr/local/www

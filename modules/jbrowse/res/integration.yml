@@ -1,5 +1,5 @@
 name: 'JBrowse'
-uri: 'http://genoring-jbrowse:80/'
+uri: 'http://genoring:80/jbrowse-default'
 path: '/jbrowse'
 height: '500px'
 passthrough: []

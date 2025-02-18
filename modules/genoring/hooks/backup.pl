@@ -21,9 +21,9 @@ if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy') {
   DirCopy($proxy_src_path, $proxy_vol_path);
 }
 
-if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/offline') {
-  my $offline_src_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'offline');
-  my $offline_vol_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'genoring', 'offline');
-  make_path($offline_vol_path);
-  DirCopy($offline_src_path, $offline_vol_path);
+if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/www') {
+  my $www_src_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'www');
+  my $www_vol_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'genoring', 'www');
+  make_path($www_vol_path);
+  DirCopy($www_src_path, $www_vol_path);
 }

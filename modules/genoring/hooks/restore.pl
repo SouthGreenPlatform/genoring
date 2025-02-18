@@ -21,9 +21,9 @@ if (-d $ENV{'GENORING_VOLUMES_DIR'} . "/backups/$backup/genoring/proxy") {
   DirCopy($proxy_backup_path, $proxy_restore_path);
 }
 
-if (-d $ENV{'GENORING_VOLUMES_DIR'} . "/backups/$backup/genoring/offline") {
-  my $offline_backup_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'genoring', 'offline');
-  my $offline_restore_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'offline');
-  remove_tree($offline_restore_path);
-  DirCopy($offline_backup_path, $offline_restore_path);
+if (-d $ENV{'GENORING_VOLUMES_DIR'} . "/backups/$backup/genoring/www") {
+  my $www_backup_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'backups', $backup, 'genoring', 'www');
+  my $www_restore_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'www');
+  remove_tree($www_restore_path);
+  DirCopy($www_backup_path, $www_restore_path);
 }

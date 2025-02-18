@@ -43,9 +43,9 @@ alternatives:
   genoring-alternative2:
     # ...
 
-# volumes: Optional. The list of volumes provided by this module. Each key is a
-# volume machine name with its characteristics. For "shared" volumes, the type
-# must be set to "shared" and the machine name must correspond to a volume
+# volumes: Optional. The list of new volumes provided by this module. Each key
+# is a volume machine name with its characteristics. For "shared" volumes, the
+# type must be set to "shared" and the machine name must correspond to a volume
 # definition placed in the module "volumes/" directory. "Shared" volume names
 # must have a specific structure descibed in the module
 # "TEMPLATE/volumes/README.md" file. For other volumes, the machine name must

@@ -1,0 +1,29 @@
+#!/usr/local/bin/perl
+
+use strict;
+use warnings;
+use utf8;
+use CGI qw/:standard/;
+
+my $query = new CGI;
+my $fasta_file = $query->param('fasta') || '';
+# If POSTed data is not of type application/x-www-form-urlencoded or
+# multipart/form-data:
+# my $post_data = $query->param('POSTDATA');
+
+my $error = $query->cgi_error;
+if ($error) {
+  print
+    $query->header(-status=>$error),
+    $query->start_html('Problems'),
+    $query->h2('Request not processed'),
+    $query->strong($error);
+  exit 0;
+}
+
+print
+  $query->header,
+  $query->start_html('GenoRing BioTools'),
+  $query->h1('faidx tool'),
+  $query->p("Will run faidx tool on $fasta_file"),
+  $query->end_html;

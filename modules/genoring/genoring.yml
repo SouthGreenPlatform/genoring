@@ -36,11 +36,11 @@ volumes:
     description: "Contains all the Drupal file structure with config."
     type: "shared"
     mapping: "volumes/drupal"
-  genoring-volume-offline:
-    name: "Offline files"
-    description: "Contains offline static HTML files."
-    type: "exposed"
-    mapping: "volumes/offline"
+  genoring-volume-www:
+    name: "Static HTML files"
+    description: "Contains static extra HTML files."
+    type: "shared"
+    mapping: "volumes/www"
   genoring-volume-db-pgdata:
     name: "PostgreSQL data"
     description: "Contains PostgreSQL data file structure. Those files should not be edited and are there for system backup purposes."

@@ -11,5 +11,6 @@ volumes:
   - ${GENORING_VOLUMES_DIR}/proxy/nginx/includes:/etc/nginx/includes
   - ${GENORING_VOLUMES_DIR}/proxy/nginx/genoring:/etc/nginx/genoring
   - genoring-drupal-volume:/opt/drupal
+  - genoring-www-volume:/usr/share/www
   - genoring-data-volume:/data
 restart: always

@@ -10,5 +10,5 @@ volumes:
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
   - genoring-backups-volume:/backups
-  - ${GENORING_VOLUMES_DIR}/offline:/opt/offline
+  - genoring-www-volume:/var/www/html2
 restart: unless-stopped

@@ -32,10 +32,10 @@ if (!$ENV{'GENORING_NO_EXPOSED_VOLUMES'}) {
     'proxy/nginx/genoring-fpm.conf'
   );
 
-  if (!-d $Genoring::VOLUMES_DIR . '/offline') {
-    my $offline_src_path = File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'offline');
-    my $offline_vol_path = File::Spec->catfile($Genoring::VOLUMES_DIR, 'offline');
-    DirCopy($offline_src_path, $offline_vol_path);
+  if (!-d $Genoring::VOLUMES_DIR . '/www') {
+    my $www_src_path = File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'www');
+    my $www_vol_path = File::Spec->catfile($Genoring::VOLUMES_DIR, 'www');
+    DirCopy($www_src_path, $www_vol_path);
   }
 
   CreateVolumeDirectory('data');

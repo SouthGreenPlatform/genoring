@@ -22,8 +22,8 @@ if ($error) {
 
 print
   $query->header,
-  $query->start_html('JBrowse'),
-  $query->h1('Not implemented yet but will load a track'),
+  $query->start_html('GenoRing BioTools'),
+  $query->h1('Not implemented yet'),
   $query->p(<<"__PARAGRAPH__"),
 Things remaining to implement:<br/>
 <pre>
@@ -35,15 +35,25 @@ Things remaining to implement:<br/>
 mkdir -p /data/jbrowse/$GENOME_ID
 cd /data/jbrowse/$GENOME_ID
 ln -s /data/genoring/$GENOME_ID/$FASTA_FILE /data/jbrowse/$GENOME_ID/$FASTA_FILE
+samtools faidx $FASTA_FILE
 printf "[GENERAL]\nrefSeqs=${FASTA_FILE}.fai\n[tracks.refseq]\nurlTemplate=${FASTA_FILE}\nstoreClass=JBrowse/Store/SeqFeature/IndexedFasta\ntype=Sequence\n" > tracks.conf
 
+# GFF3
+gt gff3 -sortlines -tidy $GFF3_FILE > ${GFF3_FILE}.sorted.gff3
+# or (https://github.com/billzt/gff3sort)
+# perl /opt/gff3sort/gff3sort.pl --precise $GFF3_FILE >${GFF3_FILE}.sorted.gff3
+bgzip ${GFF3_FILE}.sorted.gff3
+tabix -p gff ${GFF3_FILE}.sorted.gff3.gz
+printf "[tracks.genes]\nurlTemplate=${GFF3_FILE}.sorted.gff3.gz\nstoreClass=JBrowse/Store/SeqFeature/GFF3Tabix\ntype=CanvasFeatures\n"
+
 SAM
+samtools index $BAM_FILE
 printf "[tracks.alignments]\nurlTemplate=${BAM_FILE}\nstoreClass=JBrowse/Store/SeqFeature/BAM\ntype=Alignments2\n"
 # or CRAM
 # samtools index $CRAM_FILE
 # printf "[tracks.alignments]\nurlTemplate=${CRAM_FILE}\nstoreClass=JBrowse/Store/SeqFeature/CRAM\ntype=Alignments2\n"
 
-Search indexation.
+Search indexation (JBrowse).
 bin/generate-names.pl
 </pre>
 __PARAGRAPH__
