@@ -1864,6 +1864,10 @@ sub InstallModule {
       . $errors->{$module};
   }
   # Check module dependencies.
+  # @todo Dependencies are not checked properly:
+  #   - no version check.
+  #   - no service check.
+  #   - no conflict check.
   foreach my $service_dep (@{$module_info->{'dependencies'}->{'services'}}) {
     my $constraint = ParseDependencies($service_dep);
     next if !%$constraint;
@@ -1874,10 +1878,10 @@ sub InstallModule {
       foreach my $dependency (@{$constraint->{'dependencies'}}) {
         if (exists($enabled_modules{$dependency->{'module'}})) {
           # @todo Check version.
+          # my $dep_service = $dependency->{'element'}
           # $dependency->{'version_constraint'}
           # $dependency->{'major_version'}
           # $dependency->{'minor_version'}
-          # my $dep_service = $dependency->{'element'}
           $dependency_ok = 1;
           last;
         }
