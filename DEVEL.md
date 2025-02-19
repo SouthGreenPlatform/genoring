@@ -332,10 +332,21 @@ The commands supported by the main "genoring" container script "genoring" are:
   is already in use, the menu item is not added.
   YAML file structure:
     ---
-    uri: <string>   # URI of the menu link.
+    uri: <string>   # URI of the menu link. It can be an absolute external URL
+                    # with scheme and host, but it should not include the scheme
+                    # and the host for local routes as they are unknown. Leading
+                    # slash is recommended but not required.
     label: <string> # Label of the menu item.
     menu: <string>  # Optional machine name of the target menu.
                     # Default to "main".
+    add_scheme_and_host: <boolean> # When the given URI does not correspond to
+                    # a route managed by the CMS, the CMS may ignore that URI.
+                    # To avoid that, if "add_scheme_and_host" is "true", it
+                    # means GenoRing must prepend current site scheme and host
+                    # to the given URI to make it absolute and taken into
+                    # account by the CMS. This is the case when external tools
+                    # are embeded in the CMS: the tool manages its routes while
+                    # Drupal has no clue about those routes.
 
 * remove_menuitem <YAML>: removes all the menu items with the given URI.
   YAML file structure:
