@@ -15,20 +15,15 @@ ENV DRUPAL_TRUSTED_HOST=""
 ENV DRUPAL_USER=genoring
 ENV DRUPAL_PASSWORD="G3noR!n&Drup@["
 ENV DRUPAL_AUTO_UPDATE=1
-# https://github.com/docker-library/drupal/pull/259
-# https://github.com/moby/buildkit/issues/4503
-# https://github.com/composer/composer/issues/11839
-# https://github.com/composer/composer/issues/11854
-# https://github.com/composer/composer/blob/94fe2945456df51e122a492b8d14ac4b54c1d2ce/src/Composer/Console/Application.php#L217-L218
-ENV COMPOSER_ALLOW_SUPERUSER=1
-ENV COMPOSER_HOME=/root/.composer
+ENV COMPOSER_HOME=/home/genoring/.composer
 ENV PATH=${PATH}:/opt/drupal/vendor/bin:/opt/genoring
 ENV PHP_INI_SCAN_DIR=:/opt/genoring/php
 
+# Allow apps to know they run into a Docker container.
+RUN touch /.dockerenv
+
 # Add genoring user and group.
-RUN groupadd -r genoring && useradd --no-log-init -r -g genoring genoring
-# @todo: To be used later for security:
-# USER genoring:genoring
+RUN groupadd -g 6305 genoring && useradd -u 6305 -g genoring -m -s /bin/bash genoring
 
 # Setup applications, libraries and PHP.
 # Git might be used later in genoring script for automated updates and is still
@@ -116,8 +111,16 @@ COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
 # Copy Drupal GenoRing distribution and setup file structure.
 COPY res /opt/genoring
-RUN chmod uog+rx /opt/genoring/genoring
-RUN mkdir -p /opt/drupal && rm -rf /var/www/html && ln -sf /opt/drupal/web /var/www/html
+RUN chown -R genoring:genoring /opt/genoring \
+    && chmod -R ug+rw,o+r,o-w /opt/genoring \
+    && chmod uog+x /opt/genoring/genoring
+RUN mkdir -p /opt/drupal \
+    && chown genoring:genoring /opt/drupal \
+    && chmod g+s /opt/drupal \
+    && rm -rf /var/www/html \
+    && ln -sf /opt/drupal/web /var/www/html
+
+USER genoring:genoring
 WORKDIR /opt/drupal
 
 CMD ["/opt/genoring/genoring", "start"]

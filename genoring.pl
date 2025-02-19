@@ -625,9 +625,9 @@ elsif ($command =~ m/^shell$/i) {
   my ($id, $state, $name, $image) = IsContainerRunning($service_name);
   if ($state && ($state =~ m/running/)) {
     Run(
-      "$Genoring::DOCKER_COMMAND exec -it $service_name $command",
+      "$Genoring::DOCKER_COMMAND exec -u 0 -it $service_name $command",
       $message,
-      1,
+      0,
       1
     );
   }
