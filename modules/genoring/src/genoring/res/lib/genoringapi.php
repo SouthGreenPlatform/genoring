@@ -99,11 +99,24 @@ switch ($command) {
     }
 
     if (0 !== stripos($yaml['uri'], 'http')) {
-      if ('/' == $yaml['uri'][0]) {
-        $yaml['uri'] = 'internal:' . $yaml['uri'];
+      if ($yaml['add_scheme_and_host']) {
+        // If the URI points to a non-Drupal route (eg. site integration
+        // sub-routes), Drupal removes the unmanaged route part leading to a
+        // non-working trunctaed URL. To avoid that, the URI needs to be treated
+        // as an external URL so we need to add the scheme and host part to the
+        // given URI. That's why the "add_scheme_and_host" setting is there.
+        $yaml['uri'] =
+          \Drupal::urlGenerator()->generateFromRoute('<front>', [], ['absolute' => TRUE])
+          . ltrim($yaml['uri'], '/');
       }
       else {
-        $yaml['uri'] = 'internal:/' . $yaml['uri'];
+        if ('/' == $yaml['uri'][0]) {
+          $yaml['uri'] = 'internal:' . $yaml['uri'];
+        }
+        else {
+           # Missing leading slash.
+          $yaml['uri'] = 'internal:/' . $yaml['uri'];
+        }
       }
     }
 
