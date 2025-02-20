@@ -12,3 +12,4 @@ volumes:
   - genoring-backups-volume:/backups
   - genoring-www-volume:/var/www/html2
 restart: unless-stopped
+# user: ${GENORING_UID}:${GENORING_GID}

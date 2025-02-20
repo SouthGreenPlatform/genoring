@@ -74,11 +74,9 @@ install_cms()
   # Prepare file system.
   if [ -e ./web/sites ] && [ -e ./web/modules ] && [ -e ./web/themes ]; then
     mkdir -p private config
-    chown -R www-data:www-data web/sites web/modules web/themes private config
+    sudo /opt/genoring/genoring_root.sh drupal_permission
     mkdir -p /data/genoring /data/upload
-    chmod -R ugo+rw /data/upload
-    chown -R www-data:www-data /data/genoring
-    chmod -R ug+rw,o-w /data/genoring
+    chmod -R ugo+rw /data/genoring /data/upload
     ln -s /data/genoring private/genoring
     ln -s /data/upload private/upload
   else
@@ -94,6 +92,17 @@ install_cms()
   printf "*/5 * * * * root cd /opt/drupal/web/ && /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin COLUMNS=72 /usr/local/bin/php ../vendor/bin/drush --uri=$DRUPAL_HOST --quiet maint:status && /usr/local/bin/php ../vendor/bin/drush --uri=$DRUPAL_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
   printf "  ...OK (cron).\n"
   printf "...OK (Drupal downloaded).\n"
+}
+
+# Setup PHP.
+setup_php()
+{
+  if [ ! -e ./php/php.ini ]; then
+    printf "Setup PHP config...\n"
+    mkdir -p ./php
+    cp "$PHP_INI_DIR/php.ini-drupal" ./php/php.ini
+    printf "...OK.\n"
+  fi
 }
 
 # Setup Drupal CMS (initializes database content and setting files).
@@ -119,7 +128,7 @@ setup_cms()
   fi
   # Allow setting update by Drupal installation process.
   # Permissions will be automatically reset after installation.
-  chmod uog+w ./web/sites/default/settings.php
+  chmod ugo+w ./web/sites/default/settings.php
 
   if [ ! -s ./web/sites/default/services.yml ]; then
     printf "* services.yml...\n"
@@ -156,17 +165,23 @@ setup_cms()
   fi
   printf "  ...OK (Drupal initialized).\n"
 
+  # File system permissions.
+  printf "* Adjust file system permissions...\n"
+  # sudo /usr/bin/chown $(/usr/bin/id -u):$(/usr/bin/id -g) /opt/drupal
+  # sudo /opt/genoring/genoring_root.sh drupal_permission
+  chmod -R ugo+rw /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files
+  # sudo /usr/bin/chown -R www-data:www-data /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files
+  sudo /opt/genoring/genoring_root.sh www_permissions
+  # Allow back user to write in default and settings.php as the proxy is not
+  # running with the same user and will not have wrtie access to those.
+  chmod u+w ./web/sites/default ./web/sites/default/settings.php
+  printf "  ...OK (file system).\n"
+
   # Externalize database credentials.
   printf "* Separate database credentials from global settings...\n"
   perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' ./web/sites/default/settings.php >> ./web/sites/default/db_settings.php
   perl -pi -e 'BEGIN{undef $/;} s/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)//smig' ./web/sites/default/settings.php
   printf "  ...OK (database credentials).\n"
-
-  # Other config stuff.
-  printf "* Adjust file system permissions...\n"
-  chown -R www-data:www-data ./web/sites/default/files
-  chmod -R uog+w ./private ./config ./web/sites/default/files
-  printf "  ...OK (file system).\n"
 
   printf "...OK (Drupal setup).\n"
 }
@@ -206,30 +221,6 @@ update_cms()
   fi
 }
 
-# Synchronize host config (environment, passwords and files).
-sync_config()
-{
-  printf "Synchronizing host config...\n"
-  # Sync database password if updated.
-  printf " - syncronize password...\n"
-  if [ ! -z "$POSTGRES_PASSWORD" ]; then
-    # Update credential in case of change.
-    printf "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$POSTGRES_PASSWORD\n" >~/.pgpass && chmod go-rwx ~/.pgpass
-  fi
-  printf "...done\n"
-
-  # Synchronize PHP config.
-  if [ ! -e ./php ] || [ ! -e ./php/php.ini ]; then
-    # First time, copy PHP settings on a mountable volume.
-    mkdir -p ./php
-    cp "$PHP_INI_DIR/php.ini" ./php/php.ini
-  else
-    # If (volume) Drupal php.ini exists, replace the system one with it.
-    cp ./php/php.ini "$PHP_INI_DIR/php.ini"
-  fi
-  printf "... done synchronizing host.\n"
-}
-
 # Start GenoRing in daemon mode.
 start_genoring()
 {
@@ -241,8 +232,8 @@ start_genoring()
     printf "* Drupal already downloaded.\n"
   fi
 
-  # Sync host config.
-  sync_config
+  # Check PHP settings.
+  setup_php
 
   # Wait for database ready.
   wait_database_ready
@@ -273,12 +264,14 @@ start_genoring()
   fi
 
   printf "* Start cron daemon...\n"
-  cron
+  # sudo /usr/sbin/cron
+  sudo /opt/genoring/genoring_root.sh start_cron
   printf "  ...OK.\n"
   
   printf "* Init sendmail...\n"
-  printf "$(hostname -i)\t$(hostname) $(hostname).localhost\n" >> /etc/hosts
-  service sendmail start
+  # sudo /usr/bin/printf "$(hostname -i)\t$(hostname) $(hostname).localhost\n" >> /etc/hosts
+  # sudo /usr/sbin/service sendmail start
+  sudo /opt/genoring/genoring_root.sh start_sendmail
   printf "  ...OK.\n"
 
   # Make sure we removed offline file if not in offline mode.
@@ -581,10 +574,10 @@ restore()
 
   # First we extract backuped source code of Drupal in a different directory to
   # avoid removing libraries used by Drush for this opeation.
-  drush -y archive:restore --code --overwrite --destination-path /opt/drupal_res /backups/$1/genoring/archive.tar.gz
+  drush -y archive:restore --code --overwrite --destination-path /tmp/drupal_res /backups/$1/genoring/archive.tar.gz
   # Then we copy restored files to current Drupal and remove restore temp dir.
-  cp -R /opt/drupal_res/* /opt/drupal
-  rm -rf /opt/drupal_res
+  cp -R /tmp/drupal_res/* /opt/drupal
+  rm -rf /tmp/drupal_res
   # We update the composer libraries.
   composer update
   # Now we restore the rest (database and files).
@@ -692,6 +685,9 @@ Available commands:
 ################################################################################
 # Main script execution.
 ################################################################################
+
+# PostgeSQL access setup.
+printf "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$POSTGRES_PASSWORD\n" >~/.pgpass && chmod go-rwx ~/.pgpass
 
 # Process commands.
 cmd="$1"

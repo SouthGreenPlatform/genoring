@@ -28,6 +28,7 @@ PrepareOperations Reinitialize RemoveEnvFiles RemoveVolumeFiles
 RemoveModuleConf Restore Run SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
 ToLocalService UninstallModule Update Upgrade WaitModulesReady
+InitDefaultUser
 
 =head1 DESCRIPTION
 
@@ -63,6 +64,7 @@ our @EXPORT =
     RemoveModuleConf Restore Run SetEnvVariable SetModuleConf SetupGenoring
     SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
     ToLocalService UninstallModule Update Upgrade WaitModulesReady
+    InitDefaultUser
   );
 
 

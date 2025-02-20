@@ -778,6 +778,9 @@ sub SetupGenoring {
   SetupGenoringEnvironment(undef, $module);
   print "  ...Environment setup done.\n";
 
+  # Update GenoRing default user.
+  InitDefaultUser();
+
   # Generate docker-compose.yml...
   print "- Generating Docker Compose main file...\n";
   GenerateDockerComposeFile();
@@ -905,13 +908,23 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
           }
           elsif ($line =~ m/^\s*(\w+)\s*[=:]\s*(.*)$/) {
             if ($is_setting || $is_optional) {
+              my ($name, $value) = ($1, $2);
+              # Special case to manage GENORING_UID and GENORING_GID.
+              if (('genoring' eq $module) && ('genoring' eq $env_file) && ($value !~ m/\w/)) {
+                if ('GENORING_UID' eq $name) {
+                  $value = $ENV{'GENORING_UID'};
+                }
+                elsif ('GENORING_GID' eq $name) {
+                  $value = $ENV{'GENORING_GID'};
+                }
+              }
               push(
                 @{$env_vars{$module}->{$env_file}},
                 {
-                  'var' => $1,
+                  'var' => $name,
                   'name' => $envvar_name,
                   'description' => $envvar_desc,
-                  'current' => $2,
+                  'current' => $value,
                   'default' => $envvar_default,
                   'is_setting' => $is_setting,
                   'is_optional' => $is_optional,
@@ -1038,6 +1051,26 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
   }
 }
 
+=pod
+
+=head2 InitDefaultUser
+
+B<Description>: Initializes GenoRing default user and group.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub InitDefaultUser {
+  $ENV{'GENORING_UID'} ||= $>;
+  $ENV{'GENORING_GID'} ||= $) + 0;
+  if (-r 'env/genoring_genoring.env') {
+    $ENV{'GENORING_UID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID') || $>;
+    $ENV{'GENORING_GID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_GID') || ($) + 0);
+  }
+}
 
 =pod
 
@@ -1340,6 +1373,9 @@ sub GenerateDockerComposeFile {
       my $service_name = GetContainerName($service);
       print {$dc_fh} "\n  $service:\n";
       print {$dc_fh} $services{$service}->{'definition'};
+      if ($services{$service}->{'definition'} !~ m/\n$/s) {
+        print {$dc_fh} "\n";
+      }
       print {$dc_fh} "    container_name: $service_name\n";
       # Add dependencies between services.
       if (exists($service_dependencies->{$service})
@@ -2934,6 +2970,8 @@ sub ApplyLocalHooks {
       eval {
         Run(
           # "export \$(cat env/*.env | grep '^\w'| xargs -d '\\n') && perl $hook_script $args",
+          # cat env/*.env | grep '^\w' | while IFS='=' read -r name value; do export "$name=$value"; done
+          # Issue: the above don't work with values containing spaces or with ending comments.
           "perl $hook_script $args",
           "Failed to process $module module hook $hook_name!",
           1
@@ -3094,8 +3132,9 @@ APPLYCONTAINERHOOKS_HOOKS:
           }
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
+            # Copy GenoRing module files as root.
             Run(
-              "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
+              "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
               "Failed to prepare module file copy in $service_name ($module $hook hook)"
             );
             Run(
@@ -3104,10 +3143,15 @@ APPLYCONTAINERHOOKS_HOOKS:
             );
             $initialized_containers{$service} = 1;
           }
-          # Make sure script is executable.
-          # @todo Provide environment variables.
+          # Make sure script is executable and run as root.
+          # Note: we trust hook scripts are they are stored outside GenoRing
+          # Docker containers.
+          my $env_files = join(' --env-file ', GetEnvironmentFiles($module));
+          if ($env_files) {
+            $env_files = ' --env-file ' . $env_files;
+          }
           my $output = Run(
-            "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-it $service_name sh -c \"chmod +x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
+            "$Genoring::DOCKER_COMMAND exec " . $env_files . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
             "Failed to run hook of $module in $service_name (hook $hook)"
           );
           if ($?) {
@@ -3130,7 +3174,9 @@ APPLYCONTAINERHOOKS_HOOKS:
 
 =head2 Compile
 
-B<Description>: Compiles a given container.
+B<Description>: Compiles a given container. Two arguments are always passed to
+the builder: GENORING_UID and GENORING_GID that correspond to their respective
+environment variables set by GenoRing.
 
 B<ArgsCount>: 2
 
@@ -3267,7 +3313,7 @@ sub Compile {
     $no_cache = '--no-cache';
   }
   Run(
-    "$Genoring::DOCKER_COMMAND build $no_cache -t $service $service_src_path",
+    "$Genoring::DOCKER_COMMAND build $no_cache --build-arg GENORING_UID=\${GENORING_UID} --build-arg GENORING_GID=\${GENORING_GID} -t $service $service_src_path",
     "Failed to compile container (service ${module}[$service])",
     1,
     1
@@ -4129,6 +4175,68 @@ sub RemoveEnvFiles {
       warn "WARNING: Failed to access 'env' directory!\n$!";
     }
   }
+}
+
+
+=pod
+
+=head2 GetEnvironmentFiles
+
+B<Description>: Returns the list of environment files configured for a given
+module or all modules.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $module: (string) (O)
+
+A specific module.
+
+=back
+
+B<Return>: (list)
+
+A list of environment file paths for a given module if specified or for all
+modules if not.
+
+=cut
+
+sub GetEnvironmentFiles {
+  my @env_files;
+  my ($module) = @_;
+  if ($module) {
+    if (-d "$Genoring::MODULES_DIR/$module/env") {
+      # List module env files.
+      if (opendir(my $dh, "$Genoring::MODULES_DIR/$module/env")) {
+        my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$Genoring::MODULES_DIR/$module/env/$_" } readdir($dh));
+        closedir($dh);
+        foreach my $env_file (@env_files) {
+          # Check if environment file exist.
+          if (-e "env/${module}_$env_file") {
+            push(@env_files, "env/${module}_$env_file");
+          }
+        }
+      }
+      else {
+        warn "WARNING: Failed to access '$Genoring::MODULES_DIR/$module/env' directory!\n$!";
+      }
+    }
+  }
+  elsif (-d 'env') {
+    # Get all environment files.
+    if (opendir(my $dh, 'env')) {
+      my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "env/$_" } readdir($dh));
+      closedir($dh);
+      foreach my $env_file (@env_files) {
+        push(@env_files, "env/$env_file");
+      }
+    }
+    else {
+      warn "WARNING: Failed to access 'env' directory!\n$!";
+    }
+  }
+  return @env_files;
 }
 
 

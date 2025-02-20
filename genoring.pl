@@ -441,6 +441,9 @@ if ($g_flags->{'no-exposed-volumes'}) {
   $ENV{'GENORING_NO_EXPOSED_VOLUMES'} = '1';
 }
 
+# Set default GenoRing user and group.
+InitDefaultUser();
+
 # Set waiting time.
 if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {
   $g_flags->{'wait-ready'} = $Genoring::STATE_MAX_TRIES;
@@ -624,6 +627,7 @@ elsif ($command =~ m/^shell$/i) {
 
   my ($id, $state, $name, $image) = IsContainerRunning($service_name);
   if ($state && ($state =~ m/running/)) {
+    # Always run as root.
     Run(
       "$Genoring::DOCKER_COMMAND exec -u 0 -it $service_name $command",
       $message,

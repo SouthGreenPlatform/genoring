@@ -130,6 +130,9 @@ else {
 
 $ENV{'GENORING_NO_EXPOSED_VOLUMES'} = '';
 
+$ENV{'GENORING_UID'} ||= $>;
+$ENV{'GENORING_GID'} ||= $) + 0;
+
 
 =pod
 

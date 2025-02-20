@@ -7,7 +7,6 @@ use lib "$ENV{'GENORING_DIR'}/perllib";
 use Genoring;
 
 ++$|; #no buffering
-print "DEBUG init\n"; #+debug
 if (!-d $Genoring::VOLUMES_DIR) {
   mkdir $Genoring::VOLUMES_DIR;
 }
