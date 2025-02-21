@@ -25,7 +25,7 @@ Syntax:
   | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-no-cache]
   | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
-  [-yes|-no] [-hide-compile]
+  [-yes|-no] [-verbose] [-hide-compile]
 
 =head1 REQUIRES
 
@@ -48,7 +48,6 @@ use Cwd qw();
 use File::Basename;
 use File::Spec;
 use Pod::Usage;
-use Sys::Hostname;
 use Time::Piece;
 # Local libraries.
 $ENV{'GENORING_RUNNING'} = 1;
@@ -364,6 +363,10 @@ if (exists($g_flags->{'help'})) {
   $help = $g_flags->{'help'} || 1;
 }
 
+if (exists($g_flags->{'verbose'})) {
+  $g_flags->{'verbose'} = 1;
+}
+
 if ($help) {
   if (1 == $help) {
     # Display main help.
@@ -399,6 +402,12 @@ if (!$g_flags->{'bypass'}) {
     $docker_compose_version =~ m/\sv([\d\.]+)/;
     die "ERROR: '$Genoring::DOCKER_COMMAND compose' does not meet minimal version requirement (" . ($1 || 'unknown version') . " < v2)!\n";
   }
+}
+
+# Init host name.
+my $hostname = GetEnvVariable('env/genoring_genoring.env', 'GENORING_HOST');
+if ($hostname) {
+  $ENV{'GENORING_HOST'} = $hostname;
 }
 
 # Check for HTTP port.
@@ -488,8 +497,7 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
     die $@ . "\nIt might be possible GenoRing needs more time to get ready. You may check GenoRing logs using 'perl genoring.pl logs -f' to watch for errors.";
   }
   print "...GenoRing is ready to accept client connections.\n";
-  my $host = hostname();
-  print "\n  --> http://$host:" . $ENV{'GENORING_PORT'} . "/\n";
+  print "\n  --> http://" . $ENV{'GENORING_HOST'} . ":" . $ENV{'GENORING_PORT'} . "/\n";
 }
 elsif ($command =~ m/^stop$/i) {
   # Check if installed.
@@ -638,6 +646,11 @@ elsif ($command =~ m/^shell$/i) {
   else {
     # @todo Add support for non-running dockers.
     # Get environment files and volumes from docker compose file.
+    # my $env_data = join(' --env-file ', GetEnvironmentFiles($module));
+    # if ($env_data) {
+    #   $env_data = ' --env-file ' . $env_data;
+    # }
+    # $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
     # Run(
     #   "docker run --env-file ... -v ... --network genoring_default -it -rm $service $command",
     #   $message,
@@ -648,10 +661,10 @@ elsif ($command =~ m/^shell$/i) {
     exit(1);
   }
 }
-elsif ($command =~ m/^localhook$/i) {
+elsif ($command =~ m/^localhooks$/i) {
   ApplyLocalHooks(@arguments);
 }
-elsif ($command =~ m/^containerhook$/i) {
+elsif ($command =~ m/^containerhooks$/i) {
   ApplyContainerHooks(@arguments);
 }
 else {

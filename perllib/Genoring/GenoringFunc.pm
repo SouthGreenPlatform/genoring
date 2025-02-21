@@ -309,7 +309,7 @@ sub StartGenoring {
       "$Genoring::DOCKER_COMMAND compose up -d",
       "Failed to start GenoRing ($mode mode)!",
       1,
-      1
+      $g_flags->{'verbose'}
     );
   }
   # Apply container hooks.
@@ -348,7 +348,8 @@ sub StopGenoring {
     Run(
       "$Genoring::DOCKER_COMMAND compose --profile \"*\" down --remove-orphans",
       "Failed to stop GenoRing!",
-      1
+      1,
+      $g_flags->{'verbose'}
     );
   }
   ApplyLocalHooks('stop');
@@ -750,7 +751,9 @@ sub Reinitialize {
   print "- Pruning stopped containers...\n";
   Run(
     "$Genoring::DOCKER_COMMAND container prune -f",
-    "Failed to prune containers!"
+    "Failed to prune containers!",
+    0,
+    $g_flags->{'verbose'}
   );
   print "  ...Done.\n";
 
@@ -769,7 +772,9 @@ sub Reinitialize {
     if (@$volumes) {
       Run(
         "$Genoring::DOCKER_COMMAND volume rm -f " . join(' ', map { GetVolumeName($_) } @$volumes),
-        "Failed to remove GenoRing volumes for module '$module'!"
+        "Failed to remove GenoRing volumes for module '$module'!",
+        0,
+        $g_flags->{'verbose'}
       );
     }
     # Remove internal volumes if not exposed (ie. not cleaned by "volumes" local
@@ -785,7 +790,9 @@ sub Reinitialize {
       if (@module_volumes) {
         Run(
           "$Genoring::DOCKER_COMMAND volume rm -f " . join(' ', map { GetVolumeName($_) } @module_volumes),
-          "Failed to remove GenoRing internal volumes for module '$module'!"
+          "Failed to remove GenoRing internal volumes for module '$module'!",
+          0,
+          $g_flags->{'verbose'}
         );
       }
     }
@@ -1407,7 +1414,9 @@ sub GenerateDockerComposeFile {
           my $unused_volume_name = GetVolumeName($unused_volume);
           Run(
             "$Genoring::DOCKER_COMMAND volume rm -f $unused_volume_name",
-            "Failed to remove GenoRing volume '$unused_volume_name'!"
+            "Failed to remove GenoRing volume '$unused_volume_name'!",
+            0,
+            $g_flags->{'verbose'}
           );
         }
       }
@@ -1480,7 +1489,9 @@ sub GenerateDockerComposeFile {
       if ($g_flags->{'no-exposed-volumes'}) {
         Run(
           "$Genoring::DOCKER_COMMAND volume create $volume_name",
-          "Failed to create volume '$volume_name'."
+          "Failed to create volume '$volume_name'.",
+          0,
+          $g_flags->{'verbose'}
         );
       }
     }
@@ -3025,7 +3036,8 @@ sub ApplyLocalHooks {
           # Issue: the above don't work with values containing spaces or with ending comments.
           "perl $hook_script $args",
           "Failed to process $module module hook $hook_name!",
-          1
+          1,
+          $g_flags->{'verbose'}
         );
       };
       if ($@) {
@@ -3186,24 +3198,31 @@ APPLYCONTAINERHOOKS_HOOKS:
             # Copy GenoRing module files as root.
             Run(
               "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
-              "Failed to prepare module file copy in $service_name ($module $hook hook)"
+              "Failed to prepare module file copy in $service_name ($module $hook hook)",
+              0,
+              $g_flags->{'verbose'}
             );
             Run(
               "$Genoring::DOCKER_COMMAND cp $Genoring::MODULES_DIR/ $service_name:/genoring/modules",
-              "Failed to copy module files in $service_name ($module $hook hook)"
+              "Failed to copy module files in $service_name ($module $hook hook)",
+              0,
+              $g_flags->{'verbose'}
             );
             $initialized_containers{$service} = 1;
           }
           # Make sure script is executable and run as root.
           # Note: we trust hook scripts are they are stored outside GenoRing
           # Docker containers.
-          my $env_files = join(' --env-file ', GetEnvironmentFiles($module));
-          if ($env_files) {
-            $env_files = ' --env-file ' . $env_files;
+          my $env_data = join(' --env-file ', GetEnvironmentFiles($services->{$service}), GetEnvironmentFiles($module));
+          if ($env_data) {
+            $env_data = ' --env-file ' . $env_data;
           }
+          $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
           my $output = Run(
-            "$Genoring::DOCKER_COMMAND exec " . $env_files . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
-            "Failed to run hook of $module in $service_name (hook $hook)"
+            "$Genoring::DOCKER_COMMAND exec " . $env_data . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
+            "Failed to run hook of $module in $service_name (hook $hook)",
+            0,
+            $g_flags->{'verbose'}
           );
           if ($?) {
             print "  Failed.\n$output\n";
@@ -3345,18 +3364,23 @@ sub Compile {
     }
     Run(
       "$Genoring::DOCKER_COMMAND stop $id",
-      "Failed to stop container '$service' (image $image)!"
+      "Failed to stop container '$service' (image $image)!",
+      0,
+      $g_flags->{'verbose'}
     );
     Run(
       "$Genoring::DOCKER_COMMAND container prune -f",
-      "Failed to prune containers!"
+      "Failed to prune containers!",
+      0,
+      $g_flags->{'verbose'}
     );
   }
 
   Run(
     "$Genoring::DOCKER_COMMAND image rm -f $service",
     "Failed to remove previous image (service ${module}[$service])!",
-    1
+    1,
+    $g_flags->{'verbose'}
   );
   my $service_src_path = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'src' , $service);
   my $no_cache = '';
@@ -3447,18 +3471,23 @@ sub DeleteAllContainers {
         }
         Run(
           "$Genoring::DOCKER_COMMAND stop $id",
-          "Failed to stop container '$service' (image $image)!"
+          "Failed to stop container '$service' (image $image)!",
+          0,
+          $g_flags->{'verbose'}
         );
         Run(
           "$Genoring::DOCKER_COMMAND container prune -f",
-          "Failed to prune containers!"
+          "Failed to prune containers!",
+          0,
+          $g_flags->{'verbose'}
         );
       }
       my $module = $services{$service};
       Run(
         "$Genoring::DOCKER_COMMAND image rm -f $service",
         "Failed to remove image (service ${module}[$service])!",
-        1
+        1,
+        $g_flags->{'verbose'}
       );
       print "    ...OK.\n";
     }
@@ -4260,12 +4289,12 @@ sub GetEnvironmentFiles {
     if (-d "$Genoring::MODULES_DIR/$module/env") {
       # List module env files.
       if (opendir(my $dh, "$Genoring::MODULES_DIR/$module/env")) {
-        my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$Genoring::MODULES_DIR/$module/env/$_" } readdir($dh));
+        my @module_env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$Genoring::MODULES_DIR/$module/env/$_" } readdir($dh));
         closedir($dh);
-        foreach my $env_file (@env_files) {
+        foreach my $env_file (@module_env_files) {
           # Check if environment file exist.
-          if (-e "env/${module}_$env_file") {
-            push(@env_files, "env/${module}_$env_file");
+          if (-r "./env/${module}_$env_file") {
+            push(@env_files, "./env/${module}_$env_file");
           }
         }
       }
@@ -4277,11 +4306,8 @@ sub GetEnvironmentFiles {
   elsif (-d 'env') {
     # Get all environment files.
     if (opendir(my $dh, 'env')) {
-      my @env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "env/$_" } readdir($dh));
+      @env_files = map { './env/' . $_ } (grep { $_ =~ m/^[^\.].*\.env$/ && -r "./env/$_" } readdir($dh));
       closedir($dh);
-      foreach my $env_file (@env_files) {
-        push(@env_files, "env/$env_file");
-      }
     }
     else {
       warn "WARNING: Failed to access 'env' directory!\n$!";

@@ -97,6 +97,7 @@ RUN printf "sendmail_path=/usr/sbin/sendmail -t -i\n" >> /usr/local/etc/php/conf
 # The final php.ini file used will be created by the "genoring" script and put
 # in "/opt/drupal/php/php.ini" by copying "$PHP_INI_DIR/php.ini-drupal". This
 # will allow access to php.ini on a "/opt/drupal" exposed volume.
+# Alternative: use "php.ini-development".
 RUN { \
     printf "opcache.memory_consumption=128\n"; \
     printf "opcache.interned_strings_buffer=8\n"; \

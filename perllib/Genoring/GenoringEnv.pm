@@ -24,6 +24,7 @@ use strict;
 use warnings;
 use utf8;
 use Cwd qw();
+use Sys::Hostname;
 use Genoring::GenoringFunc;
 
 
@@ -50,6 +51,10 @@ B<COMPOSE_PROFILES>: (string)
 GenoRing running (environment) mode. The default value is set in GenoRing
 environment file (genoring_genoring.env) variable 'GENORING_ENVIRONMENT'. It can
 be one of 'dev', 'staging', 'prod', 'backend' and 'offline'.
+
+B<GENORING_HOST>: (string)
+
+GenoRing user interface web server name or IP.
 
 B<GENORING_PORT>: (integer)
 
@@ -110,6 +115,11 @@ if (!defined($ENV{'COMPOSE_PROFILES'})) {
   else {
     $ENV{'COMPOSE_PROFILES'} = '';
   }
+}
+
+# Set default port (can be modified by "-port" flag later).
+if (!defined($ENV{'GENORING_HOST'})) {
+  $ENV{'GENORING_HOST'} = hostname();
 }
 
 # Set default port (can be modified by "-port" flag later).
