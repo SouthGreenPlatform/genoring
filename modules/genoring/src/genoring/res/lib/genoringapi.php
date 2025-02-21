@@ -99,7 +99,7 @@ switch ($command) {
     }
 
     if (0 !== stripos($yaml['uri'], 'http')) {
-      if ($yaml['add_scheme_and_host']) {
+      if ($yaml['add_scheme_and_host'] ?? NULL) {
         // If the URI points to a non-Drupal route (eg. site integration
         // sub-routes), Drupal removes the unmanaged route part leading to a
         // non-working trunctaed URL. To avoid that, the URI needs to be treated
@@ -154,7 +154,7 @@ switch ($command) {
     }
 
     if (0 !== stripos($yaml['uri'], 'http')) {
-      if ($yaml['add_scheme_and_host']) {
+      if ($yaml['add_scheme_and_host'] ?? NULL) {
         // If the URI points to a non-Drupal route (eg. site integration
         // sub-routes), Drupal removes the unmanaged route part leading to a
         // non-working trunctaed URL. To avoid that, the URI needs to be treated
