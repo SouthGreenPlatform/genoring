@@ -1,9 +1,8 @@
-image: guilhemsempere/gigwa:2.8-RELEASE
+image: guilhemsempere/gigwa:2.9-RELEASE
 platform: linux/amd64
 env_file:
+  - ${PWD}/env/mongodb_mongodb.env
   - ${PWD}/env/gigwa_gigwa.env
-ports:
-  - 8123:8080
 volumes:
   - ${GENORING_VOLUMES_DIR}/gigwa/config:/usr/local/tomcat/config
   - genoring-data-volume:/data

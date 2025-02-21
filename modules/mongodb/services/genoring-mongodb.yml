@@ -2,10 +2,8 @@ image: mongo:4.2.24
 platform: linux/amd64
 env_file:
   - ${PWD}/env/mongodb_mongodb.env
-ports:
-  - 59393:27017 # You may amend the external port only (left hand side), which must match environment MONGO_PORT
 volumes:
   - ${GENORING_VOLUMES_DIR}/mongodb:/data/db
-  - genoring-data-volume:/data
+  # - genoring-data-volume:/genoring-data
 command: --profile 0 --slowms 60000 --storageEngine wiredTiger --wiredTigerCollectionBlockCompressor=zstd --directoryperdb --quiet
 restart: always
