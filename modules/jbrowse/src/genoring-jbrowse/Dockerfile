@@ -3,17 +3,20 @@
 
 FROM httpd
 
+# Arguments.
 ARG DEBIAN_FRONTEND=noninteractive
 ARG JBROWSE_VERSION=1.16.11
 
+# Environment.
 ENV JBROWSE=/opt/jbrowse/
 ENV JBROWSE_SAMPLE_DATA=/opt/jbrowse/sample_data/
 ENV JBROWSE_DATA=/data/jbrowse/
 
 RUN apt-get -qq update --fix-missing \
     && apt-get --no-install-recommends -y install \
-      git \
+      libcap2-bin \
       build-essential \
+      git \
       zlib1g-dev \
       libxml2-dev \
       libexpat-dev \
@@ -44,6 +47,16 @@ RUN ./bin/cpanm --force JSON Hash::Merge PerlIO::gzip Devel::Size \
     rm -rf /root/.cpan/ && \
     perl Makefile.PL && make && make install
 
+# Prepare file system.
 COPY res/jbrowse-httpd.conf /usr/local/apache2/conf/httpd.conf
 COPY res/jbrowse-cgi /opt/jbrowse-cgi
 RUN /usr/bin/chmod uog+x /opt/jbrowse-cgi/*
+
+# Secure environment by using www-data.
+RUN chown -hR www-data:www-data /usr/local/apache2/
+RUN setcap 'cap_net_bind_service=+ep' /usr/local/apache2/bin/httpd
+RUN getcap /usr/local/apache2/bin/httpd
+
+HEALTHCHECK --interval=60s --timeout=30s CMD nc -zv localhost 80 || exit 1
+
+USER www-data

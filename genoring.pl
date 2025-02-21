@@ -316,10 +316,6 @@ Enables debug mode.
 
 =cut
 
-
-# CODE START
-#############
-
 print "GenoRing script v$Genoring::GENORING_VERSION (instance: " . GetProjectName() . ")\n";
 
 # Test license agreement.
@@ -441,8 +437,12 @@ if ($g_flags->{'no-exposed-volumes'}) {
   $ENV{'GENORING_NO_EXPOSED_VOLUMES'} = '1';
 }
 
+# Make sure there is enough disk space.
+CheckFreeSpace();
+
 # Set default GenoRing user and group.
-InitDefaultUser();
+InitGenoringUser();
+CheckGenoringUser();
 
 # Set waiting time.
 if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {

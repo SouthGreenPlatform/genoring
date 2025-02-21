@@ -2,8 +2,6 @@ image: genoring-biotools
 build: ${GENORING_DIR}/modules/biotools/src/genoring-biotools
 pull_policy: never
 profiles: ["backend","offline"]
-ports:
-  - 8126:80
 restart: unless-stopped
 volumes:
   - genoring-data-volume:/data

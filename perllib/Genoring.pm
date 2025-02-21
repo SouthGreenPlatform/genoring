@@ -14,6 +14,7 @@ Perl5
 
 =head1 EXPORTS
 
+$g_debug $g_exec_prefix $g_flags $g_instance
 ApplyContainerHooks ApplyLocalHooks Backup CleanupOperations ClearCache
 Compile CompileMissingContainers Confirm CopyDirectory CopyModuleFiles
 CopyVolumeFiles CreateVolumeDirectory DeleteAllContainers DirCopy
@@ -28,7 +29,7 @@ PrepareOperations Reinitialize RemoveEnvFiles RemoveVolumeFiles
 RemoveModuleConf Restore Run SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
 ToLocalService UninstallModule Update Upgrade WaitModulesReady
-InitDefaultUser
+CheckGenoringUser InitGenoringUser CheckFreeSpace
 
 =head1 DESCRIPTION
 
@@ -49,7 +50,7 @@ use Genoring::GenoringFunc;
 use base qw(Exporter);
 our @EXPORT =
   qw(
-    $g_debug $g_flags $g_instance
+    $g_debug $g_exec_prefix $g_flags $g_instance
     ApplyContainerHooks ApplyLocalHooks Backup CleanupOperations ClearCache
     Compile CompileMissingContainers Confirm CopyDirectory CopyModuleFiles
     CopyVolumeFiles CreateVolumeDirectory DeleteAllContainers DirCopy
@@ -64,7 +65,7 @@ our @EXPORT =
     RemoveModuleConf Restore Run SetEnvVariable SetModuleConf SetupGenoring
     SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
     ToLocalService UninstallModule Update Upgrade WaitModulesReady
-    InitDefaultUser
+    CheckGenoringUser InitGenoringUser CheckFreeSpace
   );
 
 

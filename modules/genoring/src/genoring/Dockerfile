@@ -127,6 +127,7 @@ RUN mv /opt/genoring/genoring_sudoers /etc/sudoers.d/ \
     && chmod uog+x,ugo-w /opt/genoring/genoring /opt/genoring/genoring_root.sh \
     && mkdir -p /opt/drupal \
     && chmod ug+rw /opt/drupal \
+    && chown genoring:genoring /opt/drupal \
     && rm -rf /var/www/html \
     && ln -sf /opt/drupal/web /var/www/html
 

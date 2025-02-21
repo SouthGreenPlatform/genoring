@@ -52,13 +52,18 @@ B<$g_debug>: (boolean)
 When set to true, it enables debug mode. This constant can be set at script
 start by command line options.
 
-B<$g_instance>: (string)
+B<$g_exec_prefix>: (string)
 
-Contains the global instance name.
+Prefix to add to executed shell commands. It can be usefull to manage the user
+running commands or for test or debugging purposes.
 
 B<$g_flags>: (hash ref)
 
 Contains flags set on command line with their values if set or "1" otherwise.
+
+B<$g_instance>: (string)
+
+Contains the global instance name.
 
 B<$_g_modules>: (hash ref)
 
@@ -79,8 +84,9 @@ Cache variable used to store modules' info. Should not be used directly.
 =cut
 
 our $g_debug = $Genoring::DEBUG;
-our $g_instance = 'genoring';
+our $g_exec_prefix = '';
 our $g_flags = {};
+our $g_instance = 'genoring';
 our $_g_modules = {};
 our $_g_services = {};
 our $_g_volumes = {};
@@ -144,7 +150,7 @@ sub Run {
     die "ERROR: ${subroutine} Run: No command to run!";
   }
   if ($g_debug) {
-    print "COMMAND: $command\n";
+    print "COMMAND: $g_exec_prefix $command\n";
   }
 
   $error_message ||= 'Execution failed!';
@@ -153,10 +159,10 @@ sub Run {
     . $error_message;
   my $output = '';
   if ($interactive) {
-    system($command);
+    system($g_exec_prefix . $command);
   }
   else {
-    $output = qx($command);
+    $output = qx($g_exec_prefix $command);
   }
 
   if ($?) {
@@ -183,6 +189,71 @@ sub Run {
   }
 
   return $output;
+}
+
+
+=pod
+
+=head2 CheckGenoringUser
+
+B<Description>: Check if the user running GenoRing is the same as the one used
+to setup the current site instance. If they differ, it will ask a user
+confirmation to continue or exit.
+
+B<ArgsCount>: 0
+
+=over 4
+
+=item $: (string) (O)
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub CheckGenoringUser {
+  my $genoring_uid = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID');
+  # Test if 'GENORING_UID' is set and different from current effective user.
+  # Also make sure the Docker command is not already using sudo to change the
+  # user running dockers.
+  if (($genoring_uid =~ m/\w/)
+      && ($genoring_uid ne $>)
+      && ($g_exec_prefix !~ m/^sudo /)
+      && !Confirm("You are trying manage current GenoRing instance with a different account than the one used to setup that instance. This may lead to generation of files and directories with incorrect owner and permissions.\nContinue anyway with current user?")
+  ) {
+    if ((0 == $>)
+        && (system('sudo -V >/dev/null 2>&1') == 0)
+        && Confirm("You are logged in as root. Do you want to automatically switch to the account used to setup GenoRing?")
+    ) {
+      $g_exec_prefix = "sudo --user=#$genoring_uid --preserve-env=PWD,COMPOSE_PROJECT_NAME,COMPOSE_PROFILES,GENORING_PORT,GENORING_DIR,GENORING_VOLUMES_DIR,GENORING_NO_EXPOSED_VOLUMES,GENORING_RUNNING ";
+    }
+    else {
+      die "Execution aborted!\n";
+    }
+  }
+}
+
+
+=pod
+
+=head2 InitGenoringUser
+
+B<Description>: Initializes GenoRing default user and group.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub InitGenoringUser {
+  $ENV{'GENORING_UID'} ||= $>;
+  $ENV{'GENORING_GID'} ||= $) + 0;
+  if (-r 'env/genoring_genoring.env') {
+    $ENV{'GENORING_UID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID') || $>;
+    $ENV{'GENORING_GID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_GID') || ($) + 0);
+  }
 }
 
 
@@ -237,6 +308,7 @@ sub StartGenoring {
     Run(
       "$Genoring::DOCKER_COMMAND compose up -d",
       "Failed to start GenoRing ($mode mode)!",
+      1,
       1
     );
   }
@@ -391,7 +463,7 @@ sub GetState {
     $state ||= '';
   }
   else {
-    my $states = qx($Genoring::DOCKER_COMMAND compose ps --all --format "{{.Names}} {{.State}}");
+    my $states = qx($g_exec_prefix$Genoring::DOCKER_COMMAND compose ps --all --format "{{.Names}} {{.State}}");
     $state = $states ? 'running' : '';
     foreach my $line (split(/\n+/, $states)) {
       if ($line !~ m/\srunning$/) {
@@ -447,7 +519,7 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return ();
   }
-  my $ps_all = qx($Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}");
+  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}");
   my @ps = split(/\n+/, $ps_all);
   foreach my $ps (@ps) {
     my @status = split(/\s+/, $ps);
@@ -501,14 +573,14 @@ sub GetModuleRealState {
   my $state_hook = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', 'state.pl');
   if (-e $state_hook) {
     my $tries = $g_flags->{'wait-ready'};
-    $state = qx(perl $state_hook);
+    $state = qx($g_exec_prefix perl $state_hook);
     if ($?) {
       die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
     }
     print "Checking if $module module is ready (see logs below for errors)...\n" if $progress;
     my $logs = '';
     # Does not work on Windows.
-    my $terminal_width = qx(tput cols 2>&1);
+    my $terminal_width = qx($g_exec_prefix tput cols 2>&1);
     my $fixed_width = 0;
     if ($? || !$terminal_width || ($terminal_width !~ m/^\d+/)) {
       $terminal_width = 0;
@@ -536,7 +608,7 @@ sub GetModuleRealState {
         foreach my $service (@{GetModuleServices($module)}) {
           my $service_name = GetContainerName($service);
           if (IsContainerRunning($service_name)) {
-            $logs .= "==> $service:\n" . qx($Genoring::DOCKER_COMMAND logs -n 4 $service_name 2>&1) . "\n";
+            $logs .= "==> $service:\n" . qx($g_exec_prefix $Genoring::DOCKER_COMMAND logs -n 4 $service_name 2>&1) . "\n";
           }
         }
         # Remove non-printable characters (but keep line breaks).
@@ -583,7 +655,7 @@ sub GetModuleRealState {
         }
       }
       sleep(1);
-      $state = qx(perl $state_hook);
+      $state = qx($g_exec_prefix perl $state_hook);
       if ($?) {
         die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
       }
@@ -630,7 +702,7 @@ sub WaitModulesReady {
         my $service_name = GetContainerName($service);
         my $service_state = GetState($service_name);
         if ($service_state && ($service_state !~ m/running/)) {
-          $logs .= "==> $service:\n" . qx($Genoring::DOCKER_COMMAND logs -n 10 $service_name 2>&1) . "\n\n";
+          $logs .= "==> $service:\n" . qx($g_exec_prefix $Genoring::DOCKER_COMMAND logs -n 10 $service_name 2>&1) . "\n\n";
         }
       }
       die sprintf(
@@ -779,7 +851,7 @@ sub SetupGenoring {
   print "  ...Environment setup done.\n";
 
   # Update GenoRing default user.
-  InitDefaultUser();
+  InitGenoringUser();
 
   # Generate docker-compose.yml...
   print "- Generating Docker Compose main file...\n";
@@ -1051,26 +1123,6 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
   }
 }
 
-=pod
-
-=head2 InitDefaultUser
-
-B<Description>: Initializes GenoRing default user and group.
-
-B<ArgsCount>: 0
-
-B<Return>: (nothing)
-
-=cut
-
-sub InitDefaultUser {
-  $ENV{'GENORING_UID'} ||= $>;
-  $ENV{'GENORING_GID'} ||= $) + 0;
-  if (-r 'env/genoring_genoring.env') {
-    $ENV{'GENORING_UID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID') || $>;
-    $ENV{'GENORING_GID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_GID') || ($) + 0);
-  }
-}
 
 =pod
 
@@ -1090,7 +1142,6 @@ sub GenerateDockerComposeFile {
 
   # Get enabled modules.
   my $modules = GetModules(1);
-
   my %services;
   my %volumes;
   my $service_dependencies = {};
@@ -3341,7 +3392,7 @@ sub CompileMissingContainers {
 
   # Check missing containers.
   foreach my $service (keys(%$services)) {
-    my $image_id = qx($Genoring::DOCKER_COMMAND images -q $service:latest 2>&1);
+    my $image_id = qx($g_exec_prefix $Genoring::DOCKER_COMMAND images -q $service:latest 2>&1);
     if (!$image_id) {
       # Check if we got sources
       my $module = $services->{$service};
@@ -3381,7 +3432,7 @@ sub DeleteAllContainers {
 
   # Check missing containers.
   foreach my $service (keys(%services)) {
-    my $image_id = qx($Genoring::DOCKER_COMMAND images -q $service:latest 2>&1);
+    my $image_id = qx($g_exec_prefix $Genoring::DOCKER_COMMAND images -q $service:latest 2>&1);
     if ($image_id) {
       print "  - Removing container '$service'...\n";
       # Check if container is running and stop it unless it is not running the
@@ -5141,10 +5192,40 @@ sub RemoveVolumeFiles
 }
 
 
+=pod
+
+=head2 CheckFreeSpace
+
+B<Description>: Check if there is currently enough disk space to run GenoRing.
+If there is less than 100M or 2% free space, it will ask to continue or stop.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub CheckFreeSpace
+{
+  my $df_output = '';
+  if ('Unix' eq GetOs()) {
+    $df_output = qx(df . -BM 2>/dev/null);
+  }
+  if (($? == 0)
+      && ($df_output =~ m/(\d+)M\s+(\d+)M\s+(\d+)M\s+(\d+)%\s+/)
+  ) {
+    my ($total, $used, $available, $percent_used) = ($1, $2, $3, $4);
+    # Less than 100M.
+    if ((($available < 100) || ($percent_used < 2))
+      && (!Confirm('The disk space is very low! GenoRing may not work properly. Do you want to continue anyway?'))
+    ) {
+      die "Execution aborted!\n";
+    }
+  }
+}
 
 
-# CODE END
-###########
+
 
 =pod
 

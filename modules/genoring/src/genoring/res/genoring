@@ -167,10 +167,7 @@ setup_cms()
 
   # File system permissions.
   printf "* Adjust file system permissions...\n"
-  # sudo /usr/bin/chown $(/usr/bin/id -u):$(/usr/bin/id -g) /opt/drupal
-  # sudo /opt/genoring/genoring_root.sh drupal_permission
   chmod -R ugo+rw /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files
-  # sudo /usr/bin/chown -R www-data:www-data /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files
   sudo /opt/genoring/genoring_root.sh www_permissions
   # Allow back user to write in default and settings.php as the proxy is not
   # running with the same user and will not have wrtie access to those.
@@ -264,13 +261,10 @@ start_genoring()
   fi
 
   printf "* Start cron daemon...\n"
-  # sudo /usr/sbin/cron
   sudo /opt/genoring/genoring_root.sh start_cron
   printf "  ...OK.\n"
   
   printf "* Init sendmail...\n"
-  # sudo /usr/bin/printf "$(hostname -i)\t$(hostname) $(hostname).localhost\n" >> /etc/hosts
-  # sudo /usr/sbin/service sendmail start
   sudo /opt/genoring/genoring_root.sh start_sendmail
   printf "  ...OK.\n"
 

@@ -15,7 +15,7 @@ www_permissions() {
 
 drupal_permission() {
   mkdir -p /data/genoring /data/upload
-  /usr/bin/chown $SUDO_UID:$SUDO_GID /opt/drupal /data/genoring /data/upload
+  /usr/bin/chown $SUDO_UID:$SUDO_GID /data/genoring /data/upload
 }
 
 if [ "$#" -ne 1 ]; then

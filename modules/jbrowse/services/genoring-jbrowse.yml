@@ -4,8 +4,6 @@ pull_policy: never
 profiles: ["backend","offline"]
 env_file:
   - ${PWD}/env/jbrowse_jbrowse.env
-ports:
-  - 8125:80
 restart: unless-stopped
 volumes:
   - genoring-data-volume:/data
