@@ -79,19 +79,6 @@ RUN groupadd -g ${GENORING_GID} genoring && useradd -u ${GENORING_UID} -g genori
 # Allow apps to know they run into a Docker container.
 RUN touch /.dockerenv
 
-# APCu setup (upload progress).
-RUN printf "\n" | pecl install apcu \
-  && docker-php-ext-enable apcu \
-  && pecl install uploadprogress \
-  && docker-php-ext-enable uploadprogress \
-  && pecl clear-cache
-
-# Sendmail setup (completed by genoring script).
-# Source: https://r.je/sendmail-php-docker
-RUN printf "sendmail_path=/usr/sbin/sendmail -t -i\n" >> /usr/local/etc/php/conf.d/sendmail.ini; \
-  printf "\ninclude(\`/etc/mail/tls/starttls.m4')dnl\n" >> /etc/mail/sendmail.mc; \
-  printf "\ninclude(\`/etc/mail/tls/starttls.m4')dnl\n" >> /etc/mail/submit.mc
-
 # PHP (recommended) settings.
 # See https://secure.php.net/manual/en/opcache.installation.php
 # The final php.ini file used will be created by the "genoring" script and put
@@ -111,6 +98,20 @@ RUN { \
   && perl -pi -e 's/^post_max_size\s*=.*/post_max_size = 256M/g' "$PHP_INI_DIR/php.ini-drupal" \
   && perl -pi -e 's/^upload_max_filesize\s*=.*/upload_max_filesize = 256M/g' "$PHP_INI_DIR/php.ini-drupal" \
   && ln -s /opt/drupal/php/php.ini "$PHP_INI_DIR/php.ini"
+
+# APCu setup (upload progress).
+RUN pear config-set php_ini "$PHP_INI_DIR/php.ini-drupal" \
+  && printf "\n" | pecl install apcu \
+  && docker-php-ext-enable apcu \
+  && pecl install uploadprogress \
+  && docker-php-ext-enable uploadprogress \
+  && pecl clear-cache
+
+# Sendmail setup (completed by genoring script).
+# Source: https://r.je/sendmail-php-docker
+RUN printf "sendmail_path=/usr/sbin/sendmail -t -i\n" >> /usr/local/etc/php/conf.d/sendmail.ini; \
+  printf "\ninclude(\`/etc/mail/tls/starttls.m4')dnl\n" >> /etc/mail/sendmail.mc; \
+  printf "\ninclude(\`/etc/mail/tls/starttls.m4')dnl\n" >> /etc/mail/submit.mc
 
 # Composer setup.
 # Alternative: RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
