@@ -398,8 +398,8 @@ if (!$g_flags->{'bypass'}) {
   if ($?) {
     die "ERROR: '$Genoring::DOCKER_COMMAND compose' command not available!\n";
   }
-  elsif ($docker_compose_version !~ m/\sv(?:[2-9]\.|\d{2,}\.)/) {
-    $docker_compose_version =~ m/\sv([\d\.]+)/;
+  elsif ($docker_compose_version !~ m/\sv?(?:[2-9]|\d{2,})\./) {
+    $docker_compose_version =~ m/\sv?([\d\.]+)/;
     die "ERROR: '$Genoring::DOCKER_COMMAND compose' does not meet minimal version requirement (" . ($1 || 'unknown version') . " < v2)!\n";
   }
 }
