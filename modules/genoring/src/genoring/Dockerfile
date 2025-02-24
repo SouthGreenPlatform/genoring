@@ -100,8 +100,7 @@ RUN { \
   && ln -s /opt/drupal/php/php.ini "$PHP_INI_DIR/php.ini"
 
 # APCu setup (upload progress).
-RUN pear config-set php_ini "$PHP_INI_DIR/php.ini-drupal" \
-  && printf "\n" | pecl install apcu \
+RUN printf "\n" | pecl install apcu \
   && docker-php-ext-enable apcu \
   && pecl install uploadprogress \
   && docker-php-ext-enable uploadprogress \
