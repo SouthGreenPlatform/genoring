@@ -213,7 +213,10 @@ B<Return>: (nothing)
 =cut
 
 sub CheckGenoringUser {
-  my $genoring_uid = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID');
+  my $genoring_uid = '';
+  if (-r 'env/genoring_genoring.env') {
+    $genoring_uid = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID');
+  }
   # Test if 'GENORING_UID' is set and different from current effective user.
   # Also make sure the Docker command is not already using sudo to change the
   # user running dockers.
@@ -4057,7 +4060,6 @@ sub GetEnvVariable {
   if (! -r $env_file) {
     die "ERROR: GetEnvVariable: Cannot access environment file '$env_file'!";
   }
-
   if (! $variable) {
     die "ERROR: GetEnvVariable: No environment variable name provided!";
   }
@@ -4111,14 +4113,13 @@ sub SetEnvVariable {
   my ($env_file, $variable, $value) = @_;
 
   if (! $env_file) {
-    die "ERROR: GetEnvVariable: No environment file provided!";
+    die "ERROR: SetEnvVariable: No environment file provided!";
   }
   if (! -r $env_file) {
-    die "ERROR: GetEnvVariable: Cannot access environment file '$env_file'!";
+    die "ERROR: SetEnvVariable: Cannot access environment file '$env_file'!";
   }
-
   if (! $variable) {
-    die "ERROR: GetEnvVariable: No environment variable name provided!";
+    die "ERROR: SetEnvVariable: No environment variable name provided!";
   }
 
   $value ||= '';
@@ -4365,9 +4366,12 @@ The site environment type. Must be one of 'dev', 'staging', 'prod' or 'backend'.
 =cut
 
 sub GetProfile {
-  my $site_env =
-    GetEnvVariable("$Genoring::MODULES_DIR/genoring/env/genoring.env", 'GENORING_ENVIRONMENT')
-    || 'dev';
+  my $site_env = 'dev';
+  if (-r "$Genoring::MODULES_DIR/env/genoring_genoring.env") {
+    $site_env =
+      GetEnvVariable("$Genoring::MODULES_DIR/genoring/env/genoring.env", 'GENORING_ENVIRONMENT')
+      || 'dev';
+  }
   if ($site_env !~ m/^(?:dev|staging|prod|backend)$/) {
     die "ERROR: GetProfile: Invalid site environment : '$site_env' in '$Genoring::MODULES_DIR/genoring/env/genoring.env'! Valid profile should be one of 'dev', 'staging', 'prod' or 'backend'.\n";
   }

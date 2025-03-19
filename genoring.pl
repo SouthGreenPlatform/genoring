@@ -405,7 +405,10 @@ if (!$g_flags->{'bypass'}) {
 }
 
 # Init host name.
-my $hostname = GetEnvVariable('env/genoring_genoring.env', 'GENORING_HOST');
+my $hostname;
+if (-r "env/genoring_genoring.env") {
+ $hostname = GetEnvVariable('env/genoring_genoring.env', 'GENORING_HOST');
+}
 if ($hostname) {
   $ENV{'GENORING_HOST'} = $hostname;
 }
