@@ -25,6 +25,7 @@ use utf8;
 use Cwd qw();
 use File::Basename;
 use File::Spec;
+use FindBin;
 
 
 
@@ -147,7 +148,7 @@ our $DOCKER_COMMAND = 'docker';
 our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
 our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $GENORING_DEFAULT_PORT = 8080;
-our $GENORING_DIR = $ENV{'GENORING_DIR'} || '.';
+our $GENORING_DIR = $ENV{'GENORING_DIR'} || $FindBin::Bin;
 our $GENORING_VERSION = '1.0';
 our $IS_MOD_PERL = exists($ENV{'MOD_PERL'});
 our $MODULE_FILE = 'modules.yml';

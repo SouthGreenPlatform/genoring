@@ -162,7 +162,17 @@ sub Run {
     system($g_exec_prefix . $command);
   }
   else {
-    $output = qx($g_exec_prefix $command);
+    if ($g_debug) {
+      open(my $pipe, '-|', "$g_exec_prefix $command")
+        or die("Can't launch child: $!\n");
+      while (defined(my $line = <$pipe>)) {
+        $output .= $line;
+        print $line;
+      }
+    }
+    else {
+      $output = qx($g_exec_prefix $command);
+    }
   }
 
   if ($?) {
@@ -309,10 +319,10 @@ sub StartGenoring {
     ApplyLocalHooks('start');
     # Not running, start it.
     Run(
-      "$Genoring::DOCKER_COMMAND compose up -d",
+      "$Genoring::DOCKER_COMMAND compose up -d -y",
       "Failed to start GenoRing ($mode mode)!",
       1,
-      $g_flags->{'verbose'}
+      $g_debug || $g_flags->{'verbose'}
     );
   }
   # Apply container hooks.
@@ -991,13 +1001,16 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
           elsif ($line =~ m/^\s*(\w+)\s*[=:]\s*(.*)$/) {
             if ($is_setting || $is_optional) {
               my ($name, $value) = ($1, $2);
-              # Special case to manage GENORING_UID and GENORING_GID.
+              # Special case to manage GENORING_UID, GENORING_GID and GENORING_HOST.
               if (('genoring' eq $module) && ('genoring' eq $env_file) && ($value !~ m/\w/)) {
                 if ('GENORING_UID' eq $name) {
                   $value = $ENV{'GENORING_UID'};
                 }
                 elsif ('GENORING_GID' eq $name) {
                   $value = $ENV{'GENORING_GID'};
+                }
+                elsif ('GENORING_HOST' eq $name) {
+                  $value = $ENV{'GENORING_HOST'};
                 }
               }
               push(
@@ -1103,6 +1116,10 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
               if (open($env_fh, '>:utf8', "env/${module}_$env_file")) {
                 foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
                    print {$env_fh} $envvar->{'previous_content'} . $envvar->{'var'} . "=" . $envvar->{'current'} . "\n";
+                   # Special case for host name.
+                   if (('genoring' eq $module) && ('genoring.env' eq $env_file) && ($envvar->{'var'} eq 'GENORING_HOST')) {
+                     $ENV{'GENORING_HOST'} = $envvar->{'current'};
+                   }
                 }
                 print {$env_fh} $previous_content;
                 close($env_fh);

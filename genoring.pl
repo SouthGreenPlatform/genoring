@@ -11,6 +11,9 @@ genoring.pl - Manages GenoRing platform.
   ./genoring.pl start
   ./genoring.pl stop
 
+Multi-instances:
+  COMPOSE_PROJECT_NAME=instance_name ./genoring.pl start
+
 Syntax:
 
   perl genoring.pl [help | man | start | stop | online | offline | backend
@@ -47,11 +50,12 @@ use utf8;
 use Cwd qw();
 use File::Basename;
 use File::Spec;
+use FindBin;
 use Pod::Usage;
 use Time::Piece;
 # Local libraries.
 $ENV{'GENORING_RUNNING'} = 1;
-use lib "perllib";
+use lib "$FindBin::Bin/perllib";
 use Genoring;
 
 ++$|; #no buffering
@@ -407,7 +411,7 @@ if (!$g_flags->{'bypass'}) {
 # Init host name.
 my $hostname;
 if (-r "env/genoring_genoring.env") {
- $hostname = GetEnvVariable('env/genoring_genoring.env', 'GENORING_HOST');
+  $hostname = GetEnvVariable('env/genoring_genoring.env', 'GENORING_HOST');
 }
 if ($hostname) {
   $ENV{'GENORING_HOST'} = $hostname;

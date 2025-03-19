@@ -119,7 +119,7 @@ if (!defined($ENV{'COMPOSE_PROFILES'})) {
 
 # Set default port (can be modified by "-port" flag later).
 if (!defined($ENV{'GENORING_HOST'})) {
-  $ENV{'GENORING_HOST'} = hostname();
+  $ENV{'GENORING_HOST'} = hostname() || 'localhost';
 }
 
 # Set default port (can be modified by "-port" flag later).
