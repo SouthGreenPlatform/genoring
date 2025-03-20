@@ -82,7 +82,7 @@ RUN curl -L -O http://github.com/bbuchfink/diamond/releases/download/v${DIAMOND_
     && rm diamond-linux64.tar.gz \
     && ln -s /opt/diamond/diamond /usr/bin/diamond
 
-# get_homologes-est
+# get_homologues-est
 RUN curl -L -O https://github.com/eead-csic-compbio/get_homologues/releases/download/v${GET_HOMOLOGUES_EST_VERSION}/get_homologues-x86_64-${GET_HOMOLOGUES_EST_DATE}.tgz \
     && tar zxvf get_homologues-x86_64-${GET_HOMOLOGUES_EST_DATE}.tgz --directory /opt \
     && rm get_homologues-x86_64-${GET_HOMOLOGUES_EST_DATE}.tgz \

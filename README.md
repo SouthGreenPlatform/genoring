@@ -9,7 +9,7 @@ tools.
 ## Table of contents
 
 - Description
-- Installation
+- Installation & requirements
 - Management
 - Support
 - Authors and acknowledgment
@@ -158,9 +158,14 @@ properly.
   * genoring-mongodb: MongoDB database
 
 
-## Installation
+## Installation & requirements
 
-GenoRing requires Docker with Docker Compose V2+ and PERL 5.8+.
+GenoRing requires PERL 5.8+ core and Docker v20.10.13+.
+- PERL 5.8+ is installed by default on most Linux distributions and Mac while
+  it requires Perl installation on Windows systems (ActiveState Perl or
+  Strawberry Perl). See https://www.perl.org/get.html
+- Docker v20.10.13+ includes "Docker Compose V2+" (docker-compose-plugin) and
+  "BuildKit" (buildx) plugins.
 
 **Download** the GenoRing repository (or an archive) on your system.
 

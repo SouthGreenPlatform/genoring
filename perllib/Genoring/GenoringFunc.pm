@@ -319,7 +319,7 @@ sub StartGenoring {
     ApplyLocalHooks('start');
     # Not running, start it.
     Run(
-      "$Genoring::DOCKER_COMMAND compose up -d -y",
+      "$Genoring::DOCKER_COMPOSE_COMMAND up -d -y",
       "Failed to start GenoRing ($mode mode)!",
       1,
       $g_debug || $g_flags->{'verbose'}
@@ -359,7 +359,7 @@ B<Return>: (nothing)
 sub StopGenoring {
   if (-e $Genoring::DOCKER_COMPOSE_FILE) {
     Run(
-      "$Genoring::DOCKER_COMMAND compose --profile \"*\" down --remove-orphans",
+      "$Genoring::DOCKER_COMPOSE_COMMAND --profile \"*\" down --remove-orphans",
       "Failed to stop GenoRing!",
       1,
       $g_flags->{'verbose'}
@@ -384,7 +384,7 @@ B<Return>: (nothing)
 sub GetLogs {
   if (exists($g_flags->{'f'})) {
     Run(
-      "$Genoring::DOCKER_COMMAND compose --profile \"*\" logs -f",
+      "$Genoring::DOCKER_COMPOSE_COMMAND --profile \"*\" logs -f",
       "Failed to get GenoRing logs!",
       undef,
       1
@@ -392,7 +392,7 @@ sub GetLogs {
   }
   else {
     Run(
-      "$Genoring::DOCKER_COMMAND compose logs",
+      "$Genoring::DOCKER_COMPOSE_COMMAND logs",
       "Failed to get GenoRing logs!",
       undef,
       1
@@ -477,7 +477,7 @@ sub GetState {
     $state ||= '';
   }
   else {
-    my $states = qx($g_exec_prefix$Genoring::DOCKER_COMMAND compose ps --all --format "{{.Names}} {{.State}}");
+    my $states = qx($g_exec_prefix$Genoring::DOCKER_COMPOSE_COMMAND ps --all --format "{{.Names}} {{.State}}");
     $state = $states ? 'running' : '';
     foreach my $line (split(/\n+/, $states)) {
       if ($line !~ m/\srunning$/) {
@@ -533,7 +533,7 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return ();
   }
-  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}");
+  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}} 2>/dev/null");
   my @ps = split(/\n+/, $ps_all);
   foreach my $ps (@ps) {
     my @status = split(/\s+/, $ps);
@@ -587,11 +587,11 @@ sub GetModuleRealState {
   my $state_hook = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', 'state.pl');
   if (-e $state_hook) {
     my $tries = $g_flags->{'wait-ready'};
-    $state = qx($g_exec_prefix perl $state_hook);
+    $state = qx($g_exec_prefix perl $state_hook 2>&1);
     if ($?) {
       die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
     }
-    print "Checking if $module module is ready (see logs below for errors)...\n" if $progress;
+    print "Checking if $module module is ready (see logs below for errors)...\n\n" if $progress;
     my $logs = '';
     # Does not work on Windows.
     my $terminal_width = qx($g_exec_prefix tput cols 2>&1);
@@ -608,16 +608,22 @@ sub GetModuleRealState {
       && ($state !~ m/running/i)
     ) {
       if ($progress) {
+        # Count number of lines currently displayed.
         my @log_lines = split(/\n/, $logs);
-        my $line_count = scalar(@log_lines);
+        my $line_count = ($logs =~ tr/\n//);
         if ($terminal_width) {
           foreach my $log_line (@log_lines) {
-            $line_count += int(length($log_line) / ($terminal_width+1));
+            # Count long string lines split accross multiple terminal lines.
+            if (1 < length($log_line)) {
+              $line_count += int((length($log_line) - 1) / $terminal_width);
+            }
           }
         }
+        # Go back on terminal display to override.
         if ($line_count) {
-          print "\r" . ("\033[F" x $line_count);
+          print "\r\033[$line_count"."F";
         }
+        # Get current logs.
         $logs = '';
         foreach my $service (@{GetModuleServices($module)}) {
           my $service_name = GetContainerName($service);
@@ -625,16 +631,16 @@ sub GetModuleRealState {
             $logs .= "==> $service:\n" . qx($g_exec_prefix $Genoring::DOCKER_COMMAND logs -n 4 $service_name 2>&1) . "\n";
           }
         }
-        # Remove non-printable characters (but keep line breaks).
+        # Remove non-printable characters (ie. from "space" to "tild", and keep line breaks).
         $logs =~ s/[^ -~\n]+//g;
         if ($logs) {
           @log_lines = split(/\n/, $logs);
+          my $new_line_count = ($logs =~ tr/\n//);
           $logs = '';
-          my $new_line_count = scalar(@log_lines);
           if ($terminal_width) {
             foreach my $log_line (@log_lines) {
               # Cut too long lines.
-              $log_line =  substr($log_line, 0, $terminal_width);
+              $log_line =  substr($log_line, 0, ($terminal_width - 1));
               $logs .= $log_line . (' ' x ($terminal_width - length($log_line) % ($terminal_width))) . "\n";
             }
           }
@@ -658,7 +664,7 @@ sub GetModuleRealState {
           }
           # Clear previous log lines that where not overwritten.
           if ($new_line_count < $line_count) {
-            my $line_width = $terminal_width || $fixed_width;
+            my $line_width = ($terminal_width || $fixed_width);
             my $line_diff = $line_count - $new_line_count;
             print(((' ' x  $line_width) . "\n") x $line_diff);
           }
@@ -669,7 +675,7 @@ sub GetModuleRealState {
         }
       }
       sleep(1);
-      $state = qx($g_exec_prefix perl $state_hook);
+      $state = qx($g_exec_prefix perl $state_hook 2>&1);
       if ($?) {
         die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
       }
@@ -3312,6 +3318,31 @@ sub Compile {
     }
   }
 
+  # Check if "buildx" is enabled.
+  my $disable_buildx = 0;
+  if (!$g_flags->{'bypass'}) {
+    my $output = qx($Genoring::DOCKER_COMMAND buildx ls 2>&1);
+    if ($?) {
+      warn "WARNING: '$Genoring::DOCKER_COMMAND buildx' command not available!\n";
+      $disable_buildx = 1;
+    }
+    elsif ($? == 0 && $output =~ /\buse\b/) {
+      if (Confirm("WARNING: Docker buildx (BuildKit plugin) is not enabled. It may be a problem if running ARM architectures. Do you want to enable it?")) {
+        $output = qx($Genoring::DOCKER_COMMAND buildx create --use 2>&1);
+        if ($?) {
+          warn "WARNING: Failed to enable Docker buildx:\n$output\n";
+          $disable_buildx = 1;
+        }
+      }
+      else {
+        $disable_buildx = 1;
+      }
+    }
+    if ($disable_buildx) {
+      $Genoring::DOCKER_BUILD_COMMAND =~ s/ buildx//;
+    }
+  }
+
   # Get service sub-directory for sources (take into account ARM support).
   if (!-d "$Genoring::MODULES_DIR/$module/src/$service") {
     die "ERROR: Compile: The given service (${module}[$service]) does not have sources!";
@@ -3408,7 +3439,7 @@ sub Compile {
     $no_cache = '--no-cache';
   }
   Run(
-    "$Genoring::DOCKER_COMMAND build $no_cache --build-arg GENORING_UID=\${GENORING_UID} --build-arg GENORING_GID=\${GENORING_GID} -t $service $service_src_path",
+    "$Genoring::DOCKER_BUILD_COMMAND $no_cache --build-arg GENORING_UID=\${GENORING_UID} --build-arg GENORING_GID=\${GENORING_GID} -t $service $service_src_path",
     "Failed to compile container (service ${module}[$service])",
     1,
     1

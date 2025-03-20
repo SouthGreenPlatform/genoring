@@ -68,6 +68,14 @@ B<$DOCKER_COMMAND>: (string)
 
 Docker command (executable name with or without path).
 
+B<$DOCKER_COMPOSE_COMMAND>: (string)
+
+Docker compose command (including "docker" command).
+
+B<$DOCKER_BUILD_COMMAND>: (string)
+
+Docker build command (including "docker" command).
+
 B<$DOCKER_COMPOSE_FILE>: (string)
 
 Name of the Docker Compose file.
@@ -145,6 +153,8 @@ our $DEBUG = 0;
 our $DEFAULT_ARCHITECTURE = 'linux/amd64';
 our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';
 our $DOCKER_COMMAND = 'docker';
+our $DOCKER_COMPOSE_COMMAND = $DOCKER_COMMAND . ' compose';
+our $DOCKER_BUILD_COMMAND = $DOCKER_COMMAND . ' buildx build';
 our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
 our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $GENORING_DEFAULT_PORT = 8080;

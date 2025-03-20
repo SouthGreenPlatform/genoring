@@ -398,7 +398,7 @@ if (!$g_flags->{'bypass'}) {
   if ($?) {
     die "ERROR: '$Genoring::DOCKER_COMMAND' command not available!\n$output\n";
   }
-  my $docker_compose_version = qx($Genoring::DOCKER_COMMAND compose version 2>&1);
+  my $docker_compose_version = qx($Genoring::DOCKER_COMPOSE_COMMAND version 2>&1);
   if ($?) {
     die "ERROR: '$Genoring::DOCKER_COMMAND compose' command not available!\n";
   }
