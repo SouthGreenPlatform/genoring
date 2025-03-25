@@ -92,6 +92,13 @@ install_cms()
   printf "*/5 * * * * root cd /opt/drupal/web/ && /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin COLUMNS=72 /usr/local/bin/php ../vendor/bin/drush --uri=$GENORING_HOST --quiet maint:status && /usr/local/bin/php ../vendor/bin/drush --uri=$GENORING_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
   printf "  ...OK (cron).\n"
   printf "...OK (Drupal downloaded).\n"
+
+  # Add missing version info for dev modules.
+  for INFO_FILE in $(find /opt/drupal/web -path "*/contrib/*.info.yml"); do
+    if ! grep -q "^version:" "$INFO_FILE"; then
+      printf "\nversion: '100.0.0-dev'\n" >> "$INFO_FILE"
+    fi
+  done
 }
 
 # Setup PHP.
@@ -263,7 +270,7 @@ start_genoring()
   printf "* Start cron daemon...\n"
   sudo /opt/genoring/genoring_root.sh start_cron
   printf "  ...OK.\n"
-  
+
   printf "* Init sendmail...\n"
   sudo /opt/genoring/genoring_root.sh start_sendmail
   printf "  ...OK.\n"

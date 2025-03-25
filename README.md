@@ -299,10 +299,9 @@ Access to Drupal shell or composer:
 ```
   # perl genoring.pl shell
   then
+  # su genoring
   # composer ...
-  or
   # drush ...
-  then
   # exit
 ```
 
