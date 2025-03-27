@@ -26,8 +26,8 @@ Syntax:
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-no-cache]
-  | shell [SERVICE] [-cmd=COMMAND] ] [-debug] [-no-exposed-volumes] [-no-backup]
-  [-port=<HTTP_PORT>] [-arm[=<ARCH>] | -platform=<ARCH>] [-wait-ready=DELAYSEC]
+  | shell [SERVICE] [-cmd=<COMMAND>] ] [-debug] [-no-exposed-volumes] [-no-backup]
+  [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-wait-ready[=DELAYSEC]]
   [-yes|-no] [-verbose] [-hide-compile]
 
 =head1 REQUIRES
@@ -355,7 +355,19 @@ my (@arguments);
 my $arg = shift(@ARGV);
 while (defined($arg)) {
   if ($arg =~ m/^--?([\w\-]+)(?:=(.*))?$/i) {
-    $g_flags->{$1} = defined($2) ? $2 : 1;
+    my $flag = $1;
+    $g_flags->{$flag} = defined($2) ? $2 : 1;
+    if (!defined($2)
+      && ($flag =~ m/arm|cmd|platform|port|wait-ready/i)
+    ) {
+      if (scalar(@ARGV) && ($ARGV[0] !~ m/^--?[a-z]/i)) {
+        $g_flags->{$flag} = shift(@ARGV);
+      }
+      elsif ($flag =~ m/cmd|platform|port/i) {
+        warn "ERROR: Invalid flag syntax for flag '$flag'.\n\n";
+        pod2usage('-verbose' => 0, '-exitval' => 1);
+      }
+    }
   }
   else {
     push(@arguments, $arg);
@@ -409,9 +421,10 @@ if (!$g_flags->{'bypass'}) {
 }
 
 # Init host name.
-my $hostname;
+my ($hostname, $port);
 if (-r "env/genoring_genoring.env") {
   $hostname = GetEnvVariable('env/genoring_genoring.env', 'GENORING_HOST');
+  $port = GetEnvVariable('env/genoring_genoring.env', 'GENORING_PORT');
 }
 if ($hostname) {
   $ENV{'GENORING_HOST'} = $hostname;
@@ -419,7 +432,21 @@ if ($hostname) {
 
 # Check for HTTP port.
 if ($g_flags->{'port'} && ($g_flags->{'port'} =~ m/^\d{2,}$/)) {
+  # Port forced in parameters, ignore environment.
   $ENV{'GENORING_PORT'} = $g_flags->{'port'};
+  if ((-r "env/genoring_genoring.env")
+      && (!$port || ($g_flags->{'port'} != $port))
+  ) {
+    SetEnvVariable('env/genoring_genoring.env', 'GENORING_PORT', $g_flags->{'port'});
+  }
+}
+elsif ($port) {
+  # Port set in environment config, ignore global environment.
+  $ENV{'GENORING_PORT'} = $port;
+}
+elsif ((-r "env/genoring_genoring.env") && $ENV{'GENORING_PORT'}) {
+  # Port not set in environment config, use global environment.
+  SetEnvVariable('env/genoring_genoring.env', 'GENORING_PORT', $ENV{'GENORING_PORT'});
 }
 
 # Check for a specific platform architecture.

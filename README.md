@@ -171,7 +171,7 @@ GenoRing requires PERL 5.8+ core and Docker v20.10.13+.
 
 Depending on your server architecture, you may have to configure your firewall
 to allow external access to the GenoRing platform. To select the port to use,
-use the environment variable GENORING_PORT. By default, port 8080 is used.
+use the parameter "-port=<HTTP_PORT>". By default, port 8080 is used.
 
 **This is it**: GenoRing is ready to be started!
 
@@ -200,7 +200,7 @@ Start GenoRing (from installation directory):
 ```
   # perl genoring.pl start
   or on a specific HTTP port:
-  GENORING_PORT=8888 perl genoring.pl start
+  perl genoring.pl start -port=8888
 ```
 
 See what is going on (logs):
@@ -302,6 +302,20 @@ Access to Drupal shell or composer:
   # su genoring
   # composer ...
   # drush ...
+  # exit
+  # exit
+```
+
+To run Drupal automated tests:
+```
+  # perl genoring.pl shell
+  only needed the first time:
+  # genoring inittest
+  then to run tests:
+  # su genoring
+  # ./vendor/bin/phpunit -c ./web/core ./web/modules/contrib/
+  ...
+  # exit
   # exit
 ```
 

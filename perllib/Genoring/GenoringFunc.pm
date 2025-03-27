@@ -4177,18 +4177,23 @@ sub SetEnvVariable {
   my $got_value = 0;
   if (open($env_fh, '<:utf8', $env_file)) {
     while (my $line = <$env_fh>) {
-      if ($line =~ m/^\s*$variable\s*[=:]$/) {
+      if ($line =~ m/^\s*$variable\s*[=:]/) {
         if ($got_value) {
+          # Remove duplicates.
           $line = '';
         }
         else {
           $line = "$variable=$value\n";
-          $got_value = 1
+          $got_value = 1;
         }
       }
       $new_content .= $line;
     }
     close($env_fh);
+    if (!$got_value) {
+      # Add new value.
+      $new_content .= "\n$variable=$value\n";
+    }
     if (open($env_fh, '>:utf8', $env_file)) {
       print {$env_fh} $new_content;
       close($env_fh);

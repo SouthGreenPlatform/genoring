@@ -54,7 +54,7 @@ setup_database()
 install_cms()
 {
   printf "Drupal downloads...\n"
-  printf "* Downloading Drupal $DRUPAL_VERSION core...\n"
+  printf "* Initializing Drupal directory...\n"
   if [ ! -e ./composer.json ]; then
     # Prepare Drupal download settings.
     composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev
@@ -63,7 +63,14 @@ install_cms()
     fi
   fi
 
+  # Check if a specific Drupal version was provided.
+  if [ ! -z $DRUPAL_VERSION ]; then
+    printf "* Selecting Drupal $DRUPAL_VERSION core...\n"
+    composer require --no-interaction --no-install "drupal/core-composer-scaffold:^$DRUPAL_VERSION" "drupal/core-project-message:^$DRUPAL_VERSION" "drupal/core-recommended:^$DRUPAL_VERSION"
+  fi
+
   # Install Drupal files.
+  printf "* Downloading Drupal...\n"
   composer install
   if [ $? -gt 0 ]; then
     printf "...ERROR!\n"
@@ -290,6 +297,38 @@ start_genoring()
   exec php-fpm -F
   # We should not get there.
   printf "[Stopped]\n"
+}
+
+# Initializes Drupal environment to be able to run tests.
+inittest()
+{
+  mkdir -p /opt/drupal/web/sites/simpletest/browser_output
+  chmod -R uog+rwX /opt/drupal/web/sites/simpletest /opt/drupal/web/sites/simpletest/browser_output
+  if [ "$(id -u)" -eq 0 ]; then
+    su genoring -c "composer require drupal/core-dev --dev --update-with-all-dependencies  --no-interaction"
+    chown -R genoring:genoring  /opt/drupal/web/sites/simpletest/browser_output
+  else
+    composer require drupal/core-dev --dev --update-with-all-dependencies --no-interaction
+  fi
+  PHPUNIT_FILE="web/core/phpunit.xml"
+  if [ ! -f "$PHPUNIT_FILE" ]; then
+    cp web/core/phpunit.xml.dist "$PHPUNIT_FILE"
+    chown genoring:genoring web/core/phpunit.xml
+    ENCODED_PASSWORD=$(printf "$POSTGRES_PASSWORD" | perl -ne 's/([^a-z\d\Q.-_~ \E])/sprintf("&#%d;", ord($1))/geix; print;')
+    perl -pi -e 's|<env name="SIMPLETEST_BASE_URL".*?>|<env name="SIMPLETEST_BASE_URL" value="http://genoring-proxy"/>|' "$PHPUNIT_FILE"
+    perl -pi -e "s|<env name=\"SIMPLETEST_DB\".*?>|<env name=\"SIMPLETEST_DB\" value=\"pgsql://$POSTGRES_USER:$ENCODED_PASSWORD\@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DRUPAL_DB\"/>|" "$PHPUNIT_FILE"
+    perl -pi -e 's|<env name="BROWSERTEST_OUTPUT_DIRECTORY".*?>||' "$PHPUNIT_FILE"
+    perl -pi -e "s|<env name=\"BROWSERTEST_OUTPUT_BASE_URL\".*?>|<env name=\"BROWSERTEST_OUTPUT_BASE_URL\" value=\"http://$GENORING_HOST:$GENORING_PORT\"/>\n    <env name=\"BROWSERTEST_OUTPUT_DIRECTORY\" value=\"/opt/drupal/web/sites/simpletest/browser_output\"/>|" "$PHPUNIT_FILE"
+  fi
+  printf "\n\$settings['file_chmod_directory'] = 0777;\n" >> web/sites/default/default.settings.php
+  # Remove invalid tests.
+  rm -rf /opt/drupal/web/modules/contrib/honeypot/tests
+  find /opt/drupal/web/modules/contrib/tripal -name tests -prune -exec rm -rf {} \;
+  printf "\nTo run tests:\n"
+  if [ "$(id -u)" -eq 0 ]; then
+    printf "  su genoring\n"
+  fi
+  printf "  ./vendor/bin/phpunit -c ./web/core ./web/modules/contrib/\n\nex.:\n  ./vendor/bin/phpunit -c ./web/core ./web/modules/contrib/  --group 'genoring'  --filter DataLocatorDefaultUnitTest\n\n"
 }
 
 # Manage GenoRing commands.
@@ -699,6 +738,9 @@ case "$cmd" in
     ;;
   help|-help|--help|-?|/?)
     print_help "$@"
+    ;;
+  inittest|inittests)
+    inittest "$@"
     ;;
   install_module)
     install_module "$@"
