@@ -105,7 +105,7 @@ dependencies:
     - "REQUIRES genoring genoring-db"
     - "jbrowse REQUIRES genoring >=1.0 genoring-proxy or genoring 1.0 genoring-httpd"
     - "CONFLICTS genoring genoring-mysql"
-    - "backend:biotools BEFORE genoring genoring-proxy"
+    - "backend:genoringtools BEFORE genoring genoring-proxy"
   # Lists required volumes from other modules.
   volumes:
     - "REQUIRES genoring genoring-data-volume"

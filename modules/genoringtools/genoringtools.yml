@@ -1,14 +1,14 @@
-name: "BioTools"
+name: "GenoRing Tools"
 description: "This is a backend service that can be used to run bioinformatics tools."
 version: 1.0
 genoring_script_version: 1.0
 services:
-  genoring-biotools:
-    name: "BioTools"
-    description: "The BioTools service."
+  genoring-genoringtools:
+    name: "GenoRing Tools"
+    description: "The GenoRing Tools service."
     version: 1.0
 dependencies:
   services:
-    - "backend,offline:genoring-biotools BEFORE genoring genoring-proxy"
+    - "backend,offline:genoring-genoringtools BEFORE genoring genoring-proxy"
   volumes:
     - "requires genoring genoring-data-volume"

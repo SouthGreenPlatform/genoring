@@ -23,7 +23,7 @@ if ($error) {
 
 print
   $query->header,
-  $query->start_html('GenoRing BioTools'),
+  $query->start_html('GenoRing Tools'),
   $query->h1('faidx tool'),
   $query->p("Will run faidx tool on $fasta_file"),
   $query->end_html;

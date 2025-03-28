@@ -9,8 +9,8 @@ services:
     version: 1.0
 dependencies:
   services:
-    - "REQUIRES biotools"
-    - "backend,offline:genoring-jbrowse AFTER biotools genoring-biotools"
+    - "REQUIRES genoringtools"
+    - "backend,offline:genoring-jbrowse AFTER genoringtools genoring-genoringtools"
     - "backend,offline:genoring-jbrowse BEFORE genoring genoring-proxy"
   volumes:
     - "requires genoring genoring-data-volume"

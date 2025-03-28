@@ -1,5 +1,5 @@
-image: genoring-biotools
-build: ${GENORING_DIR}/modules/biotools/src/genoring-biotools
+image: genoring-genoringtools
+build: ${GENORING_DIR}/modules/genoringtools/src/genoring-genoringtools
 pull_policy: never
 profiles: ["backend","offline"]
 restart: unless-stopped

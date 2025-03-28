@@ -1,5 +1,5 @@
 # Compile with:
-# docker build -t genoring-biotools .
+# docker build -t genoring-genoringtools .
 FROM httpd
 
 # Arguments.
@@ -98,11 +98,11 @@ RUN curl -L -O https://github.com/eead-csic-compbio/get_homologues/releases/down
 #    && mv /opt/orthomclSoftware-v${ORTHOMCL_VERSION} /opt/orthomcl
 # ENV PATH $PATH:/opt/orthomcl/bin
 
-COPY res/biotools /opt/biotools
-COPY res/biotools-httpd.conf /usr/local/apache2/conf/httpd.conf
+COPY res/genoringtools /opt/genoringtools
+COPY res/genoringtools-httpd.conf /usr/local/apache2/conf/httpd.conf
 
 # Adjust file permissions.
-RUN /usr/bin/chmod uog+x /opt/biotools/cgi-bin/*
+RUN /usr/bin/chmod uog+x /opt/genoringtools/cgi-bin/*
 
 # Secure environment by using www-data.
 RUN chown -hR www-data:www-data /usr/local/apache2/
@@ -116,4 +116,4 @@ HEALTHCHECK --interval=60s --timeout=30s CMD nc -zv localhost 80 || exit 1
 #   CMD socat -u OPEN:/dev/null UNIX-CONNECT:/var/run/mysql.socket || exit 1
 
 USER www-data
-WORKDIR /opt/biotools/
+WORKDIR /opt/genoringtools/
