@@ -17,8 +17,8 @@ dependencies:
   services:
     - "REQUIRES genoring genoring-proxy OR genoring-proxy-http"
     - "genoring-gigwa BEFORE genoring genoring-proxy OR genoring-proxy-http"
-    - "REQUIRES mongodb genoring-mongodb"
-    - "genoring-gigwa AFTER mongodb genoring-mongodb"
+    - "REQUIRES mongodb42 genoring-mongodb42"
+    - "genoring-gigwa AFTER mongodb42 genoring-mongodb42"
   volumes:
     - "REQUIRES genoring genoring-data-volume"
     - "REQUIRES genoring genoring-backups-volume"

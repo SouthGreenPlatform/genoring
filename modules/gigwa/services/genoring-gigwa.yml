@@ -1,7 +1,7 @@
 image: guilhemsempere/gigwa:2.9-RELEASE
 platform: linux/amd64
 env_file:
-  - ${PWD}/env/mongodb_mongodb.env
+  - ${PWD}/env/mongodb42_mongodb42.env
   - ${PWD}/env/gigwa_gigwa.env
 volumes:
   - ${GENORING_VOLUMES_DIR}/gigwa/config:/usr/local/tomcat/config

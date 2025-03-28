@@ -11,7 +11,7 @@ use Genoring;
 
 # Remove Gigwa config.
 my $output = qx(
-  $Genoring::DOCKER_COMMAND run --rm -v $Genoring::VOLUMES_DIR:/genoring -w / alpine rm -rf /genoring/mongodb
+  $Genoring::DOCKER_COMMAND run --rm -v $Genoring::VOLUMES_DIR:/genoring -w / alpine rm -rf /genoring/mongodb42
 );
 HandleShellExecutionError();
 

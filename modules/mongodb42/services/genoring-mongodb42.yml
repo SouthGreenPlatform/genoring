@@ -1,9 +1,9 @@
 image: mongo:4.2.24
 platform: linux/amd64
 env_file:
-  - ${PWD}/env/mongodb_mongodb.env
+  - ${PWD}/env/mongodb42_mongodb42.env
 volumes:
-  - ${GENORING_VOLUMES_DIR}/mongodb:/data/db
+  - ${GENORING_VOLUMES_DIR}/mongodb42:/data/db
   # - genoring-data-volume:/genoring-data
 command: --profile 0 --slowms 60000 --storageEngine wiredTiger --wiredTigerCollectionBlockCompressor=zstd --directoryperdb --quiet
 restart: always
