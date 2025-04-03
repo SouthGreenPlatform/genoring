@@ -29,7 +29,7 @@ PrepareOperations Reinitialize RemoveEnvFiles RemoveVolumeFiles
 RemoveModuleConf Restore Run SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
 ToLocalService UninstallModule Update Upgrade WaitModulesReady
-CheckGenoringUser InitGenoringUser CheckFreeSpace
+CheckGenoringUser InitGenoringUser CheckFreeSpace GetEnvironmentFiles
 
 =head1 DESCRIPTION
 
@@ -65,7 +65,7 @@ our @EXPORT =
     RemoveModuleConf Restore Run SetEnvVariable SetModuleConf SetupGenoring
     SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
     ToLocalService UninstallModule Update Upgrade WaitModulesReady
-    CheckGenoringUser InitGenoringUser CheckFreeSpace
+    CheckGenoringUser InitGenoringUser CheckFreeSpace GetEnvironmentFiles
   );
 
 

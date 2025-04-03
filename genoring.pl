@@ -668,7 +668,10 @@ elsif ($command =~ m/^shell$/i) {
   }
 
   my ($id, $state, $name, $image) = IsContainerRunning($service_name);
+  my $warning_handler = $SIG{__WARN__};
   if ($state && ($state =~ m/running/)) {
+    # Disable warning message when the docker container closes.
+    $SIG{__WARN__} = sub {};
     # Always run as root.
     Run(
       "$Genoring::DOCKER_COMMAND exec -u 0 -it $service_name $command",
@@ -678,22 +681,29 @@ elsif ($command =~ m/^shell$/i) {
     );
   }
   else {
-    # @todo Add support for non-running dockers.
+    # Run non-running dockers.
     # Get environment files and volumes from docker compose file.
-    # my $env_data = join(' --env-file ', GetEnvironmentFiles($module));
-    # if ($env_data) {
-    #   $env_data = ' --env-file ' . $env_data;
-    # }
-    # $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
-    # Run(
-    #   "docker run --env-file ... -v ... --network genoring_default -it -rm $service $command",
-    #   $message,
-    #   1,
-    #   1
-    # );
-    warn "ERROR: '$service' container is not running.\n";
-    exit(1);
+    my $services = GetServices();
+    if (!$services->{$service}) {
+      die "ERROR: service '$service' not found!\n";
+    }
+    my $module = $services->{$service};
+    my $env_data = join(' --env-file ', GetEnvironmentFiles($module));
+    if ($env_data) {
+      $env_data = ' --env-file ' . $env_data;
+    }
+    $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
+    # Disable warning message when the docker container closes.
+    $SIG{__WARN__} = sub {};
+    my $output = Run(
+      "$Genoring::DOCKER_COMMAND run " . $env_data . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm $service_name $command",
+      $message,
+      0,
+      1
+    );
   }
+  # Put back warning messages.
+  $SIG{__WARN__} = $warning_handler;
 }
 elsif ($command =~ m/^localhooks$/i) {
   ApplyLocalHooks(@arguments);
