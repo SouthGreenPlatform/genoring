@@ -9,6 +9,8 @@ ARG GFF3SORT_VERSION=1.0.0
 ARG GET_HOMOLOGUES_EST_VERSION=3.7.2
 ARG GET_HOMOLOGUES_EST_DATE=20241114
 ARG ORTHOMCL_VERSION=2.0.9
+ARG GENORING_UID=6305
+ARG GENORING_GID=6305
 
 RUN apt-get -qq update --fix-missing \
     && apt-get --no-install-recommends -y install \
@@ -104,10 +106,15 @@ COPY res/genoringtools-httpd.conf /usr/local/apache2/conf/httpd.conf
 # Adjust file permissions.
 RUN /usr/bin/chmod uog+x /opt/genoringtools/cgi-bin/*
 
-# Secure environment by using www-data.
-RUN chown -hR www-data:www-data /usr/local/apache2/
+# Add genoring user and group.
+RUN groupadd -g ${GENORING_GID} genoring && useradd -u ${GENORING_UID} -g genoring -m -s /bin/bash genoring
+
+# Secure environment by using genoring.
+RUN chown -hR genoring:genoring /usr/local/apache2/
 RUN setcap 'cap_net_bind_service=+ep' /usr/local/apache2/bin/httpd
 RUN getcap /usr/local/apache2/bin/httpd
+
+USER genoring:genoring
 
 HEALTHCHECK --interval=60s --timeout=30s CMD nc -zv localhost 80 || exit 1
 
@@ -115,5 +122,4 @@ HEALTHCHECK --interval=60s --timeout=30s CMD nc -zv localhost 80 || exit 1
 # HEALTHCHECK --interval=30s --timeout=3s \
 #   CMD socat -u OPEN:/dev/null UNIX-CONNECT:/var/run/mysql.socket || exit 1
 
-USER www-data
 WORKDIR /opt/genoringtools/

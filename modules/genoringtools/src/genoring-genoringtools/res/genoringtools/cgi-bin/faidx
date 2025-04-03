@@ -1,29 +1,82 @@
-#!/usr/local/bin/perl
+#!/usr/bin/env perl
 
 use strict;
 use warnings;
 use utf8;
 use CGI qw/:standard/;
+use JSON;
+
 
 my $query = new CGI;
-my $fasta_file = $query->param('fasta') || '';
-# If POSTed data is not of type application/x-www-form-urlencoded or
-# multipart/form-data:
-# my $post_data = $query->param('POSTDATA');
 
+# JSON response structure.
+my $json = {};
+
+# Get parameters.
+my $fasta_file = $query->param('fasta') || '';
+my $output_file = $query->param('output') || '';
+
+# Check for parameter error.
 my $error = $query->cgi_error;
 if ($error) {
-  print
-    $query->header(-status=>$error),
-    $query->start_html('Problems'),
-    $query->h2('Request not processed'),
-    $query->strong($error);
+  print header(-type => 'application/json', -status => $error);
+  # Request not processed.
+  $json->{'error'} = $error;
+  my $json_text = to_json($json);
+  print $json_text;
   exit 0;
 }
 
-print
-  $query->header,
-  $query->start_html('GenoRing Tools'),
-  $query->h1('faidx tool'),
-  $query->p("Will run faidx tool on $fasta_file"),
-  $query->end_html;
+# Missing FASTA.
+if (!$fasta_file) {
+  print header(-type => 'application/json', -status => '400 Missing FASTA file path');
+  # Request not processed.
+  $json->{'error'} = $error;
+  my $json_text = to_json($json);
+  print $json_text;
+  exit 0;
+}
+
+# Prepare command and response.
+print header(-type => 'application/json');
+my $command = "samtools faidx $fasta_file";
+if ($output_file) {
+  $command .= ' -o ' . $output_file;
+}
+else {
+  $output_file = $fasta_file . '.fai';
+}
+
+$json = {
+  'input' => {
+    'fasta' => $fasta_file,
+  },
+  'command' => $command,
+};
+
+# Run command.
+$json->{'output'}->{'command'} = qx($command 2>&1);
+
+# Check for command error.
+my $error_message = '';
+if ($?) {
+  if ($? == -1) {
+    $error_message = "Execution failed! (error $?)\n$!";
+  }
+  elsif ($? & 127) {
+    $error_message = "Execution failed!\n"
+      . sprintf(
+        "Child died with signal %d, %s coredump\n",
+        ($? & 127), ($? & 128) ? 'with' : 'without'
+      );
+  }
+  else {
+    $error_message = "Execution failed! " . sprintf("(error %d)", $? >> 8);
+  }
+  $json->{'error'} = $error_message;
+}
+
+# Output result.
+$json->{'output'}->{'fai'} = $output_file;
+my $json_text = to_json($json);
+print $json_text;
