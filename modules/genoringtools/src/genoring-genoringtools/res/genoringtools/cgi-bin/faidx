@@ -1,82 +1,54 @@
 #!/usr/bin/env perl
 
+package Genoring::faidx;
+
 use strict;
 use warnings;
 use utf8;
-use CGI qw/:standard/;
-use JSON;
+use FindBin;
+use lib "$FindBin::Bin";
+use Genoring::GenoringTool;
 
+use base qw(Genoring::GenoringTool);
 
-my $query = new CGI;
-
-# JSON response structure.
-my $json = {};
-
-# Get parameters.
-my $fasta_file = $query->param('fasta') || '';
-my $output_file = $query->param('output') || '';
-
-# Check for parameter error.
-my $error = $query->cgi_error;
-if ($error) {
-  print header(-type => 'application/json', -status => $error);
-  # Request not processed.
-  $json->{'error'} = $error;
-  my $json_text = to_json($json);
-  print $json_text;
-  exit 0;
+sub getProgram
+{
+  return 'samtools faidx';
 }
 
-# Missing FASTA.
-if (!$fasta_file) {
-  print header(-type => 'application/json', -status => '400 Missing FASTA file path');
-  # Request not processed.
-  $json->{'error'} = $error;
-  my $json_text = to_json($json);
-  print $json_text;
-  exit 0;
-}
+sub getParameters
+{
+  my ($self) = @_;
 
-# Prepare command and response.
-print header(-type => 'application/json');
-my $command = "samtools faidx $fasta_file";
-if ($output_file) {
-  $command .= ' -o ' . $output_file;
-}
-else {
-  $output_file = $fasta_file . '.fai';
-}
+  # Get parameters.
+  my $fasta_file = $self->query->param('fasta') || '';
+  my $output_file = $self->query->param('output') || '';
 
-$json = {
-  'input' => {
-    'fasta' => $fasta_file,
-  },
-  'command' => $command,
-};
-
-# Run command.
-$json->{'output'}->{'command'} = qx($command 2>&1);
-
-# Check for command error.
-my $error_message = '';
-if ($?) {
-  if ($? == -1) {
-    $error_message = "Execution failed! (error $?)\n$!";
+  # Check for parameter error.
+  my $error = $self->query->cgi_error;
+  if ($error) {
+    # Request not processed.
+    $self->data->{'error'} = $error;
+    return;
   }
-  elsif ($? & 127) {
-    $error_message = "Execution failed!\n"
-      . sprintf(
-        "Child died with signal %d, %s coredump\n",
-        ($? & 127), ($? & 128) ? 'with' : 'without'
-      );
+
+  # Missing FASTA.
+  if (!$fasta_file) {
+    $self->data->{'error'} = '400 Missing FASTA file path';
+    return;
+  }
+
+  my $parameters = $fasta_file;
+  if ($output_file) {
+    $parameters .= ' -o ' . $output_file;
+    $self->data->{'output_fai'} = $output_file;
   }
   else {
-    $error_message = "Execution failed! " . sprintf("(error %d)", $? >> 8);
+    $self->data->{'output_fai'} = $fasta_file . '.fai';
   }
-  $json->{'error'} = $error_message;
+  return $parameters;
 }
 
-# Output result.
-$json->{'output'}->{'fai'} = $output_file;
-my $json_text = to_json($json);
-print $json_text;
+my $program = new Genoring::faidx('faidx');
+$program->run();
+print $program->getResponse();
