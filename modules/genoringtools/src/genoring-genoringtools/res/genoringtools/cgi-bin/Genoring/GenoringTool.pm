@@ -230,10 +230,10 @@ sub getParameters
       # Escape single quotes.
       s/'/'"'"'/g;
       # Re-quote.
-      return "'$_'";
+      "'$_'";
     }
     split(/ +/, $parameters);
-  $parameters =~ join(' ', @parameters);
+  $parameters = join(' ', @parameters);
 
   return $parameters;
 }

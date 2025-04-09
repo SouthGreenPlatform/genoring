@@ -6,6 +6,8 @@ FROM httpd
 # Arguments.
 ARG DEBIAN_FRONTEND=noninteractive
 ARG JBROWSE_VERSION=1.16.11
+ARG GENORING_UID=6305
+ARG GENORING_GID=6305
 
 # Environment.
 ENV JBROWSE=/opt/jbrowse/
@@ -51,6 +53,9 @@ RUN ./bin/cpanm --force JSON Hash::Merge PerlIO::gzip Devel::Size \
 COPY res/jbrowse-httpd.conf /usr/local/apache2/conf/httpd.conf
 COPY res/jbrowse-cgi /opt/jbrowse-cgi
 RUN /usr/bin/chmod uog+x /opt/jbrowse-cgi/*
+
+# Add genoring user and group.
+RUN groupadd -g ${GENORING_GID} genoring && useradd -u ${GENORING_UID} -g genoring -m -s /bin/bash genoring
 
 # Secure environment by using www-data.
 RUN chown -hR www-data:www-data /usr/local/apache2/

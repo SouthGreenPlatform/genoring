@@ -80,12 +80,11 @@ install_cms()
 
   # Prepare file system.
   if [ -e ./web/sites ] && [ -e ./web/modules ] && [ -e ./web/themes ]; then
-    mkdir -p private config
+    mkdir -p config
+    ln -s /data private
     sudo /opt/genoring/genoring_root.sh drupal_permission
     mkdir -p /data/genoring /data/upload
     chmod -R ugo+rw /data/genoring /data/upload
-    ln -s /data/genoring private/genoring
-    ln -s /data/upload private/upload
   else
     printf "  ...ERROR!\n"
     >&2 printf "ERROR: Installation process seems to have failed (expected web directories are missing)!\n"
