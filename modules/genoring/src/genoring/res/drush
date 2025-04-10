@@ -1,9 +1,0 @@
-#!/usr/bin/env sh
-DRUSH_SCRIPT="/opt/drupal/vendor/bin/drush"
-if [ ! -x "$DRUSH_SCRIPT" ]; then
-  printf "ERROR: $DRUSH_SCRIPT script is not executable.\n"
-  exit 1
-fi
-# Add drush-specific PHP settings.
-export PHP_INI_SCAN_DIR=$PHP_INI_SCAN_DIR:/opt/drupal/php/drush
-"$DRUSH_SCRIPT" "$@"

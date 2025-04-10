@@ -132,15 +132,69 @@ COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
 # Cron preparation.
 # @todo Check if cron runs for each site when using multiple sites.
-RUN printf "*/5 * * * * root cd /opt/drupal/web/ && /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/genoring:/opt/drupal/vendor/bin COLUMNS=72 /opt/genoring/drush --uri=\$GENORING_HOST --quiet maint:status && /opt/genoring/drush --uri=\$GENORING_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
+RUN printf "*/5 * * * * root cd /opt/drupal/web/ && export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/genoring:/opt/drupal/vendor/bin && export COLUMNS=72 && /opt/genoring/drush --uri=\$GENORING_HOST --quiet maint:status && /opt/genoring/drush --uri=\$GENORING_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
 
 # Copy Drupal GenoRing framework and setup file structure.
 COPY res /opt/genoring
 
+# Add genoring_root.sh script.
+RUN printf "%s\n" "#!/bin/sh" \
+    "start_cron() {" \
+    "  /usr/sbin/cron" \
+    "}" \
+    "start_sendmail() {" \
+    "  /usr/bin/printf \"\$(hostname -i)\\t\$(hostname) \$(hostname).localhost\\n\" | tee -a /etc/hosts" \
+    "  /usr/sbin/service sendmail start" \
+    "}" \
+    "www_permissions() {" \
+    "  /usr/bin/chown -R www-data:www-data /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files" \
+    "}" \
+    "drupal_permission() {" \
+    "  mkdir -p /data/genoring /data/upload" \
+    "  /usr/bin/chown \$SUDO_UID:\$SUDO_GID /data/genoring /data/upload" \
+    "}" \
+    "if [ \"\$#\" -ne 1 ]; then" \
+    "  echo \"Invalid syntax!\"" \
+    "  exit 1" \
+    "fi" \
+    "case \$1 in" \
+    "  start_cron)" \
+    "    start_cron" \
+    "    ;;" \
+    "  start_sendmail)" \
+    "    start_sendmail" \
+    "    ;;" \
+    "  www_permissions)" \
+    "    www_permissions" \
+    "    ;;" \
+    "  drupal_permission)" \
+    "    drupal_permission" \
+    "    ;;" \
+    "  *)" \
+    "    echo \"Invalid argument: \$1\"" \
+    "    exit 1" \
+    "    ;;" \
+    "esac" >/opt/genoring/genoring_root.sh \
+    && chmod uog+rx,ugo-w /opt/genoring/genoring_root.sh
+
+# Add genoring_sudoers config.
+RUN printf "genoring ALL=(ALL) NOPASSWD: /opt/genoring/genoring_root.sh\n" > /etc/sudoers.d/genoring_sudoers
+
+# Add drush wrapper script.
+RUN printf "%s\n" "#!/usr/bin/env sh" \
+    "DRUSH_SCRIPT=\"/opt/drupal/vendor/bin/drush\"" \
+    "if [ ! -x \"\$DRUSH_SCRIPT\" ]; then" \
+    "  printf \"ERROR: \$DRUSH_SCRIPT script is not executable.\\n\"" \
+    "  exit 1" \
+    "fi" \
+    "# Add drush-specific PHP settings." \
+    "export PHP_INI_SCAN_DIR=\$PHP_INI_SCAN_DIR:/opt/drupal/php/drush" \
+    "\"\$DRUSH_SCRIPT\" \"\$@\"" > /opt/genoring/drush \
+    && chmod uog+rx,ugo-w /opt/genoring/drush
+
 # File system adjustments and add permission to any user for a set of commands.
-RUN mv /opt/genoring/genoring_sudoers /etc/sudoers.d/ \
-    && chmod -R uog+rX,og-w /opt/genoring \
-    && chmod uog+rx,ugo-w /opt/genoring/genoring /opt/genoring/genoring_root.sh \
+RUN chmod -R uog+rX,og-w /opt/genoring \
+    && chmod uog+rx,ugo-w /opt/genoring/genoring \
     && mkdir -p /opt/drupal \
     && chmod ug+rw /opt/drupal \
     && chown genoring:genoring /opt/drupal \
