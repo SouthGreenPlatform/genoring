@@ -21,8 +21,8 @@ ENV DRUPAL_PASSWORD="G3noR!n&Drup@["
 ENV DRUPAL_AUTO_UPDATE=1
 ENV COMPOSER_HOME=/home/genoring/.composer
 ENV HOME=/home/genoring
-ENV PATH=${PATH}:/opt/drupal/vendor/bin:/opt/genoring
-ENV PHP_INI_SCAN_DIR=:/opt/genoring/php
+ENV PATH=${PATH}:/opt/genoring:/opt/drupal/vendor/bin
+ENV PHP_INI_SCAN_DIR=:/opt/drupal/php
 
 # Setup applications, libraries and PHP:
 # - 'sudo' is needed to allow the 'genoring' user running the daemon to run
@@ -131,7 +131,8 @@ RUN printf "sendmail_path=/usr/sbin/sendmail -t -i\n" >> /usr/local/etc/php/conf
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
 # Cron preparation.
-RUN touch /etc/cron.d/drush-cron && chmod uog+w /etc/cron.d/drush-cron
+# @todo Check if cron runs for each site when using multiple sites.
+RUN printf "*/5 * * * * root cd /opt/drupal/web/ && /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/genoring:/opt/drupal/vendor/bin COLUMNS=72 /opt/genoring/drush --uri=\$GENORING_HOST --quiet maint:status && /opt/genoring/drush --uri=\$GENORING_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
 
 # Copy Drupal GenoRing framework and setup file structure.
 COPY res /opt/genoring
@@ -139,7 +140,7 @@ COPY res /opt/genoring
 # File system adjustments and add permission to any user for a set of commands.
 RUN mv /opt/genoring/genoring_sudoers /etc/sudoers.d/ \
     && chmod -R uog+rX,og-w /opt/genoring \
-    && chmod uog+x,ugo-w /opt/genoring/genoring /opt/genoring/genoring_root.sh \
+    && chmod uog+rx,ugo-w /opt/genoring/genoring /opt/genoring/genoring_root.sh \
     && mkdir -p /opt/drupal \
     && chmod ug+rw /opt/drupal \
     && chown genoring:genoring /opt/drupal \

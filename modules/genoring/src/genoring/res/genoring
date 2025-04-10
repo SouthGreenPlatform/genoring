@@ -92,11 +92,6 @@ install_cms()
   fi
   printf "  ...OK (core downloaded).\n"
 
-  # Setup cron.
-  # @todo check if cron runs for each site when using multiple sites.
-  printf "* Setup Drupal cron...\n"
-  printf "*/5 * * * * root cd /opt/drupal/web/ && /usr/bin/env PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin COLUMNS=72 /usr/local/bin/php ../vendor/bin/drush --uri=$GENORING_HOST --quiet maint:status && /usr/local/bin/php ../vendor/bin/drush --uri=$GENORING_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
-  printf "  ...OK (cron).\n"
   printf "...OK (Drupal downloaded).\n"
 
   # Add missing version info for dev modules.
@@ -112,8 +107,9 @@ setup_php()
 {
   if [ ! -e ./php/php.ini ]; then
     printf "Setup PHP config...\n"
-    mkdir -p ./php
+    mkdir -p ./php/drush
     cp "$PHP_INI_DIR/php.ini-drupal" ./php/php.ini
+    printf "memory_limit=2048M\nmax_execution_time=900\n" > ./php/drush/drush.ini
     printf "...OK.\n"
   fi
 }
@@ -207,7 +203,7 @@ update_cms()
     drush state:set system.maintenance_mode 1 --input-format=integer
     # Backup DB.
     printf "* Backup Drupal...\n"
-    drush -y archive:dump --destination=/backups/preupdate_backup.tgz --overwrite
+    drush -y archive:dump --destination=/backups/preupdate_backup.tar.gz --overwrite
     if [ $? -ne 0 ]; then
       printf "  ...FAILED to backup, aborting update.\n"
       printf "...ERROR!\n"
@@ -221,7 +217,7 @@ update_cms()
       # Restore DB backup.
       printf "...ERROR!\n"
       >&2 printf "ERROR: Drupal update failed! Restoring backup...\n"
-      drush -y archive:restore /backups/preupdate_backup.tgz
+      drush -y archive:restore /backups/preupdate_backup.tar.gz
       rm -rf ./vendor
       composer install
       printf "...OK (restoring).\n"

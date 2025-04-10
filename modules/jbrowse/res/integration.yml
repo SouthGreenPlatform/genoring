@@ -1,5 +1,5 @@
 name: 'JBrowse'
-uri: 'http://genoring-proxy/jbrowse-default'
+uri: 'http://genoring-proxy/app/jbrowse'
 path: '/jbrowse'
 height: '500px'
 passthrough: []
