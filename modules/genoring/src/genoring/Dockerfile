@@ -132,7 +132,7 @@ COPY --from=composer:2 /usr/bin/composer /usr/local/bin/
 
 # Cron preparation.
 # @todo Check if cron runs for each site when using multiple sites.
-RUN printf "*/5 * * * * root cd /opt/drupal/web/ && export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/genoring:/opt/drupal/vendor/bin && export COLUMNS=72 && /opt/genoring/drush --uri=\$GENORING_HOST --quiet maint:status && /opt/genoring/drush --uri=\$GENORING_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
+RUN printf "11 */2 * * * root cd /opt/drupal/web/ && export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/genoring:/opt/drupal/vendor/bin && export COLUMNS=72 && /opt/genoring/drush --uri=\$GENORING_HOST --quiet maint:status && /opt/genoring/drush --uri=\$GENORING_HOST --quiet cron >> /var/log/cron.log 2>&1\n" > /etc/cron.d/drush-cron
 
 # Copy Drupal GenoRing framework and setup file structure.
 COPY res /opt/genoring
