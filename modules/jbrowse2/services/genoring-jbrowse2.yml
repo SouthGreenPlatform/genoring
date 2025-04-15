@@ -1,8 +1,0 @@
-image: genoring-jbrowse2
-env_file:
-  - ${PWD}/env/jbrowse2_jbrowse2.env
-ports:
-  - 8124:8080
-restart: unless-stopped
-volumes:
-  - genoring-data-volume:/data
