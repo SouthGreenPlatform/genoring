@@ -1481,6 +1481,8 @@ sub GenerateDockerComposeFile {
                 );
             my @higher_services = sort keys(%higher_services);
             my $ds_fh;
+            # Create "dependencies" directory if missing.
+            mkdir('dependencies') unless (-d 'dependencies');
             if (open($ds_fh, '>:utf8', "dependencies/$service.$dep_profile.yml")) {
               print {$ds_fh} "services:\n  $service:\n";
               if (@higher_services) {
