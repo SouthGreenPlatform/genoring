@@ -57,8 +57,7 @@ install_cms()
   printf "* Initializing Drupal directory...\n"
   if [ ! -e ./composer.json ]; then
     # Prepare Drupal download settings.
-    # composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev
-    composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.0-alpha3
+    composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev
     if [ $? -gt 0 ]; then
       >&2 printf "WARNING: Failed to setup composer!\n"
     fi
