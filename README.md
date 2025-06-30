@@ -440,6 +440,14 @@ A. Yes, through a Drupal extension as long as such an extension exists for your
   These errors, as long as they occure before Drupal installation is completed,
   can be ignored as they are due to the way Drupal checks if tables exist.
 
+* When trying to start, it says:
+  "ERROR: Current user not allowed to manage containers with 'docker' command!"
+  It means the docker command is available at the correct version but current
+  user running GenoRing is not allowed to manage docker containers.
+  You may consider eiter using a different user to run GenoRing or add current
+  user to the "docker" group: "sudo usermod -aG docker $USER" (and restart a
+  new session).
+
 * "The provided host name is not valid for this server." error message means you
   did not setup the environment variable "DRUPAL_TRUSTED_HOST" in
   "env/genoring.env" when installing.

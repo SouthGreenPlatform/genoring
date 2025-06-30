@@ -406,10 +406,12 @@ if ($g_flags->{'no-backups'}) {
 
 # Check Docker requirements.
 if (!$g_flags->{'bypass'}) {
+  # Docker command availability.
   my $output = qx($Genoring::DOCKER_COMMAND 2>&1);
   if ($?) {
     die "ERROR: '$Genoring::DOCKER_COMMAND' command not available!\n$output\n";
   }
+  # Docker version.
   my $docker_compose_version = qx($Genoring::DOCKER_COMPOSE_COMMAND version 2>&1);
   if ($?) {
     die "ERROR: '$Genoring::DOCKER_COMMAND compose' command not available!\n";
@@ -417,6 +419,11 @@ if (!$g_flags->{'bypass'}) {
   elsif ($docker_compose_version !~ m/\sv?(?:[2-9]|\d{2,})\./) {
     $docker_compose_version =~ m/\sv?([\d\.]+)/;
     die "ERROR: '$Genoring::DOCKER_COMMAND compose' does not meet minimal version requirement (" . ($1 || 'unknown version') . " < v2)!\n";
+  }
+  # Docker command permission.
+  $output = qx($Genoring::DOCKER_COMMAND ps 2>&1);
+  if ($?) {
+    die "ERROR: Current user not allowed to manage containers with '$Genoring::DOCKER_COMMAND' command!\n$output\n";
   }
 }
 
@@ -732,7 +739,7 @@ Valentin GUIGNON (Bioversity), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 13/02/2025
+Date 30/06/2025
 
 =head1 SEE ALSO
 
