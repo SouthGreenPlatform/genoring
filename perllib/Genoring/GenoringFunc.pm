@@ -5294,15 +5294,15 @@ sub CheckFreeSpace
 {
   my $df_output = '';
   if ('Unix' eq GetOs()) {
-    $df_output = qx(df . -BM 2>/dev/null);
+    $df_output = qx(df --output=avail,pcent -BM .>/dev/null);
   }
   if (($? == 0)
-      && ($df_output =~ m/(\d+)M\s+(\d+)M\s+(\d+)M\s+(\d+)%\s+/)
+      && ($df_output =~ m/(\d+)M\s+(\d+)%/)
   ) {
-    my ($total, $used, $available, $percent_used) = ($1, $2, $3, $4);
+    my ($available, $percent_used) = ($1, $2);
     # Less than 100M.
     if ((($available < 100) || ($percent_used < 2))
-      && (!Confirm('The disk space is very low! GenoRing may not work properly. Do you want to continue anyway?'))
+      && (!Confirm('The disk space is very low (~' . $available . 'Mb)! GenoRing may not work properly. Do you want to continue anyway?'))
     ) {
       die "Execution aborted!\n";
     }

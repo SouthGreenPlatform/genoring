@@ -7,6 +7,7 @@ env_file:
   - ${PWD}/env/genoring_db.env
   - ${PWD}/env/genoring_nginx.env
 volumes:
+  - /home/vguignon/dev/git:/opt/drupal/git
   - genoring-drupal-volume:/opt/drupal
   - genoring-data-volume:/data
   - genoring-backups-volume:/backups
