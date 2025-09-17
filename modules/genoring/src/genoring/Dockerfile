@@ -87,8 +87,30 @@ RUN set -eux \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-# Add genoring user and group.
-RUN groupadd -g ${GENORING_GID} genoring && useradd -u ${GENORING_UID} -g genoring -m -s /bin/bash genoring
+# Add genoring user and group. Makes sure GENORING_GID and GENORING_UID are not
+# already in use in the container, and if so, changes existing GID and UID.
+RUN if getent group "${GENORING_GID}" >/dev/null; then \
+    EXISTING_GROUP=$(getent group "${GENORING_GID}" | cut -d: -f1) && \
+    NEW_GID=$((GENORING_GID + 1000)) && \
+    while getent group "${NEW_GID}" >/dev/null; do \
+      NEW_GID=$((NEW_GID + 1)); \
+    done && \
+    groupmod -g "${NEW_GID}" "${EXISTING_GROUP}" && \
+    find / -gid "${GENORING_GID}" -exec chgrp -h "${EXISTING_GROUP}" {} \; || true; \
+  fi && \
+  groupadd -g "${GENORING_GID}" genoring
+
+RUN if id "${GENORING_UID}" >/dev/null 2>/dev/null; then \
+    EXISTING_USER=$(id "${GENORING_UID}" | cut -d'(' -f2 | cut -d')' -f1) && \
+    NEW_UID=$((GENORING_UID + 1000)) && \
+    while id "${NEW_UID}" >/dev/null 2>/dev/null; do \
+      NEW_UID=$((NEW_UID + 1)); \
+    done && \
+    usermod -u "${NEW_UID}" "${EXISTING_USER}" && \
+    find / -uid "${GENORING_UID}" -exec chown -h "${EXISTING_USER}" {} \; || true; \
+  fi && \
+  useradd -u "${GENORING_UID}" -g genoring -m -s /bin/bash genoring
+
 
 # Allow apps to know they run into a Docker container.
 RUN touch /.dockerenv
