@@ -5294,18 +5294,25 @@ sub CheckFreeSpace
 {
   my $df_output = '';
   if ('Unix' eq GetOs()) {
-    $df_output = qx(df --output=avail,pcent -BM .>/dev/null);
+    $df_output = qx(df --output=avail,pcent -BM . 2>/dev/null);
+  }
+  if ($? != 0) {
+    # Mac fallback.
+    $df_output = qx(df -m 2>/dev/null | awk 'NR==1; NR>1 {print \$4, \$5}');
   }
   if (($? == 0)
-      && ($df_output =~ m/(\d+)M\s+(\d+)%/)
+      && ($df_output =~ m/(\d+)(?:Mb?)?\s+(\d+)%/)
   ) {
     my ($available, $percent_used) = ($1, $2);
-    # Less than 100M.
-    if ((($available < 100) || ($percent_used < 2))
+    # Less than 100M or more than 99% used.
+    if ((($available < 100) || ($percent_used >= 99))
       && (!Confirm('The disk space is very low (~' . $available . 'Mb)! GenoRing may not work properly. Do you want to continue anyway?'))
     ) {
       die "Execution aborted!\n";
     }
+  }
+  else {
+    warn "Warning: Unable to check free disk space.\n";
   }
 }
 
