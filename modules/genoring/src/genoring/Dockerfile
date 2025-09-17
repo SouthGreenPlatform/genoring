@@ -7,6 +7,7 @@ LABEL net.genoring.image.authors="v.guignon@cgiar.org"
 # Arguments.
 ARG GENORING_UID=6305
 ARG GENORING_GID=6305
+ARG FALLBACK_ID=6305
 
 # Environment.
 ENV POSTGRES_HOST=db
@@ -89,28 +90,50 @@ RUN set -eux \
 
 # Add genoring user and group. Makes sure GENORING_GID and GENORING_UID are not
 # already in use in the container, and if so, changes existing GID and UID.
-RUN if getent group "${GENORING_GID}" >/dev/null; then \
-    EXISTING_GROUP=$(getent group "${GENORING_GID}" | cut -d: -f1) && \
-    NEW_GID=$((GENORING_GID + 1000)) && \
-    while getent group "${NEW_GID}" >/dev/null; do \
-      NEW_GID=$((NEW_GID + 1)); \
-    done && \
-    groupmod -g "${NEW_GID}" "${EXISTING_GROUP}" && \
-    find / -gid "${GENORING_GID}" -exec chgrp -h "${EXISTING_GROUP}" {} \; || true; \
-  fi && \
-  groupadd -g "${GENORING_GID}" genoring
+# Définir le fallback UID/GID (6305)
+RUN if [ "${GENORING_GID}" = "0" ]; then \
+        echo "GID 0 (root) detected, using fallback GID ${FALLBACK_ID} for genoring" && \
+        GENORING_GID=${FALLBACK_ID}; \
+    fi && \
+    if getent group "${GENORING_GID}" >/dev/null; then \
+        EXISTING_GROUP=$(getent group "${GENORING_GID}" | cut -d: -f1) && \
+        if [ "${EXISTING_GROUP}" = "root" ]; then \
+            echo "Conflict with root group, using fallback GID ${FALLBACK_ID}" && \
+            GENORING_GID=${FALLBACK_ID}; \
+        else \
+            NEW_GID=$((GENORING_GID + 1000)) && \
+            while getent group "${NEW_GID}" >/dev/null; do \
+                NEW_GID=$((NEW_GID + 1)); \
+            done && \
+            groupmod -g "${NEW_GID}" "${EXISTING_GROUP}" && \
+            find / -gid "${GENORING_GID}" -exec chgrp -h "${EXISTING_GROUP}" {} \; || true; \
+        fi; \
+    fi && \
+    groupadd -g "${GENORING_GID}" genoring
 
-RUN if id "${GENORING_UID}" >/dev/null 2>/dev/null; then \
-    EXISTING_USER=$(id "${GENORING_UID}" | cut -d'(' -f2 | cut -d')' -f1) && \
-    NEW_UID=$((GENORING_UID + 1000)) && \
-    while id "${NEW_UID}" >/dev/null 2>/dev/null; do \
-      NEW_UID=$((NEW_UID + 1)); \
-    done && \
-    usermod -u "${NEW_UID}" "${EXISTING_USER}" && \
-    find / -uid "${GENORING_UID}" -exec chown -h "${EXISTING_USER}" {} \; || true; \
-  fi && \
-  useradd -u "${GENORING_UID}" -g genoring -m -s /bin/bash genoring
-
+RUN if [ "${GENORING_UID}" = "0" ]; then \
+        echo "UID 0 (root) detected, using fallback UID ${FALLBACK_ID} for genoring" && \
+        GENORING_UID=${FALLBACK_ID}; \
+    fi && \
+    if id "${GENORING_UID}" >/dev/null 2>/dev/null; then \
+        EXISTING_USER=$(id "${GENORING_UID}" | cut -d'(' -f2 | cut -d')' -f1) && \
+        if [ "${EXISTING_USER}" = "root" ]; then \
+            echo "Conflict with root user, using fallback UID ${FALLBACK_ID}" && \
+            GENORING_UID=${FALLBACK_ID}; \
+        else \
+            NEW_UID=$((GENORING_UID + 1000)) && \
+            while id "${NEW_UID}" >/dev/null 2>/dev/null; do \
+                NEW_UID=$((NEW_UID + 1)); \
+            done && \
+            usermod -u "${NEW_UID}" "${EXISTING_USER}" && \
+            find / -uid "${GENORING_UID}" -exec chown -h "${EXISTING_USER}" {} \; || true; \
+        fi; \
+    fi && \
+    if ! id genoring >/dev/null 2>/dev/null; then \
+        useradd -u "${GENORING_UID}" -g genoring -m -s /bin/bash genoring; \
+    else \
+        usermod -u "${GENORING_UID}" -g genoring genoring; \
+    fi
 
 # Allow apps to know they run into a Docker container.
 RUN touch /.dockerenv
