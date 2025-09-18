@@ -109,9 +109,9 @@ B<$MODULES_DIR>: (string)
 
 Name of the modules directory.
 
-B<$MODULE_FILE>: (string)
+B<$CONFIG_FILE>: (string)
 
-Name of the module config file.
+Name of the config file.
 
 B<$MODULE_NAME_REGEX>: (string)
 
@@ -161,7 +161,7 @@ our $GENORING_DEFAULT_PORT = 8080;
 our $GENORING_DIR = $ENV{'GENORING_DIR'} || $FindBin::Bin;
 our $GENORING_VERSION = '1.0';
 our $IS_MOD_PERL = exists($ENV{'MOD_PERL'});
-our $MODULE_FILE = 'modules.yml';
+our $CONFIG_FILE = 'config.yml';
 our $MODULE_NAME_REGEX = '[a-z][a-z0-9_]*';
 our %OS = (
   ''        => 'Unix',
@@ -198,7 +198,7 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 Version 1.0.0
 
-Date 13/02/25
+Date 18/09/2025
 
 =head1 SEE ALSO
 

@@ -1,5 +1,5 @@
 /docker-compose.yml
-/modules.yml
+/config.yml
 /extra_hosts.yml
 /env
 /agreed.txt

@@ -319,7 +319,10 @@ Enables debug mode.
 
 =cut
 
-print "GenoRing script v$Genoring::GENORING_VERSION (instance: " . GetProjectName() . ")\n";
+# Get configuration.
+my $config = GetConfig();
+
+print "GenoRing script v$Genoring::GENORING_VERSION (project instance: " . GetProjectName() . ")\n";
 
 # Test license agreement.
 if (!-e "$Genoring::GENORING_DIR/agreed.txt") {
@@ -475,17 +478,20 @@ elsif ($g_flags->{'platform'} && ('1' ne $g_flags->{'platform'})) {
 #   $ENV{'DOCKER_DEFAULT_PLATFORM'} = $g_flags->{'platform'};
 # }
 
+# Check for exposed file system.
+if ($config->{'no-exposed-volumes'}) {
+  $g_flags->{'no-exposed-volumes'} = $config->{'no-exposed-volumes'};
+}
 # For Windows FS, we can't use exposed shared FS as it crashes so we force set
 # the appropriate flag.
-if (('Win32' eq GetOs()) && (!defined($g_flags->{'no-exposed-volumes'}))) {
+if (('Win32' eq GetOs()) && (!$g_flags->{'no-exposed-volumes'})) {
   print "NOTE: Exposed named (shared) volumes are disabled in Windows system to avoid issues.\n";
   $g_flags->{'no-exposed-volumes'} = 1;
 }
-
-if ($g_flags->{'no-exposed-volumes'}) {
-  # Set environment variable for other scripts.
-  $ENV{'GENORING_NO_EXPOSED_VOLUMES'} = '1';
-}
+# Synchronize variables.
+$g_flags->{'no-exposed-volumes'} =
+$ENV{'GENORING_NO_EXPOSED_VOLUMES'} =
+  ($g_flags->{'no-exposed-volumes'} || $ENV{'GENORING_NO_EXPOSED_VOLUMES'});
 
 # Make sure there is enough disk space.
 CheckFreeSpace();
@@ -739,7 +745,7 @@ Valentin GUIGNON (Bioversity), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 30/06/2025
+Date 18/09/2025
 
 =head1 SEE ALSO
 

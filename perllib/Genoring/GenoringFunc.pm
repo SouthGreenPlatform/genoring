@@ -61,9 +61,13 @@ B<$g_flags>: (hash ref)
 
 Contains flags set on command line with their values if set or "1" otherwise.
 
-B<$g_instance>: (string)
+B<$g_project>: (string)
 
-Contains the global instance name.
+Contains the global project (instance) name.
+
+B<$_g_config>: (hash ref)
+
+Cache variable for global config. Should not be used directly.
 
 B<$_g_modules>: (hash ref)
 
@@ -86,7 +90,8 @@ Cache variable used to store modules' info. Should not be used directly.
 our $g_debug = $Genoring::DEBUG;
 our $g_exec_prefix = '';
 our $g_flags = {};
-our $g_instance = 'genoring';
+our $g_project;
+our $_g_config = undef;
 our $_g_modules = {};
 our $_g_services = {};
 our $_g_volumes = {};
@@ -823,11 +828,11 @@ sub Reinitialize {
   foreach my $module (@$modules) {
     ApplyLocalHooks('uninstall', $module);
   }
-  unlink $Genoring::MODULE_FILE;
   print "  ...OK.\n";
 
   # Clear config.
   print "- Clearing config...\n";
+  unlink $Genoring::CONFIG_FILE;
   unlink $Genoring::DOCKER_COMPOSE_FILE;
   unlink $Genoring::EXTRA_HOSTS;
   RemoveDependencyFiles();
@@ -2070,7 +2075,7 @@ sub InstallModule {
 
   if ($context->{'failed'}) {
     eval {
-      # Remove module from modules.yml if installation failed.
+      # Remove module from config.yml if installation failed.
       RemoveModuleConf($module);
     };
     warn "WARNING: $@\n" if $@;
@@ -2791,10 +2796,10 @@ sub Backup {
     ) {
       warn "WARNING: Failed to backup $Genoring::DOCKER_COMPOSE_FILE.\n$!";
     }
-    if (-e $Genoring::MODULE_FILE
-      && !copy($Genoring::MODULE_FILE, "$backupdir/config/$Genoring::MODULE_FILE")
+    if (-e $Genoring::CONFIG_FILE
+      && !copy($Genoring::CONFIG_FILE, "$backupdir/config/$Genoring::CONFIG_FILE")
     ) {
-      warn "WARNING: Failed to backup $Genoring::MODULE_FILE.\n$!";
+      warn "WARNING: Failed to backup $Genoring::CONFIG_FILE.\n$!";
     }
     if (-e $Genoring::EXTRA_HOSTS
       && !copy($Genoring::EXTRA_HOSTS, "$backupdir/config/$Genoring::EXTRA_HOSTS")
@@ -2902,10 +2907,10 @@ sub Restore {
     ) {
       warn "WARNING: Failed to restore $Genoring::DOCKER_COMPOSE_FILE.\n$!";
     }
-    if (-e "$backupdir/config/$Genoring::MODULE_FILE"
-      && !copy("$backupdir/config/$Genoring::MODULE_FILE", $Genoring::MODULE_FILE)
+    if (-e "$backupdir/config/$Genoring::CONFIG_FILE"
+      && !copy("$backupdir/config/$Genoring::CONFIG_FILE", $Genoring::CONFIG_FILE)
     ) {
-      warn "WARNING: Failed to restore $Genoring::MODULE_FILE.\n$!";
+      warn "WARNING: Failed to restore $Genoring::CONFIG_FILE.\n$!";
     }
     if (-e "$backupdir/config/$Genoring::EXTRA_HOSTS"
       && !copy("$backupdir/config/$Genoring::EXTRA_HOSTS", $Genoring::EXTRA_HOSTS)
@@ -3550,6 +3555,78 @@ sub DeleteAllContainers {
 
 =pod
 
+=head2 GetConfig
+
+B<Description>: Returns GenoRing config.
+
+B<ArgsCount>: 0
+
+B<Return>: (hash ref)
+
+The GenoRing config.
+
+=cut
+
+sub GetConfig {
+  if (!$_g_config) {
+    # Load config.
+    my $config_fh;
+    if (open($config_fh, '<:utf8', $Genoring::CONFIG_FILE)) {
+      my $yaml_text = do { local $/; <$config_fh> };
+      close($config_fh);
+      my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
+        or die
+          "ERROR: failed to read config file '$Genoring::CONFIG_FILE':\n"
+          . CPAN::Meta::YAML->errstr;
+      $_g_config = $yaml->[0];
+    }
+    else {
+      if (-e $Genoring::CONFIG_FILE) {
+        warn "WARNING: failed to open config file '$Genoring::CONFIG_FILE':\n$!\n";
+      }
+      $_g_config = {};
+    }
+  }
+  return $_g_config;
+}
+
+
+=pod
+
+=head2 SaveConfig
+
+B<Description>: Saves GenoRing config.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub SaveConfig {
+  my $config = {
+    'project' => GetProjectName(),
+    'version' => $Genoring::GENORING_VERSION,
+    'no-exposed-volumes' => $g_flags->{'no-exposed-volumes'},
+    'modules' => $_g_modules->{'config'},
+  };
+  my $yaml = CPAN::Meta::YAML->new($config);
+  my $yaml_text = $yaml->write_string()
+    or die "ERROR: failed to generate config!\n"
+    . CPAN::Meta::YAML->errstr;
+  my $config_fh;
+  if (open($config_fh, '>:utf8', $Genoring::CONFIG_FILE)) {
+    print {$config_fh} $yaml_text;
+    close($config_fh);
+  }
+  else {
+    die "ERROR: failed to write config file '$Genoring::CONFIG_FILE':\n$!\n";
+  }
+}
+
+
+=pod
+
 =head2 GetModulesConfig
 
 B<Description>: Returns GenoRing module config.
@@ -3566,19 +3643,8 @@ sub GetModulesConfig {
   my $module_fh;
   # Get module config.
   if (!$_g_modules->{'config'}) {
-    if (open($module_fh, '<:utf8', $Genoring::MODULE_FILE)) {
-      my $yaml_text = do { local $/; <$module_fh> };
-      close($module_fh);
-      my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
-        or die
-          "ERROR: failed to read module file '$Genoring::MODULE_FILE':\n"
-          . CPAN::Meta::YAML->errstr;
-      $_g_modules->{'config'} = $yaml->[0];
-    }
-    else {
-      # warn "WARNING: failed to open module file '$Genoring::MODULE_FILE':\n$!\n";
-      $_g_modules->{'config'} = {};
-    }
+    my $config = GetConfig() // {};
+    $_g_modules->{'config'} = $config->{'modules'} // {};
   }
   return $_g_modules->{'config'};
 }
@@ -4386,25 +4452,36 @@ The project name.
 =cut
 
 sub GetProjectName {
-  my $project_name = 'genoring';
-  my $dc_fh;
-  if (open($dc_fh, '<:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
-    # Get project name from docker compose file if available.
-    while (my $line = <$dc_fh>) {
-      if ($line =~ /#\s*COMPOSE_PROJECT_NAME=(\S+)/) {
-        $project_name = $1;
-        last;
+  if (!$g_project) {
+    # Initialize with default project name.
+    $g_project = 'genoring';
+
+    # Try to get project name from config first,
+    my $config = GetConfig();
+    if (exists($config->{'project'}) && $config->{'project'}) {
+      $g_project = $config->{'project'};
+    }
+    else {
+      # If not in config, try from docker compose file.
+      my $dc_fh;
+      if (open($dc_fh, '<:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
+        # Get project name from docker compose file if available.
+        while (my $line = <$dc_fh>) {
+          if ($line =~ /#\s*COMPOSE_PROJECT_NAME=(\S+)/) {
+            $g_project = $1;
+            last;
+          }
+        }
+      }
+      elsif (exists($ENV{'COMPOSE_PROJECT_NAME'})
+          && ($ENV{'COMPOSE_PROJECT_NAME'} =~ m/\w/)
+      ) {
+        # Otherwise, try to get it form environment variable.
+        $g_project = $ENV{'COMPOSE_PROJECT_NAME'};
       }
     }
   }
-  elsif (exists($ENV{'COMPOSE_PROJECT_NAME'})
-      && ($ENV{'COMPOSE_PROJECT_NAME'} =~ m/\w/)
-  ) {
-    # Otherwise, try to get it form environment variable.
-    $project_name = $ENV{'COMPOSE_PROJECT_NAME'};
-  }
-
-  return $project_name;
+  return $g_project;
 }
 
 
@@ -4499,18 +4576,8 @@ sub SetModuleConf {
     'version' => $module_info->{'version'} || '',
   };
   $_g_modules->{'config'}->{$module} = $module_conf;
-  my $yaml = CPAN::Meta::YAML->new($_g_modules->{'config'});
-  my $yaml_text = $yaml->write_string()
-    or die "ERROR: failed to generate module config!\n"
-    . CPAN::Meta::YAML->errstr;
-  my $module_fh;
-  if (open($module_fh, '>:utf8', $Genoring::MODULE_FILE)) {
-    print {$module_fh} $yaml_text;
-    close($module_fh);
-  }
-  else {
-    die "ERROR: failed to write module file '$Genoring::MODULE_FILE':\n$!\n";
-  }
+  SaveConfig();
+
   # Clear cache.
   delete($_g_modules->{'disabled'});
   delete($_g_modules->{'enabled'});
@@ -4550,12 +4617,12 @@ sub RemoveModuleConf {
       or die "ERROR: failed to generate module config!\n"
       . CPAN::Meta::YAML->errstr;
     my $module_fh;
-    if (open($module_fh, '>:utf8', $Genoring::MODULE_FILE)) {
+    if (open($module_fh, '>:utf8', $Genoring::CONFIG_FILE)) {
       print {$module_fh} $yaml_text;
       close($module_fh);
     }
     else {
-      die "ERROR: failed to write module file '$Genoring::MODULE_FILE':\n$!\n";
+      die "ERROR: failed to write config file '$Genoring::CONFIG_FILE':\n$!\n";
     }
   }
 }
@@ -5329,7 +5396,7 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 Version 1.0.0
 
-Date 13/02/25
+Date 18/09/2025
 
 =head1 SEE ALSO
 

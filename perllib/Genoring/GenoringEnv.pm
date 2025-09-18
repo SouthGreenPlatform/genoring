@@ -138,7 +138,7 @@ else {
   $Genoring::VOLUMES_DIR = $ENV{'GENORING_VOLUMES_DIR'};
 }
 
-$ENV{'GENORING_NO_EXPOSED_VOLUMES'} = '';
+$ENV{'GENORING_NO_EXPOSED_VOLUMES'} ||= '';
 
 $ENV{'GENORING_UID'} ||= $>;
 $ENV{'GENORING_GID'} ||= $) + 0;
@@ -156,7 +156,7 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 Version 1.0.0
 
-Date 13/02/25
+Date 18/09/2025
 
 =head1 SEE ALSO
 

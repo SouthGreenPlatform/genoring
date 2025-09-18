@@ -14,22 +14,24 @@ Perl5
 
 =head1 EXPORTS
 
-$g_debug $g_exec_prefix $g_flags $g_instance
-ApplyContainerHooks ApplyLocalHooks Backup CleanupOperations ClearCache
-Compile CompileMissingContainers Confirm CopyDirectory CopyModuleFiles
-CopyVolumeFiles CreateVolumeDirectory DeleteAllContainers DirCopy
-DisableAlternative DisableModule EnableAlternative EnableModule
-EndOperations GenerateDockerComposeFile GetContainerName GetEnvVariable
-GetLogs GetModuleAlternatives GetModuleConf GetModuleInfo GetModuleRealState
-GetModuleServices GetModuleVolumes GetModules GetModulesConfig GetProfile
-GetProjectName GetServices GetState GetStatus GetVolumeName GetVolumes GetOs
-HandleShellExecutionError InstallModule IsContainerRunning ListAlternatives
+$g_debug $g_exec_prefix $g_flags $g_project
+ApplyContainerHooks ApplyLocalHooks Backup CheckFreeSpace CheckGenoringUser
+CleanupOperations ClearCache Compile CompileMissingContainers Confirm
+CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
+CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
+DisableModule EnableAlternative EnableModule EndOperations
+GenerateDockerComposeFile GetConfig GetContainerName GetEnvironmentFiles
+GetEnvVariable GetLogs GetModuleAlternatives GetModuleConf GetModuleInfo
+GetModuleRealState GetModules GetModulesConfig GetModuleServices
+GetModuleVolumes GetOs GetProfile GetProjectName GetServices GetState
+GetStatus GetVolumeName GetVolumes HandleShellExecutionError
+InitGenoringUser InstallModule IsContainerRunning ListAlternatives
 ParseDependencies PerformContainerOperations PerformLocalOperations
-PrepareOperations Reinitialize RemoveEnvFiles RemoveVolumeFiles
-RemoveModuleConf Restore Run SetEnvVariable SetModuleConf SetupGenoring
+PrepareOperations Reinitialize RemoveDependencyFiles RemoveEnvFiles
+RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles Restore Run
+SaveConfig SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
 ToLocalService UninstallModule Update Upgrade WaitModulesReady
-CheckGenoringUser InitGenoringUser CheckFreeSpace GetEnvironmentFiles
 
 =head1 DESCRIPTION
 
@@ -50,22 +52,24 @@ use Genoring::GenoringFunc;
 use base qw(Exporter);
 our @EXPORT =
   qw(
-    $g_debug $g_exec_prefix $g_flags $g_instance
-    ApplyContainerHooks ApplyLocalHooks Backup CleanupOperations ClearCache
-    Compile CompileMissingContainers Confirm CopyDirectory CopyModuleFiles
-    CopyVolumeFiles CreateVolumeDirectory DeleteAllContainers DirCopy
-    DisableAlternative DisableModule EnableAlternative EnableModule
-    EndOperations GenerateDockerComposeFile GetContainerName GetEnvVariable
-    GetLogs GetModuleAlternatives GetModuleConf GetModuleInfo GetModuleRealState
-    GetModuleServices GetModuleVolumes GetModules GetModulesConfig GetProfile
-    GetProjectName GetServices GetState GetStatus GetVolumeName GetVolumes GetOs
-    HandleShellExecutionError InstallModule IsContainerRunning ListAlternatives
+    $g_debug $g_exec_prefix $g_flags $g_project
+    ApplyContainerHooks ApplyLocalHooks Backup CheckFreeSpace CheckGenoringUser
+    CleanupOperations ClearCache Compile CompileMissingContainers Confirm
+    CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
+    CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
+    DisableModule EnableAlternative EnableModule EndOperations
+    GenerateDockerComposeFile GetConfig GetContainerName GetEnvironmentFiles
+    GetEnvVariable GetLogs GetModuleAlternatives GetModuleConf GetModuleInfo
+    GetModuleRealState GetModules GetModulesConfig GetModuleServices
+    GetModuleVolumes GetOs GetProfile GetProjectName GetServices GetState
+    GetStatus GetVolumeName GetVolumes HandleShellExecutionError
+    InitGenoringUser InstallModule IsContainerRunning ListAlternatives
     ParseDependencies PerformContainerOperations PerformLocalOperations
-    PrepareOperations Reinitialize RemoveEnvFiles RemoveVolumeFiles
-    RemoveModuleConf Restore Run SetEnvVariable SetModuleConf SetupGenoring
+    PrepareOperations Reinitialize RemoveDependencyFiles RemoveEnvFiles
+    RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles Restore Run
+    SaveConfig SetEnvVariable SetModuleConf SetupGenoring
     SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
     ToLocalService UninstallModule Update Upgrade WaitModulesReady
-    CheckGenoringUser InitGenoringUser CheckFreeSpace GetEnvironmentFiles
   );
 
 
@@ -85,7 +89,7 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 Version 1.0.0
 
-Date 11/02/25
+Date 18/09/2025
 
 =head1 SEE ALSO
 
