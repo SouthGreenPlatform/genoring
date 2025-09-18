@@ -370,7 +370,7 @@ It is possible to later switch back to container service using:
 
 Report issues or support request on GenoRing Git issue queue at:
 
-https://gitlab.cirad.fr/agap/genoring/-/issues
+[https://github.com/SouthGreenPlatform/genoring/issues](https://github.com/SouthGreenPlatform/genoring/issues)
 
 ### F.A.Q.
 
