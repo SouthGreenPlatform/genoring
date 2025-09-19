@@ -706,10 +706,45 @@ elsif ($command =~ m/^shell$/i) {
       $env_data = ' --env-file ' . $env_data;
     }
     $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
+    # Add volumes if docker compose file is available (volumes created).
+    my $volumes_parameter = '';
+    if (-r $Genoring::DOCKER_COMPOSE_FILE) {
+      my $fh;
+      if (open($fh, '<:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
+        my $compose_data = CPAN::Meta::YAML->read_string(do { local $/; <$fh> });
+        close($fh);
+        if (exists($compose_data->[0]->{services}{$service})) {
+          # Extract volumes section (default to empty array if not present).
+          my $volumes = $compose_data->[0]->{services}{$service}{volumes} || [];
+          foreach my $volume (@$volumes) {
+            # Case 1: Short format "source:target" or "named_volume:target".
+            if (ref($volume) eq 'SCALAR') {
+              # Split on first colon to handle paths with colons (e.g., Windows paths).
+              my ($source, $target) = split(/:/, $volume, 2);
+              if (defined $target) {
+                $volumes_parameter .= " -v $source:$target";
+              }
+            }
+            # Case 2: Long format (hash with source/target keys).
+            elsif (ref($volume) eq 'HASH') {
+              if (exists $volume->{source} && exists $volume->{target}) {
+                $volumes_parameter .= ' -v ' . $volume->{source} . ':' . $volume->{target};
+              }
+            }
+          }
+        }
+        if ($volumes_parameter) {
+          $volumes_parameter .= ' ';
+        }
+      }
+      else {
+        warn "WARNING: failed to open Docker compose file '$Genoring::DOCKER_COMPOSE_FILE':\n$!\nNo volumes will be mounted.\n";
+      }
+    }
     # Disable warning message when the docker container closes.
     $SIG{__WARN__} = sub {};
     my $output = Run(
-      "$Genoring::DOCKER_COMMAND run " . $env_data . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm $service_name $command",
+      "$Genoring::DOCKER_COMMAND run " . $env_data . $volumes_parameter . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm $service_name $command",
       $message,
       0,
       1
