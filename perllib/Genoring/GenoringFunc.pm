@@ -4741,6 +4741,7 @@ B<Return>: (nothing)
 sub ClearCache {
   my ($category) = @_;
   if (!$category) {
+    $_g_config = undef;
     $_g_modules = {};
     $_g_services = {};
     $_g_volumes = {};
