@@ -196,7 +196,7 @@ RUN printf "%s\n" "#!/bin/sh" \
     "}" \
     "drupal_permission() {" \
     "  mkdir -p /data/genoring /data/upload" \
-    "  /usr/bin/chown \$SUDO_UID:\$SUDO_GID /data/genoring /data/upload" \
+    "  /usr/bin/chown -R \$SUDO_UID:\$SUDO_GID /data" \
     "}" \
     "if [ \"\$#\" -ne 1 ]; then" \
     "  echo \"Invalid syntax!\"" \
