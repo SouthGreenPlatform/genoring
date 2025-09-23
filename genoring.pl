@@ -696,6 +696,7 @@ elsif ($command =~ m/^shell$/i) {
   else {
     # Run non-running dockers.
     # Get environment files and volumes from docker compose file.
+    # @todo Maybe use module source service yaml file?
     my $services = GetServices();
     if (!$services->{$service}) {
       die "ERROR: service '$service' not found!\n";
@@ -744,7 +745,7 @@ elsif ($command =~ m/^shell$/i) {
     # Disable warning message when the docker container closes.
     $SIG{__WARN__} = sub {};
     my $output = Run(
-      "$Genoring::DOCKER_COMMAND run " . $env_data . $volumes_parameter . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm $service_name $command",
+      "$Genoring::DOCKER_COMMAND run " . $env_data . $volumes_parameter . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm $service $command",
       $message,
       0,
       1
