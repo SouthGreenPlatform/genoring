@@ -825,8 +825,13 @@ sub Reinitialize {
 
   # Uninstall all modules.
   print "- Uninstall all modules...\n";
+  my $volumes_exists = -d $Genoring::VOLUMES_DIR;
   foreach my $module (@$modules) {
     ApplyLocalHooks('uninstall', $module);
+  }
+  # Remove "volumes" directory created by docker.
+  if (!$volumes_exists && -d $Genoring::VOLUMES_DIR) {
+    rmdir $Genoring::VOLUMES_DIR;
   }
   print "  ...OK.\n";
 
