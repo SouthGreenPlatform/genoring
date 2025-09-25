@@ -13,10 +13,22 @@
 # (see https://www.commandlinux.com/man-page/man1/busybox.1.html).
 
 cd /opt/drupal/
+setup_dir="_temp_composer_setup"
 
 ################################################################################
 # Global functions.
 ################################################################################
+
+cleanup()
+{
+  # If we got the temporary setup directory, it means an installation was
+  # started but failed. We need to clean things up and remove index.php file to
+  # have the system retry to install everything.
+  if [ -d "$setup_dir" ]; then
+    rm -rf "$setup_dir" ./web/index.php 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
 
 # Wait for database to be ready to handle queries (3 minutes max or exit 1).
 wait_database_ready()
@@ -56,10 +68,20 @@ install_cms()
   printf "Drupal downloads...\n"
   printf "* Initializing Drupal directory...\n"
   if [ ! -e ./composer.json ]; then
-    # Prepare Drupal download settings.
-    composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev
-    if [ $? -gt 0 ]; then
+    # We use a dedicated setup directory to avoid artifacts that may be already
+    # present in current directory (ie. on Mac systems, the "web" directory is
+    # often pre-created), preventing composer from creating the project.
+    rm -rf "$setup_dir" 2>/dev/null || true
+    mkdir -p "$setup_dir"
+    # Create temporary setup directory and prepare Drupal download settings.
+    if (cd "$setup_dir" && composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev); then
+      # Move silently project files to the expected Drupal project directory.
+      rsync -a --exclude="$setup_dir" "$setup_dir/" ./ >/dev/null
+      rm -rf "$setup_dir"
+    else
       >&2 printf "WARNING: Failed to setup composer!\n"
+      rm -rf "$setup_dir" 2>/dev/null || true
+      exit 1
     fi
   fi
 
@@ -71,7 +93,7 @@ install_cms()
 
   # Install Drupal files.
   printf "* Downloading Drupal...\n"
-  composer install
+  composer install --no-interaction --ignore-platform-reqs
   if [ $? -gt 0 ]; then
     printf "...ERROR!\n"
     >&2 printf "ERROR: Failed to download Drupal!\n"
