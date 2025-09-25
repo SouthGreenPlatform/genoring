@@ -410,9 +410,9 @@ if ($g_flags->{'no-backups'}) {
 # Check Docker requirements.
 if (!$g_flags->{'bypass'}) {
   # Docker command availability.
-  my $output = qx($Genoring::DOCKER_COMMAND 2>&1);
+  my $output = qx($Genoring::DOCKER_COMMAND 2>&1) || '';
   if ($?) {
-    die "ERROR: '$Genoring::DOCKER_COMMAND' command not available!\n$output\n";
+    die "ERROR: '$Genoring::DOCKER_COMMAND' command not found!\n$output\n";
   }
   # Docker version.
   my $docker_compose_version = qx($Genoring::DOCKER_COMPOSE_COMMAND version 2>&1);
