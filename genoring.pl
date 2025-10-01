@@ -346,16 +346,17 @@ if (!-e "$Genoring::GENORING_DIR/agreed.txt") {
 # Options processing.
 my ($man, $help) = (0, 0);
 
-my $command = shift(@ARGV);
+my @argv = @ARGV;
+my $command = shift(@argv);
 if (!$command || ($command =~ m/^-?-?help$|^[-\/]-?\?$/i)) {
-  $help = shift(@ARGV) || 1;
+  $help = shift(@argv) || 1;
 }
 elsif ($command =~ m/^-?-?man$/i) {
   $man = 1;
 }
 
 my (@arguments);
-my $arg = shift(@ARGV);
+my $arg = shift(@argv);
 while (defined($arg)) {
   if ($arg =~ m/^--?([\w\-]+)(?:=(.*))?$/i) {
     my $flag = $1;
@@ -363,8 +364,8 @@ while (defined($arg)) {
     if (!defined($2)
       && ($flag =~ m/arm|cmd|platform|port|wait-ready/i)
     ) {
-      if (scalar(@ARGV) && ($ARGV[0] !~ m/^--?[a-z]/i)) {
-        $g_flags->{$flag} = shift(@ARGV);
+      if (scalar(@argv) && ($argv[0] !~ m/^--?[a-z]/i)) {
+        $g_flags->{$flag} = shift(@argv);
       }
       elsif ($flag =~ m/cmd|platform|port/i) {
         warn "ERROR: Invalid flag syntax for flag '$flag'.\n\n";
@@ -375,7 +376,7 @@ while (defined($arg)) {
   else {
     push(@arguments, $arg);
   }
-  $arg = shift(@ARGV);
+  $arg = shift(@argv);
 }
 
 if (exists($g_flags->{'help'})) {
@@ -428,6 +429,7 @@ if (!$g_flags->{'bypass'}) {
   if ($?) {
     die "ERROR: Current user not allowed to manage containers with '$Genoring::DOCKER_COMMAND' command!\n$output\n";
   }
+  # @todo: check buildx.
 }
 
 # Init host name.
@@ -667,99 +669,10 @@ elsif ($command =~ m/^todocker$/i) {
   ToDockerService(@arguments);
 }
 elsif ($command =~ m/^shell$/i) {
-  my ($service) = (@arguments);
-  if (!$service) {
-    $service = 'genoring';
-  }
-  my $service_name = GetContainerName($service);
-  my $message = "'$service' shell ended.";
-
-  my $command = 'bash';
-  if ($g_flags->{'cmd'} && ($g_flags->{'cmd'} =~ m/[a-zA-Z]/)) {
-    $command = $g_flags->{'cmd'};
-    $message = "Failed to run '$command' in '$service' container!";
-  }
-
-  my ($id, $state, $name, $image) = IsContainerRunning($service_name);
-  my $warning_handler = $SIG{__WARN__};
-  if ($state && ($state =~ m/running/)) {
-    # Disable warning message when the docker container closes.
-    $SIG{__WARN__} = sub {};
-    # Always run as root.
-    Run(
-      "$Genoring::DOCKER_COMMAND exec -u 0 -it $service_name $command",
-      $message,
-      0,
-      1
-    );
-  }
-  else {
-    # Run non-running dockers.
-    # Get environment files and volumes from docker compose file.
-    # @todo Maybe use module source service yaml file?
-    my $services = GetServices();
-    if (!$services->{$service}) {
-      die "ERROR: service '$service' not found!\n";
-    }
-
-    my $image = $service;
-    my $module = $services->{$service};
-    my $env_data = join(' --env-file ', GetEnvironmentFiles($module));
-    if ($env_data) {
-      $env_data = ' --env-file ' . $env_data;
-    }
-    $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
-    # Get image and add volumes if docker compose file is available (volumes
-    # created).
-    my $volumes_parameter = '';
-    if (-r $Genoring::DOCKER_COMPOSE_FILE) {
-      my $fh;
-      if (open($fh, '<:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
-        my $compose_data = CPAN::Meta::YAML->read_string(do { local $/; <$fh> });
-        close($fh);
-        if (exists($compose_data->[0]->{services}{$service})) {
-          # Get image name.
-          if (exists($compose_data->[0]->{services}{$service}{image})) {
-            $image = $compose_data->[0]->{services}{$service}{image};
-          }
-          # Extract volumes section (default to empty array if not present).
-          my $volumes = $compose_data->[0]->{services}{$service}{volumes} || [];
-          foreach my $volume (@$volumes) {
-            # Case 1: Short format "source:target" or "named_volume:target".
-            if (!ref($volume)) {
-              # Split on first colon to handle paths with colons (e.g., Windows paths).
-              my ($source, $target) = split(/:/, $volume, 2);
-              if (defined $target) {
-                $volumes_parameter .= " -v $source:$target";
-              }
-            }
-            # Case 2: Long format (hash with source/target keys).
-            elsif (ref($volume) eq 'HASH') {
-              if (exists $volume->{source} && exists $volume->{target}) {
-                $volumes_parameter .= ' -v ' . $volume->{source} . ':' . $volume->{target};
-              }
-            }
-          }
-        }
-        if ($volumes_parameter) {
-          $volumes_parameter .= ' ';
-        }
-      }
-      else {
-        warn "WARNING: failed to open Docker compose file '$Genoring::DOCKER_COMPOSE_FILE':\n$!\nNo volumes will be mounted.\n";
-      }
-    }
-    # Disable warning message when the docker container closes.
-    $SIG{__WARN__} = sub {};
-    my $output = Run(
-      "$Genoring::DOCKER_COMMAND run " . $env_data . $volumes_parameter . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm $image $command",
-      $message,
-      0,
-      1
-    );
-  }
-  # Put back warning messages.
-  $SIG{__WARN__} = $warning_handler;
+  RunShell(@arguments);
+}
+elsif ($command =~ m/^diag$/i) {
+  GetDiagosticLogs(@arguments);
 }
 elsif ($command =~ m/^localhooks$/i) {
   ApplyLocalHooks(@arguments);
@@ -788,7 +701,7 @@ Valentin GUIGNON (Bioversity), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 18/09/2025
+Date 01/10/2025
 
 =head1 SEE ALSO
 

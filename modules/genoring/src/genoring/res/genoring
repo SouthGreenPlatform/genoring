@@ -12,8 +12,12 @@
 # To keep it compatible with most shell system restrict to busybox commands
 # (see https://www.commandlinux.com/man-page/man1/busybox.1.html).
 
-cd /opt/drupal/
+disable_healthcheck="/tmp/disable-healthcheck"
 setup_dir="_temp_composer_setup"
+setup_log="/opt/drupal/genoring_setup.log"
+[ -f "$setup_log" ] && setup_log="/dev/null"
+rm -f "$disable_healthcheck"
+cd /opt/drupal/
 
 ################################################################################
 # Global functions.
@@ -27,24 +31,35 @@ cleanup()
   if [ -d "$setup_dir" ]; then
     rm -rf "$setup_dir" ./web/index.php 2>/dev/null || true
   fi
+  rm -f "$disable_healthcheck"
 }
 trap cleanup EXIT INT TERM
+
+# Log messages.
+log() {
+  printf "%s\n" "$@" | tee -a "$setup_log"
+}
+
+# Log errors.
+log_error() {
+  printf "%s\n" "$@" | tee -a "$setup_log" >&2
+}
 
 # Wait for database to be ready to handle queries (3 minutes max or exit 1).
 wait_database_ready()
 {
-  printf "Waiting for database server to be ready...\n"
+  log "Waiting for database server to be ready...\n"
   loop_count=0
   while ! pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" && [ "$loop_count" -lt 180 ]; do
-    printf '.'
+    log '.'
     loop_count=$(( loop_count + 1 ))
     sleep 1
   done
   if [ "$loop_count" -ge 180 ]; then
-    >&2 printf "ERROR: Failed to wait for PostgreSQL database! Stopping here.\n"
+    log_error "ERROR: Failed to wait for PostgreSQL database! Stopping here.\n"
     exit 1
   fi
-  printf "...OK (ready).\n"
+  log "...OK (ready).\n"
 }
 
 # Setup CMS database.
@@ -54,20 +69,21 @@ setup_database()
   DRUPAL_DB="${1:-$POSTGRES_DRUPAL_DB}"
   DRUPAL_DB_USER="${2:-$POSTGRES_USER}"
 
-  printf "Setup database...\n"
+  log "Setup database...\n"
   # Create a new PostgreSQL database.
   psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" --command="CREATE DATABASE $DRUPAL_DB WITH OWNER $DRUPAL_DB_USER;"
   # Install default extensions.
   psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION pg_trgm; CREATE EXTENSION fuzzystrmatch;"
-  printf "...OK (database created).\n"
+  log "...OK (database created).\n"
 }
 
 # Install Drupal CMS (download and setup file system).
 install_cms()
 {
-  printf "Drupal downloads...\n"
-  printf "* Initializing Drupal directory...\n"
+  log "Drupal downloads...\n"
+  log "* Initializing Drupal directory...\n"
   if [ ! -e ./composer.json ]; then
+    ls -la . >>"$setup_log"
     # We use a dedicated setup directory to avoid artifacts that may be already
     # present in current directory (ie. on Mac systems, the "web" directory is
     # often pre-created), preventing composer from creating the project.
@@ -75,11 +91,15 @@ install_cms()
     mkdir -p "$setup_dir"
     # Create temporary setup directory and prepare Drupal download settings.
     if (cd "$setup_dir" && composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev); then
+      if [ -d "/opt/drupal/web" ]; then
+        printf "WARNING: /opt/drupal/web exists. Trying to change permissions.\n" >>"$setup_log"
+        sudo /opt/genoring/genoring_root.sh base_permissions >>"$setup_log" 2>&1
+      fi
       # Move silently project files to the expected Drupal project directory.
-      rsync -a --exclude="$setup_dir" "$setup_dir/" ./ >/dev/null
+      rsync -a --exclude="$setup_dir" "$setup_dir/" ./ >>"$setup_log" 2>&1
       rm -rf "$setup_dir"
     else
-      >&2 printf "WARNING: Failed to setup composer!\n"
+      log_error "WARNING: Failed to setup composer!\n"
       rm -rf "$setup_dir" 2>/dev/null || true
       exit 1
     fi
@@ -87,16 +107,16 @@ install_cms()
 
   # Check if a specific Drupal version was provided.
   if [ ! -z $DRUPAL_VERSION ]; then
-    printf "* Selecting Drupal $DRUPAL_VERSION core...\n"
+    log "* Selecting Drupal $DRUPAL_VERSION core...\n"
     composer require --no-interaction --no-install "drupal/core-composer-scaffold:^$DRUPAL_VERSION" "drupal/core-project-message:^$DRUPAL_VERSION" "drupal/core-recommended:^$DRUPAL_VERSION"
   fi
 
   # Install Drupal files.
-  printf "* Downloading Drupal...\n"
+  log "* Downloading Drupal...\n"
   composer install --no-interaction --ignore-platform-reqs
   if [ $? -gt 0 ]; then
-    printf "...ERROR!\n"
-    >&2 printf "ERROR: Failed to download Drupal!\n"
+    log "...ERROR!\n"
+    log_error "ERROR: Failed to download Drupal!\n"
     exit 1
   fi
 
@@ -108,18 +128,18 @@ install_cms()
     mkdir -p /data/genoring /data/upload
     chmod -R ugo+rw /data/genoring /data/upload
   else
-    printf "  ...ERROR!\n"
-    >&2 printf "ERROR: Installation process seems to have failed (expected web directories are missing)!\n"
+    log "  ...ERROR!\n"
+    log_error "ERROR: Installation process seems to have failed (expected web directories are missing)!\n"
     exit 1
   fi
-  printf "  ...OK (core downloaded).\n"
+  log "  ...OK (core downloaded).\n"
 
-  printf "...OK (Drupal downloaded).\n"
+  log "...OK (Drupal downloaded).\n"
 
   # Add missing version info for dev modules.
   for INFO_FILE in $(find /opt/drupal/web -path "*/contrib/*.info.yml"); do
     if ! grep -q "^version:" "$INFO_FILE"; then
-      printf "\nversion: '100.0.0-dev'\n" >> "$INFO_FILE"
+      log "\nversion: '100.0.0-dev'\n" >> "$INFO_FILE"
     fi
   done
 }
@@ -128,11 +148,11 @@ install_cms()
 setup_php()
 {
   if [ ! -e ./php/php.ini ]; then
-    printf "Setup PHP config...\n"
+    log "Setup PHP config...\n"
     mkdir -p ./php/drush
     cp "$PHP_INI_DIR/php.ini-drupal" ./php/php.ini
     printf "memory_limit=2048M\nmax_execution_time=900\n" > ./php/drush/drush.ini
-    printf "...OK.\n"
+    log "...OK.\n"
   fi
 }
 
@@ -142,9 +162,9 @@ setup_cms()
   # Get Drupal database name and user to use.
   DRUPAL_DB="${1:-$POSTGRES_DRUPAL_DB}"
 
-  printf "Setup Drupal...\n"
+  log "Setup Drupal...\n"
   if [ ! -s ./web/sites/default/settings.php ]; then
-    printf "* settings.php...\n"
+    log "* settings.php...\n"
     cp ./web/sites/default/default.settings.php ./web/sites/default/settings.php
     # Append some settings.
     printf "\n\$settings['config_sync_directory'] = '../config/sync';\n\$settings['file_private_path'] = '/opt/drupal/private/';\n\n" >>./web/sites/default/settings.php
@@ -155,14 +175,14 @@ setup_cms()
     printf "];\n\n" >>./web/sites/default/settings.php
     # Append auto-include for external databases settings in "db_settings.php".
     printf "\n\nif (file_exists(\$app_root . '/' . \$site_path . '/db_settings.php')) {\n  include \$app_root . '/' . \$site_path . '/db_settings.php';\n}\n\n" >>./web/sites/default/settings.php
-    printf "  ...OK (settings.php).\n"
+    log "  ...OK (settings.php).\n"
   fi
   # Allow setting update by Drupal installation process.
   # Permissions will be automatically reset after installation.
   chmod ugo+w ./web/sites/default/settings.php
 
   if [ ! -s ./web/sites/default/services.yml ]; then
-    printf "* services.yml...\n"
+    log "* services.yml...\n"
     cp ./web/sites/default/default.services.yml ./web/sites/default/services.yml
     # Enable and configure Drupal CORS to allow REST and token authentication...
     # - enabled: true
@@ -171,17 +191,17 @@ setup_cms()
     perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:\s*\n|    [^\n]+\n|    #[^\n]*\n)*)    allowedHeaders:[^\n]*/$1    allowedHeaders: ['"'"'authorization'"'"','"'"'content-type'"'"','"'"'accept'"'"','"'"'origin'"'"','"'"'access-control-allow-origin'"'"','"'"'x-allowed-header'"'"']/smig' ./web/sites/default/services.yml
     # - allowedMethods: ['*']
     perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:    [^\n]+\n|\s*\n|\s*#[^\n]*\n)*)    allowedMethods:[^\n]*/$1    allowedMethods: ['"'"'*'"'"']/smig' ./web/sites/default/services.yml
-    printf "  ...OK (services.yml).\n"
+    log "  ...OK (services.yml).\n"
   fi
 
   if [ ! -e ./web/sites/default/db_settings.php ]; then
-    printf "* db_settings.php...\n"
+    log "* db_settings.php...\n"
     cp /opt/genoring/db_settings.template.php ./web/sites/default/db_settings.php
-    printf "  ...OK (db_settings.php).\n"
+    log "  ...OK (db_settings.php).\n"
   fi
 
   # Install Drupal.
-  printf "* Initializing Drupal...\n"
+  log "* Initializing Drupal...\n"
   drush -y site:install genoring_distrib \
     --db-url="pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB" \
     --account-mail="$DRUPAL_USER_MAIL" \
@@ -190,59 +210,62 @@ setup_cms()
     --site-mail="$DRUPAL_SITE_MAIL" \
     --site-name="$DRUPAL_SITE_NAME"
   if [ $? -gt 0 ]; then
-    printf "  ...ERROR!\n"
-    >&2 printf "ERROR: Failed to initialize Drupal!\npgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\n"
+    log "  ...ERROR!\n"
+    log_error "ERROR: Failed to initialize Drupal!\npgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\n"
     exit 1
   fi
-  printf "  ...OK (Drupal initialized).\n"
+  log "  ...OK (Drupal initialized).\n"
 
   # File system permissions.
-  printf "* Adjust file system permissions...\n"
+  log "* Adjust file system permissions...\n"
   chmod -R ugo+rw /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files
   sudo /opt/genoring/genoring_root.sh www_permissions
   # Allow back user to write in default and settings.php as the proxy is not
   # running with the same user and will not have wrtie access to those.
   chmod u+w ./web/sites/default ./web/sites/default/settings.php
-  printf "  ...OK (file system).\n"
+  log "  ...OK (file system).\n"
 
   # Externalize database credentials.
-  printf "* Separate database credentials from global settings...\n"
+  log "* Separate database credentials from global settings...\n"
   perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' ./web/sites/default/settings.php >> ./web/sites/default/db_settings.php
   perl -pi -e 'BEGIN{undef $/;} s/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)//smig' ./web/sites/default/settings.php
-  printf "  ...OK (database credentials).\n"
+  log "  ...OK (database credentials).\n"
 
-  printf "...OK (Drupal setup).\n"
+  log "...OK (Drupal setup).\n"
 }
 
 # Update CMS and modules.
 update_cms()
 {
-  printf "Updating Drupal...\n"
+  log "Updating Drupal...\n"
   # Check if updates could run well.
   # @todo Maybe check free disk space as well?
   if composer update --with-all-dependencies --dry-run; then
     # Set Drupal offline.
     drush state:set system.maintenance_mode 1 --input-format=integer
     # Backup DB.
-    printf "* Backup Drupal...\n"
+    log "* Backup Drupal...\n"
     drush -y archive:dump --destination=/backups/preupdate_backup.tar.gz --overwrite
     if [ $? -ne 0 ]; then
-      printf "  ...FAILED to backup, aborting update.\n"
-      printf "...ERROR!\n"
-      >&2 printf "ERROR: Unable to create a backup before updating!\n"
+      log "  ...FAILED to backup, aborting update.\n"
+      log "...ERROR!\n"
+      log_error "ERROR: Unable to create a backup before updating!\n"
       exit 1
     fi
-    printf "  ...OK (backup).\n"
+    log "  ...OK (backup).\n"
+    touch "$disable_healthcheck"
     if composer update --with-all-dependencies && drush -y updb; then
-      printf "...OK (update).\n"
+      rm -f "$disable_healthcheck"
+      log "...OK (update).\n"
     else
       # Restore DB backup.
-      printf "...ERROR!\n"
-      >&2 printf "ERROR: Drupal update failed! Restoring backup...\n"
+      log "...ERROR!\n"
+      log_error "ERROR: Drupal update failed! Restoring backup...\n"
       drush -y archive:restore /backups/preupdate_backup.tar.gz
       rm -rf ./vendor
       composer install
-      printf "...OK (restoring).\n"
+      rm -f "$disable_healthcheck"
+      log "...OK (restoring).\n"
     fi
     # Set Drupal back online.
     drush state:set system.maintenance_mode 0 --input-format=integer
@@ -252,12 +275,12 @@ update_cms()
 # Start GenoRing in daemon mode.
 start_genoring()
 {
-  printf "[Start GenoRing]\n"
+  log "[Start GenoRing]\n"
   # Check if Drupal should be installed.
   if [ ! -e ./web/index.php ]; then
     install_cms
   else
-    printf "* Drupal already downloaded.\n"
+    log "* Drupal already downloaded.\n"
   fi
 
   # Check PHP settings.
@@ -272,10 +295,10 @@ start_genoring()
   test_drupal_db_error=$?
   if [ '1' = "$test_drupal_db" ]; then
     # Database already initialized.
-    printf "* Database already initialized.\n"
+    log "* Database already initialized.\n"
   else
     if [ "$test_drupal_db_error" -ne 0 ]; then
-      >&2 printf "ERROR: Failed to connect to PostgreSQL database! Stopping here.\n"
+      log_error "ERROR: Failed to connect to PostgreSQL database! Stopping here.\n"
       exit 1
     fi
     setup_database
@@ -291,13 +314,13 @@ start_genoring()
     fi
   fi
 
-  printf "* Start cron daemon...\n"
+  log "* Start cron daemon...\n"
   sudo /opt/genoring/genoring_root.sh start_cron
-  printf "  ...OK.\n"
+  log "  ...OK.\n"
 
-  printf "* Init sendmail...\n"
+  log "* Init sendmail...\n"
   sudo /opt/genoring/genoring_root.sh start_sendmail
-  printf "  ...OK.\n"
+  log "  ...OK.\n"
 
   # Make sure we removed offline file if not in offline mode.
   if [ -z $COMPOSE_PROFILES ] || [ $COMPOSE_PROFILES != 'offline' ]; then
@@ -306,14 +329,14 @@ start_genoring()
     fi
   fi
 
-  printf "* Running PHP-fpm daemon...\n"
+  log "* Running PHP-fpm daemon...\n"
   # Launch PHP-fpm in foreground. We use exec to use the keep the script process
   # ID (PID 1) to be able to receive signals such as SIGTERM or SIGKILL.
   # Ortherwise, the container will be killed by Docker instead of stopping
   # gracefully.
   exec php-fpm -F
   # We should not get there.
-  printf "[Stopped]\n"
+  log "[Stopped]\n"
 }
 
 # Initializes Drupal environment to be able to run tests.
@@ -354,17 +377,17 @@ inittest()
 install_module()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: install_module(): Missing module name!"
+    log_error "ERROR: install_module(): Missing module name!"
     exit 1
   fi
   composer require --no-interaction "drupal/$1"
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to install module '$1'!\n"
+    log_error "ERROR: Failed to install module '$1'!\n"
     exit 1
   fi
   drush pm:enable -y $1
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to enable module '$1'!\n"
+    log_error "ERROR: Failed to enable module '$1'!\n"
     exit 1
   fi
 }
@@ -372,17 +395,17 @@ install_module()
 uninstall_module()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: uninstall_module(): Missing module name!"
+    log_error "ERROR: uninstall_module(): Missing module name!"
     exit 1
   fi
   drush pm:uninstall -y $1
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to uninstall module '$1'!\n"
+    log_error "ERROR: Failed to uninstall module '$1'!\n"
     exit 1
   fi
   composer remove --no-interaction "drupal/$1"
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to remove module '$1'!\n"
+    log_error "ERROR: Failed to remove module '$1'!\n"
     exit 1
   fi
 }
@@ -390,7 +413,7 @@ uninstall_module()
 add_menuitem()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_menuitem(): Missing YAML file!"
+    log_error "ERROR: add_menuitem(): Missing YAML file!"
     exit 1
   fi
 
@@ -398,7 +421,7 @@ add_menuitem()
   drush php:script --script-path=/opt/genoring/lib genoringapi add_menuitem $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add menu item using YAML file '$1'!\n"
+    log_error "ERROR: Failed to add menu item using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -406,7 +429,7 @@ add_menuitem()
 remove_menuitem()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: remove_menuitem(): Missing YAML file!"
+    log_error "ERROR: remove_menuitem(): Missing YAML file!"
     exit 1
   fi
 
@@ -414,7 +437,7 @@ remove_menuitem()
   drush php:script --script-path=/opt/genoring/lib genoringapi remove_menuitem $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to remove menu item using YAML file '$1'!\n"
+    log_error "ERROR: Failed to remove menu item using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -422,7 +445,7 @@ remove_menuitem()
 add_page()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_page(): Missing YAML file!"
+    log_error "ERROR: add_page(): Missing YAML file!"
     exit 1
   fi
 
@@ -430,7 +453,7 @@ add_page()
   drush php:script --script-path=/opt/genoring/lib genoringapi add_page $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add page using YAML file '$1'!\n"
+    log_error "ERROR: Failed to add page using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -438,7 +461,7 @@ add_page()
 remove_page()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: remove_page(): Missing YAML file!"
+    log_error "ERROR: remove_page(): Missing YAML file!"
     exit 1
   fi
 
@@ -446,7 +469,7 @@ remove_page()
   drush php:script --script-path=/opt/genoring/lib genoringapi remove_page $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to remove page using YAML file '$1'!\n"
+    log_error "ERROR: Failed to remove page using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -454,7 +477,7 @@ remove_page()
 add_integration()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_integration(): Missing YAML file!"
+    log_error "ERROR: add_integration(): Missing YAML file!"
     exit 1
   fi
 
@@ -462,7 +485,7 @@ add_integration()
   drush php:script --script-path=/opt/genoring/lib genoringapi add_integration $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add integration using YAML file '$1'!\n"
+    log_error "ERROR: Failed to add integration using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -470,7 +493,7 @@ add_integration()
 remove_integration()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: remove_integration(): Missing YAML file!"
+    log_error "ERROR: remove_integration(): Missing YAML file!"
     exit 1
   fi
 
@@ -478,7 +501,7 @@ remove_integration()
   drush php:script --script-path=/opt/genoring/lib genoringapi remove_integration $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to remove integration using YAML file '$1'!\n"
+    log_error "ERROR: Failed to remove integration using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -486,7 +509,7 @@ remove_integration()
 add_user()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_user(): Missing YAML file!"
+    log_error "ERROR: add_user(): Missing YAML file!"
     exit 1
   fi
 
@@ -494,7 +517,7 @@ add_user()
   drush php:script --script-path=/opt/genoring/lib genoringapi add_user $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add user using YAML file '$1'!\n"
+    log_error "ERROR: Failed to add user using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -502,7 +525,7 @@ add_user()
 remove_user()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: remove_user(): Missing YAML file!"
+    log_error "ERROR: remove_user(): Missing YAML file!"
     exit 1
   fi
 
@@ -510,7 +533,7 @@ remove_user()
   drush php:script --script-path=/opt/genoring/lib genoringapi remove_user $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to remove user using YAML file '$1'!\n"
+    log_error "ERROR: Failed to remove user using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -518,7 +541,7 @@ remove_user()
 add_group()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_group(): Missing YAML file!"
+    log_error "ERROR: add_group(): Missing YAML file!"
     exit 1
   fi
 
@@ -526,7 +549,7 @@ add_group()
   drush php:script --script-path=/opt/genoring/lib genoringapi add_group $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add group using YAML file '$1'!\n"
+    log_error "ERROR: Failed to add group using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -534,7 +557,7 @@ add_group()
 remove_group()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: remove_group(): Missing YAML file!"
+    log_error "ERROR: remove_group(): Missing YAML file!"
     exit 1
   fi
 
@@ -542,7 +565,7 @@ remove_group()
   drush php:script --script-path=/opt/genoring/lib genoringapi remove_group $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to remove group using YAML file '$1'!\n"
+    log_error "ERROR: Failed to remove group using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -550,7 +573,7 @@ remove_group()
 add_user_to_group()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_user_to_group(): Missing YAML file!"
+    log_error "ERROR: add_user_to_group(): Missing YAML file!"
     exit 1
   fi
 
@@ -558,7 +581,7 @@ add_user_to_group()
   drush php:script --script-path=/opt/genoring/lib genoringapi add_user_to_group $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add user to group using YAML file '$1'!\n"
+    log_error "ERROR: Failed to add user to group using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -566,7 +589,7 @@ add_user_to_group()
 remove_user_from_group()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: remove_user_from_group(): Missing YAML file!"
+    log_error "ERROR: remove_user_from_group(): Missing YAML file!"
     exit 1
   fi
 
@@ -574,7 +597,7 @@ remove_user_from_group()
   drush php:script --script-path=/opt/genoring/lib genoringapi remove_user_from_group $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to remove user from group using YAML file '$1'!\n"
+    log_error "ERROR: Failed to remove user from group using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -582,7 +605,7 @@ remove_user_from_group()
 add_permission()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_permission(): Missing YAML file!"
+    log_error "ERROR: add_permission(): Missing YAML file!"
     exit 1
   fi
 
@@ -590,7 +613,7 @@ add_permission()
   drush php:script --script-path=/opt/genoring/lib genoringapi add_permission $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add permission using YAML file '$1'!\n"
+    log_error "ERROR: Failed to add permission using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -598,7 +621,7 @@ add_permission()
 remove_permission()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: add_permission(): Missing YAML file!"
+    log_error "ERROR: add_permission(): Missing YAML file!"
     exit 1
   fi
 
@@ -606,7 +629,7 @@ remove_permission()
   drush php:script --script-path=/opt/genoring/lib genoringapi remove_permission $1
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to add permission using YAML file '$1'!\n"
+    log_error "ERROR: Failed to add permission using YAML file '$1'!\n"
     exit 1
   fi
 }
@@ -617,7 +640,7 @@ backup()
   mkdir -p /backups/$backup_name/genoring/
   drush -y archive:dump --destination=/backups/$backup_name/genoring/ --overwrite --exclude-code-paths=web/sites/default/db_settings.php
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to perform site backup!\n"
+    log_error "ERROR: Failed to perform site backup!\n"
     exit 1
   fi
 }
@@ -625,7 +648,7 @@ backup()
 restore()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: restore(): Missing backup name!"
+    log_error "ERROR: restore(): Missing backup name!"
     exit 1
   fi
 
@@ -641,7 +664,7 @@ restore()
   drush -y archive:restore  --db --files --overwrite /backups/$1/genoring/archive.tar.gz
 
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to restore site backup!\n"
+    log_error "ERROR: Failed to restore site backup!\n"
     exit 1
   fi
 }
@@ -650,7 +673,7 @@ offline()
 {
   drush -y state:set system.maintenance_mode 1 --input-format=integer
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to set site offline!\n"
+    log_error "ERROR: Failed to set site offline!\n"
     exit 1
   fi
 }
@@ -659,7 +682,7 @@ online()
 {
   drush -y state:set system.maintenance_mode 0 --input-format=integer
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to set site online!\n"
+    log_error "ERROR: Failed to set site online!\n"
     exit 1
   fi
 }
@@ -667,13 +690,13 @@ online()
 command()
 {
   if [ -z "$1" ]; then
-    >&2 printf "ERROR: command(): Missing command name!"
+    log_error "ERROR: command(): Missing command name!"
     exit 1
   fi
 
   "$@"
   if [ $? -gt 0 ]; then
-    >&2 printf "ERROR: Failed to run command '$1'!\n"
+    log_error "ERROR: Failed to run command '$1'!\n"
     exit 1
   fi
 }
@@ -749,6 +772,7 @@ printf "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$POSTGRES_PASSWORD\n" >~/
 # Process commands.
 cmd="$1"
 shift
+printf "COMMAND: $cmd\n" >>"$setup_log"
 case "$cmd" in
   start)
     start_genoring "$@"
@@ -827,7 +851,7 @@ case "$cmd" in
     ;;
   *)
     if [ ! -z "$1" ]; then
-      >&2 printf "ERROR: Syntax error! Unsupported command '$cmd $@'.\n\n"
+      log_error "ERROR: Syntax error! Unsupported command '$cmd $@'.\n\n"
       print_help
       exit 1
     else

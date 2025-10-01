@@ -191,6 +191,9 @@ RUN printf "%s\n" "#!/bin/sh" \
     "  /usr/bin/printf \"\$(hostname -i)\\t\$(hostname) \$(hostname).localhost\\n\" | tee -a /etc/hosts" \
     "  /usr/sbin/service sendmail start" \
     "}" \
+    "base_permissions() {" \
+    "  /usr/bin/chown -R \$SUDO_UID:\$SUDO_GID /opt/drupal" \
+    "}" \
     "www_permissions() {" \
     "  /usr/bin/chown -R www-data:www-data /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files" \
     "}" \
@@ -208,6 +211,9 @@ RUN printf "%s\n" "#!/bin/sh" \
     "    ;;" \
     "  start_sendmail)" \
     "    start_sendmail" \
+    "    ;;" \
+    "  base_permissions)" \
+    "    base_permissions" \
     "    ;;" \
     "  www_permissions)" \
     "    www_permissions" \

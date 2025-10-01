@@ -376,6 +376,122 @@ sub StopGenoring {
 
 =pod
 
+=head2 RunShell
+
+B<Description>: Runs a shell in the given service.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub RunShell {
+  my ($service) = @_;
+  if (!$service) {
+    $service = 'genoring';
+  }
+  my $service_name = GetContainerName($service);
+  my $message = "'$service' shell ended.";
+
+  my $command = 'bash';
+  if ($g_flags->{'cmd'} && ($g_flags->{'cmd'} =~ m/[a-zA-Z]/)) {
+    $command = $g_flags->{'cmd'};
+    $message = "Failed to run '$command' in '$service' container!";
+  }
+
+  my ($id, $state, $name, $image) = IsContainerRunning($service_name);
+  my $warning_handler = $SIG{__WARN__};
+  if ($state && ($state =~ m/running/)) {
+    # Disable warning message when the docker container closes.
+    $SIG{__WARN__} = sub {};
+    # Always run as root.
+    Run(
+      "$Genoring::DOCKER_COMMAND exec -u 0 -it $service_name $command",
+      $message,
+      0,
+      1
+    );
+  }
+  else {
+    # Run non-running dockers.
+    # Get environment files and volumes from docker compose file.
+    # @todo Maybe use module source service yaml file?
+    my $services = GetServices();
+    if (!$services->{$service}) {
+      die "ERROR: service '$service' not found!\n";
+    }
+
+    my $image = $service;
+    my $module = $services->{$service};
+    my $env_data = join(' --env-file ', GetEnvironmentFiles($module));
+    if ($env_data) {
+      $env_data = ' --env-file ' . $env_data;
+    }
+    $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
+    # Get image and add volumes if docker compose file is available (volumes
+    # created).
+    my $volumes_parameter = '';
+    if (-r $Genoring::DOCKER_COMPOSE_FILE) {
+      my $fh;
+      if (open($fh, '<:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
+        my $compose_data = CPAN::Meta::YAML->read_string(do { local $/; <$fh> });
+        close($fh);
+        if (exists($compose_data->[0]->{services}{$service})) {
+          # Get image name.
+          if (exists($compose_data->[0]->{services}{$service}{image})) {
+            $image = $compose_data->[0]->{services}{$service}{image};
+          }
+          # Extract volumes section (default to empty array if not present).
+          my $volumes = $compose_data->[0]->{services}{$service}{volumes} || [];
+          foreach my $volume (@$volumes) {
+            # Case 1: Short format "source:target" or "named_volume:target".
+            if (!ref($volume)) {
+              # Split on first colon to handle paths with colons (e.g., Windows paths).
+              my ($source, $target) = split(/:/, $volume, 2);
+              if (defined $target) {
+                if ($source !~ m~^/~) {
+                  $source = GetVolumeName($source);
+                }
+                $volumes_parameter .= " -v $source:$target";
+              }
+            }
+            # Case 2: Long format (hash with source/target keys).
+            elsif (ref($volume) eq 'HASH') {
+              if (exists $volume->{source} && exists $volume->{target}) {
+                my $source = $volume->{source};
+                if ($source !~ m~^/~) {
+                  $source = GetVolumeName($source);
+                }
+                $volumes_parameter .= ' -v ' . $source . ':' . $volume->{target};
+              }
+            }
+          }
+        }
+        if ($volumes_parameter) {
+          $volumes_parameter .= ' ';
+        }
+      }
+      else {
+        warn "WARNING: failed to open Docker compose file '$Genoring::DOCKER_COMPOSE_FILE':\n$!\nNo volumes will be mounted.\n";
+      }
+    }
+    # Disable warning message when the docker container closes.
+    $SIG{__WARN__} = sub {};
+    my $output = Run(
+      "$Genoring::DOCKER_COMMAND run " . $env_data . $volumes_parameter . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm $image $command",
+      $message,
+      0,
+      1
+    );
+  }
+  # Put back warning messages.
+  $SIG{__WARN__} = $warning_handler;
+}
+
+
+=pod
+
 =head2 GetLogs
 
 B<Description>: Displays GenoRing logs. If the "-f" flag is used, follows logs.
@@ -387,9 +503,10 @@ B<Return>: (nothing)
 =cut
 
 sub GetLogs {
+  my $extra = join(' ', @_);
   if (exists($g_flags->{'f'})) {
     Run(
-      "$Genoring::DOCKER_COMPOSE_COMMAND --profile \"*\" logs -f",
+      "$Genoring::DOCKER_COMPOSE_COMMAND --profile \"*\" logs -f $extra",
       "Failed to get GenoRing logs!",
       undef,
       1
@@ -397,12 +514,63 @@ sub GetLogs {
   }
   else {
     Run(
-      "$Genoring::DOCKER_COMPOSE_COMMAND logs",
+      "$Genoring::DOCKER_COMPOSE_COMMAND --profile \"*\" logs $extra",
       "Failed to get GenoRing logs!",
       undef,
       1
     );
   }
+}
+
+
+=pod
+
+=head2 GetDiagosticLogs
+
+B<Description>: Displays GenoRing diagnostic logs.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub GetDiagosticLogs {
+  # Provides diagnostic log.
+  print '-' x 80 . "Genoring command: $0 " . join(' ', @ARGV) . "\n";
+  # @todo Add environment variables.
+  print qx($Genoring::DOCKER_COMMAND -v 2>&1);
+  print qx($Genoring::DOCKER_COMPOSE_COMMAND version 2>&1);
+  print qx($Genoring::DOCKER_COMMAND buildx version 2>&1);
+  print "\n" . ('-' x 80) . "\n";
+  print qx($Genoring::DOCKER_COMMAND ps 2>&1);
+  print "\n" . ('-' x 80) . "\n";
+  print qx($Genoring::DOCKER_COMMAND volume ls 2>&1);
+  print "\n" . ('-' x 80) . "\nConfig file:\n";
+  if (open(my $fh, '<', 'config.yml')) {
+    print do { local $/; <$fh> };
+    close($fh);
+  }
+  else {
+    print "Could not open config.yml: $!";
+  }
+  print "\n" . ('-' x 80) . "\nDocker compose file:\n";
+  if (open(my $fh, '<', 'docker-compose.yml')) {
+    print do { local $/; <$fh> };
+    close($fh);
+  }
+  else {
+    print "Could not open docker-compose.yml: $!";
+  }
+  print "\n" . ('-' x 80) . "\nSetup logs:\n";
+  print Run(
+    "$Genoring::DOCKER_COMMAND run -v " . GetVolumeName('genoring-drupal-volume') . ":/opt/drupal " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm genoring /usr/bin/cat /opt/drupal/genoring_setup.log",
+    "Failed to get diagnostic log!",
+    0,
+    0
+  );
+  print "\n" . ('-' x 80) . "\nDocker compose logs:\n";
+  GetLogs();
 }
 
 
@@ -1225,7 +1393,7 @@ sub GenerateDockerComposeFile {
         my @new_service_volumes;
         while (@service_volumes) {
           my $service_volume = shift(@service_volumes);
-          if ($service_volume =~ m~^      - type:\s*bind~) {
+          if ($service_volume =~ m~^      type:\s*bind~) {
             # For explicit binds, we keep them as they are. Indeed, in case of
             # direct file binding, we can not use named volumes.
             push(@new_service_volumes, $service_volume);
@@ -1256,10 +1424,10 @@ sub GenerateDockerComposeFile {
               }
             } while($next_bind_line);
           }
-          elsif ($service_volume =~ m~^      - \$\{GENORING_VOLUMES_DIR\}/~) {
-            $service_volume =~ s~^      - \$\{GENORING_VOLUMES_DIR\}/~      - genoring-volume-~;
+          elsif ($service_volume =~ m~^      \$\{GENORING_VOLUMES_DIR\}/~) {
+            $service_volume =~ s~^      \$\{GENORING_VOLUMES_DIR\}/~      genoring-volume-~;
             $service_volume =~ s~/(?=.*:)~-~g;
-            my ($unexposed_volume) = $service_volume =~ m~^      - (\S+)\s*:~;
+            my ($unexposed_volume) = $service_volume =~ m~^      (\S+)\s*:~;
             $volumes{$unexposed_volume} = {
               'module' => $module,
               # We create (below) and manage non-exposed volumes before the use
@@ -1497,9 +1665,9 @@ sub GenerateDockerComposeFile {
               print {$ds_fh} "services:\n  $service:\n";
               if (@higher_services) {
                 print {$ds_fh}
-                  "    depends_on:\n      - "
-                  . join("\n      - ", @higher_services)
-                  . "\n";
+                  "    depends_on:\n      "
+                  . join(":\n        condition: service_started\n      ", @higher_services)
+                  . ":\n        condition: service_started\n";
               }
               close($ds_fh);
             }
@@ -1510,7 +1678,7 @@ sub GenerateDockerComposeFile {
           # All profiles.
           my %higher_services = map { $_ => 1 } grep {exists($services{$_})} @{$service_dependencies->{$service}->{''}};
           my @higher_services = sort keys(%higher_services);
-          print {$dc_fh} "    depends_on:\n      - " . join("\n      - ", @higher_services) . "\n";
+          print {$dc_fh} "    depends_on:\n      " . join(":\n        condition: service_started\n      ", @higher_services) . ":\n        condition: service_started\n";
         }
       }
     }

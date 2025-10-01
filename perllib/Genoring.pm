@@ -20,16 +20,16 @@ CleanupOperations ClearCache Compile CompileMissingContainers Confirm
 CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
 CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
 DisableModule EnableAlternative EnableModule EndOperations
-GenerateDockerComposeFile GetConfig GetContainerName GetEnvironmentFiles
-GetEnvVariable GetLogs GetModuleAlternatives GetModuleConf GetModuleInfo
-GetModuleRealState GetModules GetModulesConfig GetModuleServices
-GetModuleVolumes GetOs GetProfile GetProjectName GetServices GetState
-GetStatus GetVolumeName GetVolumes HandleShellExecutionError
-InitGenoringUser InstallModule IsContainerRunning ListAlternatives
-ParseDependencies PerformContainerOperations PerformLocalOperations
-PrepareOperations Reinitialize RemoveDependencyFiles RemoveEnvFiles
-RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles Restore Run
-SaveConfig SetEnvVariable SetModuleConf SetupGenoring
+GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
+GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
+GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig
+GetModuleServices GetModuleVolumes GetOs GetProfile GetProjectName
+GetServices GetState GetStatus GetVolumeName GetVolumes
+HandleShellExecutionError InitGenoringUser InstallModule IsContainerRunning
+ListAlternatives ParseDependencies PerformContainerOperations
+PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
+RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
+Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
 ToLocalService UninstallModule Update Upgrade WaitModulesReady
 
@@ -58,16 +58,16 @@ our @EXPORT =
     CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
     CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
     DisableModule EnableAlternative EnableModule EndOperations
-    GenerateDockerComposeFile GetConfig GetContainerName GetEnvironmentFiles
-    GetEnvVariable GetLogs GetModuleAlternatives GetModuleConf GetModuleInfo
-    GetModuleRealState GetModules GetModulesConfig GetModuleServices
-    GetModuleVolumes GetOs GetProfile GetProjectName GetServices GetState
-    GetStatus GetVolumeName GetVolumes HandleShellExecutionError
-    InitGenoringUser InstallModule IsContainerRunning ListAlternatives
-    ParseDependencies PerformContainerOperations PerformLocalOperations
-    PrepareOperations Reinitialize RemoveDependencyFiles RemoveEnvFiles
-    RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles Restore Run
-    SaveConfig SetEnvVariable SetModuleConf SetupGenoring
+    GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
+    GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
+    GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig
+    GetModuleServices GetModuleVolumes GetOs GetProfile GetProjectName
+    GetServices GetState GetStatus GetVolumeName GetVolumes
+    HandleShellExecutionError InitGenoringUser InstallModule IsContainerRunning
+    ListAlternatives ParseDependencies PerformContainerOperations
+    PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
+    RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
+    Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
     SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
     ToLocalService UninstallModule Update Upgrade WaitModulesReady
   );
