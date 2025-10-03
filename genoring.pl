@@ -429,7 +429,6 @@ if (!$g_flags->{'bypass'}) {
   if ($?) {
     die "ERROR: Current user not allowed to manage containers with '$Genoring::DOCKER_COMMAND' command!\n$output\n";
   }
-  # @todo: check buildx.
 }
 
 # Init host name.

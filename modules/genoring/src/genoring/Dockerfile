@@ -193,13 +193,16 @@ RUN printf "%s\n" "#!/bin/sh" \
     "}" \
     "base_permissions() {" \
     "  /usr/bin/chown -R \$SUDO_UID:\$SUDO_GID /opt/drupal" \
+    "  /usr/bin/chmod u+rwX -R /opt/drupal" \
+    "}" \
+    "drupal_permissions() {" \
+    "  mkdir -p /data/genoring /data/upload" \
+    "  /usr/bin/chown -R \$SUDO_UID:\$SUDO_GID /data" \
+    "  /usr/bin/chmod -R ug+rwX /data" \
     "}" \
     "www_permissions() {" \
     "  /usr/bin/chown -R www-data:www-data /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files" \
-    "}" \
-    "drupal_permission() {" \
-    "  mkdir -p /data/genoring /data/upload" \
-    "  /usr/bin/chown -R \$SUDO_UID:\$SUDO_GID /data" \
+    "  /usr/bin/chmod -R ugo+rwX /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files" \
     "}" \
     "if [ \"\$#\" -ne 1 ]; then" \
     "  echo \"Invalid syntax!\"" \
@@ -215,11 +218,11 @@ RUN printf "%s\n" "#!/bin/sh" \
     "  base_permissions)" \
     "    base_permissions" \
     "    ;;" \
+    "  drupal_permissions)" \
+    "    drupal_permissions" \
+    "    ;;" \
     "  www_permissions)" \
     "    www_permissions" \
-    "    ;;" \
-    "  drupal_permission)" \
-    "    drupal_permission" \
     "    ;;" \
     "  *)" \
     "    echo \"Invalid argument: \$1\"" \

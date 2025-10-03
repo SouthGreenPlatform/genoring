@@ -3503,14 +3503,14 @@ sub Compile {
   if (!$g_flags->{'bypass'}) {
     my $output = qx($Genoring::DOCKER_COMMAND buildx ls 2>&1);
     if ($?) {
-      warn "WARNING: '$Genoring::DOCKER_COMMAND buildx' command not available!\n";
+      warn "WARNING: '$Genoring::DOCKER_COMMAND buildx' command not available! It is recommended to install Docker buildx (multi-platform build, see https://docs.docker.com/build/building/multi-platform/). GenoRing will try building the container image without buildx.\n";
       $disable_buildx = 1;
     }
     elsif ($? == 0 && $output =~ /\buse\b/) {
       if (Confirm("WARNING: Docker buildx (BuildKit plugin) is not enabled. It may be a problem if running ARM architectures. Do you want to enable it?")) {
         $output = qx($Genoring::DOCKER_COMMAND buildx create --use 2>&1);
         if ($?) {
-          warn "WARNING: Failed to enable Docker buildx:\n$output\n";
+          warn "WARNING: Failed to enable Docker buildx:\n$output\nGenoRing will try building the container image without buildx.\n";
           $disable_buildx = 1;
         }
       }

@@ -29,7 +29,7 @@ cleanup()
   # started but failed. We need to clean things up and remove index.php file to
   # have the system retry to install everything.
   if [ -d "$setup_dir" ]; then
-    rm -rf "$setup_dir" ./web/index.php 2>/dev/null || true
+    rm -rf "$setup_dir" ./web/index.php 2>/dev/null
   fi
   rm -f "$disable_healthcheck"
 }
@@ -71,9 +71,9 @@ setup_database()
 
   log "Setup database...\n"
   # Create a new PostgreSQL database.
-  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" --command="CREATE DATABASE $DRUPAL_DB WITH OWNER $DRUPAL_DB_USER;"
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" --command="CREATE DATABASE $DRUPAL_DB WITH OWNER $DRUPAL_DB_USER;" | tee -a "$setup_log" 2>&1
   # Install default extensions.
-  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION pg_trgm; CREATE EXTENSION fuzzystrmatch;"
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION pg_trgm;" | tee -a "$setup_log" 2>&1
   log "...OK (database created).\n"
 }
 
@@ -87,12 +87,12 @@ install_cms()
     # We use a dedicated setup directory to avoid artifacts that may be already
     # present in current directory (ie. on Mac systems, the "web" directory is
     # often pre-created), preventing composer from creating the project.
-    rm -rf "$setup_dir" 2>/dev/null || true
+    rm -rf "$setup_dir" 2>/dev/null
     mkdir -p "$setup_dir"
     # Create temporary setup directory and prepare Drupal download settings.
-    if (cd "$setup_dir" && composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev); then
-      if [ -d "/opt/drupal/web" ]; then
-        printf "WARNING: /opt/drupal/web exists. Trying to change permissions.\n" >>"$setup_log"
+    if (cd "$setup_dir" && composer create-project --no-interaction --no-install -s dev guignonv/genoring_template . 1.0.x-dev | tee -a "$setup_log" 2>&1); then
+      if [ -d "/opt/drupal/web" ] && [ "$(stat -c %u /opt/drupal/web)" != "$(id -u)" ]; then
+        printf "WARNING: /opt/drupal/web exists. Trying to change owner.\n" >>"$setup_log"
         sudo /opt/genoring/genoring_root.sh base_permissions >>"$setup_log" 2>&1
       fi
       # Move silently project files to the expected Drupal project directory.
@@ -100,7 +100,7 @@ install_cms()
       rm -rf "$setup_dir"
     else
       log_error "WARNING: Failed to setup composer!\n"
-      rm -rf "$setup_dir" 2>/dev/null || true
+      rm -rf "$setup_dir" 2>/dev/null
       exit 1
     fi
   fi
@@ -124,7 +124,7 @@ install_cms()
   if [ -e ./web/sites ] && [ -e ./web/modules ] && [ -e ./web/themes ]; then
     mkdir -p config
     ln -s /data private
-    sudo /opt/genoring/genoring_root.sh drupal_permission
+    sudo /opt/genoring/genoring_root.sh drupal_permissions
     mkdir -p /data/genoring /data/upload
     chmod -R ugo+rw /data/genoring /data/upload
   else
@@ -139,7 +139,7 @@ install_cms()
   # Add missing version info for dev modules.
   for INFO_FILE in $(find /opt/drupal/web -path "*/contrib/*.info.yml"); do
     if ! grep -q "^version:" "$INFO_FILE"; then
-      log "\nversion: '100.0.0-dev'\n" >> "$INFO_FILE"
+      printf "\nversion: '100.0.0-dev'\n" >> "$INFO_FILE"
     fi
   done
 }
@@ -208,7 +208,7 @@ setup_cms()
     --account-name="$DRUPAL_USER" \
     --account-pass="$DRUPAL_PASSWORD" \
     --site-mail="$DRUPAL_SITE_MAIL" \
-    --site-name="$DRUPAL_SITE_NAME"
+    --site-name="$DRUPAL_SITE_NAME" | tee -a "$setup_log" 2>&1
   if [ $? -gt 0 ]; then
     log "  ...ERROR!\n"
     log_error "ERROR: Failed to initialize Drupal!\npgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\n"
