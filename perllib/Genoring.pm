@@ -15,11 +15,12 @@ Perl5
 =head1 EXPORTS
 
 $g_debug $g_exec_prefix $g_flags $g_project
-ApplyContainerHooks ApplyLocalHooks Backup CheckFreeSpace CheckGenoringUser
+ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
+CheckFreeSpace CheckGenoringUser
 CleanupOperations ClearCache Compile CompileMissingContainers Confirm
 CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
 CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
-DisableModule EnableAlternative EnableModule EndOperations
+DisableModule EnableAlternative EnableModule EndOperations ExportVolume
 GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
 GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
 GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig
@@ -53,11 +54,12 @@ use base qw(Exporter);
 our @EXPORT =
   qw(
     $g_debug $g_exec_prefix $g_flags $g_project
-    ApplyContainerHooks ApplyLocalHooks Backup CheckFreeSpace CheckGenoringUser
+    ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
+    CheckFreeSpace CheckGenoringUser
     CleanupOperations ClearCache Compile CompileMissingContainers Confirm
     CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
     CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
-    DisableModule EnableAlternative EnableModule EndOperations
+    DisableModule EnableAlternative EnableModule EndOperations ExportVolume
     GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
     GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
     GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig

@@ -26,7 +26,8 @@ Syntax:
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-no-cache]
-  | shell [SERVICE] [-cmd=<COMMAND>] ] [-debug] [-no-exposed-volumes] [-no-backup]
+  | shell [SERVICE] [-cmd=<COMMAND>] ] | export <VOLUME>
+  | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-wait-ready[=DELAYSEC]]
   [-yes|-no] [-verbose] [-hide-compile]
 
@@ -257,6 +258,11 @@ Launches a bash shell in the main GenoRing container (the CMS container). If
 SERVICE is specified, the corresponding service container will be used instead.
 If COMMAND is specified, that command will be used instead of "bash".
 
+=item B<export [VOLUME]>:
+
+Exports the given Docker named volume to a tar.gz file in the "volumes"
+directory.
+
 =back
 
 * Global flags:
@@ -294,8 +300,12 @@ in such cases in reasonable time.
 =item B<-no-exposed-volumes>:
 
 Disables Docker exposed named (shared) volumes. Must be used at installation
-time and each time the Docker Compose file is regenerated (module/service
-changes).
+time to be stored in config and used every time.
+
+=item B<-exposed-volumes>:
+
+Forces Docker to use exposed named (shared) volumes. Must be used at
+installation time to be stored in config and used every time.
 
 =item B<-no-backup>:
 
@@ -479,14 +489,22 @@ elsif ($g_flags->{'platform'} && ('1' ne $g_flags->{'platform'})) {
 #   $ENV{'DOCKER_DEFAULT_PLATFORM'} = $g_flags->{'platform'};
 # }
 
-# Check for exposed file system.
+# Check for exposed file system: forces what is set in config.
 if ($config->{'no-exposed-volumes'}) {
   $g_flags->{'no-exposed-volumes'} = $config->{'no-exposed-volumes'};
+  delete($g_flags->{'exposed-volumes'});
 }
 # For Windows FS, we can't use exposed shared FS as it crashes so we force set
 # the appropriate flag.
-if (('Win32' eq GetOs()) && (!$g_flags->{'no-exposed-volumes'})) {
-  print "NOTE: Exposed named (shared) volumes are disabled in Windows system to avoid issues.\n";
+# With Mac, Docker Desktop runs in a VM and FS permissions are not managed as
+# expected and causes issues.
+# Note: exposed volumes on those platforms can be forced using the flag
+# "-exposed-volumes".
+if (!CanUseExposedVolumes()
+    && (!exists($g_flags->{'no-exposed-volumes'}))
+    && (!$g_flags->{'exposed-volumes'})
+) {
+  print "NOTE: Exposed named (shared) volumes are disabled in your system to avoid issues.\n";
   $g_flags->{'no-exposed-volumes'} = 1;
 }
 # Synchronize variables.
@@ -678,6 +696,9 @@ elsif ($command =~ m/^localhooks$/i) {
 }
 elsif ($command =~ m/^containerhooks$/i) {
   ApplyContainerHooks(@arguments);
+}
+elsif ($command =~ m/^export$/i) {
+  ExportVolume(@arguments);
 }
 else {
   warn "ERROR: Invalid command '$command'.\n\n" if $command;

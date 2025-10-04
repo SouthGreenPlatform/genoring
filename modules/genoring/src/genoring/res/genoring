@@ -97,6 +97,8 @@ install_cms()
       fi
       # Move silently project files to the expected Drupal project directory.
       rsync -a --exclude="$setup_dir" "$setup_dir/" ./ >>"$setup_log" 2>&1
+      printf "rsync done.\n" >>"$setup_log"
+      ls -la . >>"$setup_log"
       rm -rf "$setup_dir"
     else
       log_error "WARNING: Failed to setup composer!\n"

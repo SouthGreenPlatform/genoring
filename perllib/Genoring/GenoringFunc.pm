@@ -4982,19 +4982,43 @@ sub Confirm {
 
 =head2 GetOs
 
-B<Description>: Returns the OS architecture.
+B<Description>: Returns the OS architecture (simplified).
 
 B<ArgsCount>: 0
 
 B<Return>: (string)
 
-The OS architecture. One of: 'Unix', 'Win32' or 'unsup'.
+The OS architecture. One of: 'Mac', 'Unix', 'Win32' or 'unsup'.
 See %Genoring::OS.
 
 =cut
 
 sub GetOs {
-  return $Genoring::OS{$^O} || $Genoring::OS{''};
+  my $oskey = lc $^O;
+  return $Genoring::OS{$oskey} || $Genoring::OS{''};
+}
+
+
+=pod
+
+=head2 CanUseExposedVolumes
+
+B<Description>: Tells if the Docker version should support properly file
+system exposition (1) or if will rais problems (2) (very slow, unsupported
+permission transfer, ...).
+
+B<ArgsCount>: 0
+
+B<Return>: (bool)
+
+1 if exposed volumes should be used, 0 otherwise.
+
+=cut
+
+sub CanUseExposedVolumes {
+  my $os = GetOs();
+  return 1 if $os eq 'Unix';
+  return 0;
 }
 
 
@@ -5520,6 +5544,47 @@ sub RemoveVolumeFiles
 
 =pod
 
+=head2 ExportVolume
+
+B<Description>: Exports a Docker named volume to a tar.gz file.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $volume: (string) (R)
+
+  The name of the Docker volume to export.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ExportVolume
+{
+  my ($volume) = @_;
+  my $available_volumes = GetVolumes();
+  if ($volume && exists($available_volumes->{$volume})) {
+    my $backup_name = localtime->strftime($volume . '_%Y%d%mT%H%M.tar.gz');
+    print "Exporting volume '$volume' to '$ENV{'GENORING_VOLUMES_DIR'}/$backup_name'. Please wait, it may take some time...\n";
+    Run(
+      "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $ENV{'GENORING_VOLUMES_DIR'}:/backup alpine sh -c 'tar -czvf /backup/$backup_name -C /volume . && chown \$(stat -c \"%u:%g\" /backup) /backup/$backup_name'",
+      "Failed to export Docker volume '$volume'.",
+      1,
+      0
+    );
+    print "Volume '$volume' exported to '$ENV{'GENORING_VOLUMES_DIR'}/$backup_name'.\n";
+  }
+  else {
+    die "ERROR: ExportVolume: Unknown volume '$volume'!\n";
+  }
+}
+
+
+=pod
+
 =head2 CheckFreeSpace
 
 B<Description>: Check if there is currently enough disk space to run GenoRing.
@@ -5534,12 +5599,26 @@ B<Return>: (nothing)
 sub CheckFreeSpace
 {
   my $df_output = '';
-  if ('Unix' eq GetOs()) {
+  my $os = GetOs();
+  if ('Unix' eq $os) {
     $df_output = qx(df --output=avail,pcent -BM . 2>/dev/null);
   }
-  if ($? != 0) {
-    # Mac fallback.
+  elsif ('Mac' eq $os) {
+    # Try Mac fallback.
     $df_output = qx(df -m 2>/dev/null | awk 'NR==1; NR>1 {print \$4, \$5}');
+  }
+  elsif ('Win32' eq $os) {
+    my $drive = `cd`;
+    chomp $drive;
+    $drive =~ s/\\.*//;
+    my $out = `wmic logicaldisk where "Name='$drive'" get FreeSpace,Size /value 2>NUL`;
+    my ($free) = $out =~ /FreeSpace=(\d+)/;
+    my ($size) = $out =~ /Size=(\d+)/;
+    if (defined $free && defined $size && $size > 0) {
+      my $free_mb = int($free / (1024 * 1024));
+      my $used_pct = int(100 - ($free * 100 / $size));
+      $df_output = sprintf("%dM %3d%%", $free_mb, $used_pct);
+    }
   }
   if (($? == 0)
       && ($df_output =~ m/(\d+)(?:Mb?)?\s+(\d+)%/)
