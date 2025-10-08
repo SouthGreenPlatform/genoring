@@ -34,7 +34,7 @@ be write-protected.
 - modules (R):
   Contains available GenoRing modules as well as a module template.
   Each module has its own directory. If a module has a "src" directory, the
-  "src" subdirectories should be writable, especially when using ARM
+  "src" sub-directories should be writable, especially when using ARM
   achitectures as the "Dockerfile" may be automatically generated there by
   "genoring.pl".
 
@@ -104,7 +104,7 @@ A GenoRing module template can be found in the GenoRing "modules/TEMPLATE"
 directory. A GenoRing module is a directory with the following structure:
 - the directory name must only contain lowercase alpha-numeric characters and
   underscores and must start by a letter.
-- "README.md": a README file explaining the puprose of the module and how it
+- "README.md": a README file explaining the purpose of the module and how it
   works.
 - "TOLOCAL.md": a file explaining how to turn Docker service containers into
   "local" services handled either by the server hosting GenoRing or other
@@ -131,7 +131,7 @@ directory. A GenoRing module is a directory with the following structure:
   by GenoRing script at installation time: the first line of the comment
   block of a variable should contain the short variable description in one line.
   The next line should be an empty comment line or only contain dashes ('-').
-  The nex comment lines should contain the complete description with
+  The next comment lines should contain the complete description with
   explanations on how to fill the value. The comment block should then contain
   a "@default" annotation followed by a space and the default value (could be
   empty) and the "@tags" annotation stating the use of the variable.
@@ -145,7 +145,7 @@ directory. A GenoRing module is a directory with the following structure:
   The definition should not include the "services:" element nor an element name
   for the service and should not include a "container_name" parameter as it will
   be automatically set by GenoRing using the YAML file name. The indentation
-  must not include extra-spaces for lisibility as they will be automatically
+  must not include extra-spaces for readability as they will be automatically
   managed by the GenoRing script. To avoid conflicts between modules, service
   names should be prefixed by "genoring-" followed by their module name followed
   by a dash, unless a service could be shared amongst multiple modules.
@@ -154,13 +154,13 @@ directory. A GenoRing module is a directory with the following structure:
   context:
   - "prod": set for production site.
   - "staging": set for staging site.
-  - "dev": set for developement site.
-  - "backend": only enabled for backend operations like module installation,
+  - "dev": set for development site.
+  - "backend": only enabled for back-end operations like module installation,
     update and uninstallation.
   - "offline": only enabled when the site is offline.
   Without specific profiles, the service is always loaded (if the module is
   enabled).
-  Note: The "services" directory may contain a "alt" subdirectory with
+  Note: The "services" directory may contain a "alt" sub-directory with
   alternative services that can be used to replace the default ones. An
   "alt.yml" file contains alternative settings managed by GenoRing.
   Each alternative is defined by a (machine) name as YAML element key and
@@ -168,7 +168,7 @@ directory. A GenoRing module is a directory with the following structure:
   services (structured as current service name as key and new alternative
   service name as value under the "substitute" key), a list of new services to
   add ("add" key) and a list of services to remove ("remove" key).
-- "volumes": a set of YAML files corresponding to named volumes shared accross
+- "volumes": a set of YAML files corresponding to named volumes shared across
   containers. These are not to be confused with volumes that can be defined in
   the services above. A module service can mount a shared volume in its
   "volumes" section but the point is that this shared volume can also be mounted
@@ -221,7 +221,7 @@ directory. A GenoRing module is a directory with the following structure:
   - "restore.pl" will be called on the local system when a backup should be
     restored. The first argument provided is the backup machine name.
   - "restore_<service_name>.sh" will be called on the corresponding container
-    when a backup shoud be restored to let the module manage/generate its
+    when a backup should be restored to let the module manage/generate its
     backup restoration. The first argument provided is the backup machine name.
   - "start.pl" will be called on the local system when the GenoRing is started.
   - "state.pl" will be called on the local system when the status of the module
