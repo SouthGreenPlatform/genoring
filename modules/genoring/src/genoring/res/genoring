@@ -13,14 +13,13 @@
 # (see https://www.commandlinux.com/man-page/man1/busybox.1.html).
 
 disable_healthcheck="/tmp/disable-healthcheck"
-setup_dir="_temp_composer_setup"
-setup_log="/opt/drupal/genoring_setup.log"
-# genoring_template="guignonv/genoring_template"
-# genoring_template_version="1.0.x-dev"
 genoring_template="drupal/recommended-project"
 genoring_template_version=""
-stability="dev"
+setup_dir="_temp_composer_setup"
+setup_log="/opt/drupal/genoring_setup.log"
 [ -f "$setup_log" ] && setup_log="/dev/null"
+stability="dev"
+
 rm -f "$disable_healthcheck"
 cd /opt/drupal/
 
@@ -34,7 +33,7 @@ cleanup()
   # started but failed. We need to clean things up and remove index.php file to
   # have the system retry to install everything.
   if [ -d "$setup_dir" ]; then
-    rm -rf "$setup_dir" ./web/index.php 2>/dev/null
+    rm -rf "$setup_dir" /opt/drupal/web/index.php 2>/dev/null
   fi
   rm -f "$disable_healthcheck"
 }
@@ -88,11 +87,12 @@ install_cms()
 {
   log "Drupal downloads..."
   log "* Initializing Drupal directory..."
-  if [ ! -e ./composer.json ]; then
+  if [ ! -e /opt/drupal/composer.json ]; then
     printf "PWD: " >>"$setup_log"
     pwd >>"$setup_log"
-    printf "\nCurrent files:\n--------------\n" >>"$setup_log"
+    printf "\n--------------------------------------------------------------------------------\nDrupal directory:\n-----------------\n" >>"$setup_log"
     ls -la . >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\n" >>"$setup_log"
     # We use a dedicated setup directory to avoid artifacts that may be already
     # present in current directory (ie. on Mac systems, the "web" directory is
     # often pre-created), preventing composer from creating the project.
@@ -100,17 +100,20 @@ install_cms()
     mkdir -p "$setup_dir"
     # Create temporary setup directory and prepare Drupal download settings.
     printf "\nGenoring template: $genoring_template $genoring_template_version\n" >>"$setup_log"
+    # For Composer debugging:
+    # printf "DEBUG\n"; while :; do sleep 60; done
     if (cd "$setup_dir" && composer create-project --no-interaction --no-install -s $stability $genoring_template . $genoring_template_version 2>&1 | tee -a "$setup_log"); then
       if [ -d "/opt/drupal/web" ] && [ "$(stat -c %u /opt/drupal/web)" != "$(id -u)" ]; then
         printf "WARNING: /opt/drupal/web exists. Trying to change owner.\n" >>"$setup_log"
         sudo /opt/genoring/genoring_root.sh base_permissions >>"$setup_log" 2>&1
       fi
       # Move silently project files to the expected Drupal project directory.
-      rsync -a --exclude="$setup_dir" "$setup_dir/" ./ >>"$setup_log" 2>&1
+      rsync -a --exclude="$setup_dir" "$setup_dir/" /opt/drupal/ >>"$setup_log" 2>&1
       rm -rf "$setup_dir"
       log "rsync done."
-      printf "Files:\n------\n" >>"$setup_log"
+      printf -- "--------------------------------------------------------------------------------\nDrupal directory (post-composer):\n---------------------------------\n" >>"$setup_log"
       ls -la . >>"$setup_log"
+      printf -- "--------------------------------------------------------------------------------\n" >>"$setup_log"
       log "* Add drush..."
       composer require --no-interaction --no-install "drush/drush" 2>&1 | tee -a "$setup_log"
       log "* Add GenoRing recipe..."
@@ -130,23 +133,28 @@ install_cms()
 
   # Install Drupal files.
   log "* Downloading Drupal..."
-  printf "composer.json:\n--------------\n" >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\ncomposer.json:\n--------------\n" >>"$setup_log"
   cat composer.json >>"$setup_log"
-  printf "Install:\n--------\n" >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\nInstall:\n--------\n" >>"$setup_log"
   composer install --no-interaction --ignore-platform-reqs 2>&1 | tee -a "$setup_log"
-  if [ $? -gt 0 ]; then
+  if [ ${PIPESTATUS[0]} -gt 0 ]; then
     log "...ERROR!"
     log_error "ERROR: Failed to download Drupal!"
     exit 1
   fi
 
   # Prepare file system.
-  if [ -e ./web/sites ] && [ -e ./web/modules ] && [ -e ./web/themes ]; then
-    mkdir -p config
+  if [ -e /opt/drupal/web/sites ] && [ -e /opt/drupal/web/modules ] && [ -e /opt/drupal/web/themes ]; then
+    mkdir -p /opt/drupal/config/sync /opt/drupal/web/sites/default/files
     ln -s /data private
     sudo /opt/genoring/genoring_root.sh drupal_permissions
     mkdir -p /data/genoring /data/upload
     chmod -R ugo+rw /data/genoring /data/upload
+    printf "\n--------------------------------------------------------------------------------\nDrupal directory (post-FS):\n---------------------------\n" >>"$setup_log"
+    ls -la . >>"$setup_log"
+    printf "\nData directory:\n---------------\n" >>"$setup_log"
+    ls -la /data/ >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\n" >>"$setup_log"
   else
     log "  ...ERROR!"
     log_error "ERROR: Installation process seems to have failed (expected web directories are missing)!"
@@ -167,15 +175,15 @@ install_cms()
 # Setup PHP.
 setup_php()
 {
-  if [ ! -e ./php/php.ini ]; then
+  if [ ! -e /opt/drupal/php/php.ini ]; then
     log "Setup PHP config..."
-    mkdir -p ./php/drush
-    cp "$PHP_INI_DIR/php.ini-drupal" ./php/php.ini
-    printf "memory_limit=2048M\nmax_execution_time=900\n" > ./php/drush/drush.ini
+    mkdir -p /opt/drupal/php/drush
+    cp "$PHP_INI_DIR/php.ini-drupal" /opt/drupal/php/php.ini
+    printf "memory_limit=2048M\nmax_execution_time=900\n" > /opt/drupal/php/drush/drush.ini
     # Log php.ini.
-    printf "php.ini:\n--------\n" >>"$setup_log"
-    cat ./php/php.ini >>"$setup_log"
-    printf "# END php.ini\n\n" >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\nphp.ini:\n--------\n" >>"$setup_log"
+    cat /opt/drupal/php/php.ini >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
     log "...OK."
   fi
 }
@@ -187,62 +195,62 @@ setup_cms()
   DRUPAL_DB="${1:-$POSTGRES_DRUPAL_DB}"
 
   log "Setup Drupal..."
-  if [ ! -s ./web/sites/default/settings.php ]; then
+  if [ ! -s /opt/drupal/web/sites/default/settings.php ]; then
     log "* settings.php..."
-    cp ./web/sites/default/default.settings.php ./web/sites/default/settings.php
+    cp /opt/drupal/web/sites/default/default.settings.php /opt/drupal/web/sites/default/settings.php
     # Append some settings.
-    printf "\n\$settings['config_sync_directory'] = '../config/sync';\n\$settings['file_private_path'] = '/opt/drupal/private/';\n\n" >>./web/sites/default/settings.php
-    printf "\n\$settings['trusted_host_patterns'] = [\n" >>./web/sites/default/settings.php
+    printf "\n\$settings['config_sync_directory'] = '../config/sync';\n\$settings['file_private_path'] = '/opt/drupal/private/';\n\n" >>/opt/drupal/web/sites/default/settings.php
+    printf "\n\$settings['trusted_host_patterns'] = [\n" >>/opt/drupal/web/sites/default/settings.php
     # We must not use "printf" for $DRUPAL_TRUSTED_HOST because it complicates
     # escaping in env file, especially for "\E".
-    echo "$DRUPAL_TRUSTED_HOST" >>./web/sites/default/settings.php
-    printf "];\n\n" >>./web/sites/default/settings.php
+    echo "$DRUPAL_TRUSTED_HOST" >>/opt/drupal/web/sites/default/settings.php
+    printf "];\n\n" >>/opt/drupal/web/sites/default/settings.php
     # Append auto-include for external databases settings in "db_settings.php".
-    printf "\nif (file_exists(\$app_root . '/' . \$site_path . '/db_settings.php')) {\n  include \$app_root . '/' . \$site_path . '/db_settings.php';\n}\n\n" >>./web/sites/default/settings.php
+    printf "\nif (file_exists(\$app_root . '/' . \$site_path . '/db_settings.php')) {\n  include \$app_root . '/' . \$site_path . '/db_settings.php';\n}\n\n" >>/opt/drupal/web/sites/default/settings.php
     # Log settings.
-    printf "settings.php:\n-------------\n" >>"$setup_log"
-    cat ./web/sites/default/settings.php >>"$setup_log"
-    printf "# END settings.php\n\n" >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\nsettings.php:\n-------------\n" >>"$setup_log"
+    cat /opt/drupal/web/sites/default/settings.php >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
     log "  ...OK (settings.php)."
   fi
 
-  if [ ! -s ./web/sites/default/services.yml ]; then
+  if [ ! -s /opt/drupal/web/sites/default/services.yml ]; then
     log "* services.yml..."
-    cp ./web/sites/default/default.services.yml ./web/sites/default/services.yml
+    cp /opt/drupal/web/sites/default/default.services.yml /opt/drupal/web/sites/default/services.yml
     # Enable and configure Drupal CORS to allow REST and token authentication...
     # - enabled: true
-    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:    [^\n]+\n|\s*\n|\s*#[^\n]*\n)*)    enabled:\s*false/$1    enabled: true/smig' ./web/sites/default/services.yml
+    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:    [^\n]+\n|\s*\n|\s*#[^\n]*\n)*)    enabled:\s*false/$1    enabled: true/smig' /opt/drupal/web/sites/default/services.yml
     # - allowedHeaders: ['authorization','content-type','accept','origin','access-control-allow-origin','x-allowed-header']
-    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:\s*\n|    [^\n]+\n|    #[^\n]*\n)*)    allowedHeaders:[^\n]*/$1    allowedHeaders: ['"'"'authorization'"'"','"'"'content-type'"'"','"'"'accept'"'"','"'"'origin'"'"','"'"'access-control-allow-origin'"'"','"'"'x-allowed-header'"'"']/smig' ./web/sites/default/services.yml
+    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:\s*\n|    [^\n]+\n|    #[^\n]*\n)*)    allowedHeaders:[^\n]*/$1    allowedHeaders: ['"'"'authorization'"'"','"'"'content-type'"'"','"'"'accept'"'"','"'"'origin'"'"','"'"'access-control-allow-origin'"'"','"'"'x-allowed-header'"'"']/smig' /opt/drupal/web/sites/default/services.yml
     # - allowedMethods: ['*']
-    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:    [^\n]+\n|\s*\n|\s*#[^\n]*\n)*)    allowedMethods:[^\n]*/$1    allowedMethods: ['"'"'*'"'"']/smig' ./web/sites/default/services.yml
+    perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:    [^\n]+\n|\s*\n|\s*#[^\n]*\n)*)    allowedMethods:[^\n]*/$1    allowedMethods: ['"'"'*'"'"']/smig' /opt/drupal/web/sites/default/services.yml
     # Log services.
-    printf "services.yml:\n-------------\n" >>"$setup_log"
-    cat ./web/sites/default/services.yml >>"$setup_log"
-    printf "# END services.yml\n\n" >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\nservices.yml:\n-------------\n" >>"$setup_log"
+    cat /opt/drupal/web/sites/default/services.yml >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
     log "  ...OK (services.yml)."
   fi
 
-  if [ ! -e ./web/sites/default/db_settings.php ]; then
+  if [ ! -e /opt/drupal/web/sites/default/db_settings.php ]; then
     log "* db_settings.php..."
-    cp /opt/genoring/db_settings.template.php ./web/sites/default/db_settings.php
+    cp /opt/genoring/db_settings.template.php /opt/drupal/web/sites/default/db_settings.php
     # Log DB settings.
-    printf "db_settings.php:\n----------------\n" >>"$setup_log"
-    cat ./web/sites/default/db_settings.php >>"$setup_log"
-    printf "# END db_settings.php\n\n" >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\ndb_settings.php:\n----------------\n" >>"$setup_log"
+    cat /opt/drupal/web/sites/default/db_settings.php >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
     log "  ...OK (db_settings.php)."
   fi
 
   # Install Drupal.
   log "* Initializing Drupal..."
-  mkdir -p /opt/drupal/config /opt/drupal/web/sites/default/files
   # Allow setting update by Drupal installation process.
   # Permissions will be automatically reset after installation.
-  chmod uog+w ./web/sites/default/settings.php ./web/sites/default/db_settings.php
-  printf "Default site directory:\n-----------------------\n" >>"$setup_log"
-  ls -la ./web/sites/default >>"$setup_log"
-  printf "Drush command: drush -y site:install recipes/genoring_recipe --db-url=\"pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\" --account-mail=\"$DRUPAL_USER_MAIL\" --account-name=\"$DRUPAL_USER\" --account-pass=\"$DRUPAL_PASSWORD\" --site-mail=\"$DRUPAL_SITE_MAIL\" --site-name=\"$DRUPAL_SITE_NAME\"\n" >>"$setup_log"
-  # For debugging:
+  chmod uog+w /opt/drupal/web/sites/default/settings.php /opt/drupal/web/sites/default/db_settings.php /opt/drupal/web/sites/default/files
+  printf -- "--------------------------------------------------------------------------------\nDefault site directory:\n-----------------------\n" >>"$setup_log"
+  ls -la /opt/drupal/web/sites/default >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
+  printf "Drush command: drush -y site:install recipes/genoring_recipe --db-url=\"pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\" --account-mail=\"$DRUPAL_USER_MAIL\" --account-name=\"$DRUPAL_USER\" --account-pass=\"$DRUPAL_PASSWORD\" --site-mail=\"$DRUPAL_SITE_MAIL\" --site-name=\"$DRUPAL_SITE_NAME\"\n\n" >>"$setup_log"
+  # For Drupal install debugging:
   # printf "DEBUG\n"; while :; do sleep 60; done
   drush -y site:install recipes/genoring_recipe \
     --db-url="pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB" \
@@ -251,7 +259,7 @@ setup_cms()
     --account-pass="$DRUPAL_PASSWORD" \
     --site-mail="$DRUPAL_SITE_MAIL" \
     --site-name="$DRUPAL_SITE_NAME" 2>&1 | tee -a "$setup_log"
-  if [ $? -gt 0 ]; then
+  if [ ${PIPESTATUS[0]} -gt 0 ]; then
     log "  ...ERROR!"
     log_error "ERROR: Failed to initialize Drupal!\npgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB"
     exit 1
@@ -264,25 +272,32 @@ setup_cms()
   sudo /opt/genoring/genoring_root.sh www_permissions
   # Allow back user to write in default and settings.php as the proxy is not
   # running with the same user and will not have write access to those.
-  chmod og-w,u+w ./web/sites/default ./web/sites/default/settings.php
+  chmod og-w,u+w /opt/drupal/web/sites/default /opt/drupal/web/sites/default/settings.php /opt/drupal/web/sites/default/db_settings.php
   log "  ...OK (file system)."
 
   # Externalize database credentials.
   log "* Separate database credentials from global settings..."
-  printf "Current settings.php:\n---------------------\n" >>"$setup_log"
-  cat ./web/sites/default/settings.php >>"$setup_log"
-  printf "# END Current settings.php\n\n" >>"$setup_log"
-  printf "Capture:\n--------\n" >>"$setup_log"
-  perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' ./web/sites/default/settings.php >>"$setup_log"
-  perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' ./web/sites/default/settings.php >> ./web/sites/default/db_settings.php
-  perl -pi -e 'BEGIN{undef $/;} s/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)//smig' ./web/sites/default/settings.php
-  printf "Updated settings.php:\n-------------\n" >>"$setup_log"
-  cat ./web/sites/default/settings.php >>"$setup_log"
-  printf "# END Updated settings.php\n\n" >>"$setup_log"
-  printf "Updated db_settings.php:\n----------------\n" >>"$setup_log"
-  cat ./web/sites/default/db_settings.php >>"$setup_log"
-  printf "# END Updated db_settings.php\n\n" >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\nCurrent settings.php:\n---------------------\n" >>"$setup_log"
+  cat /opt/drupal/web/sites/default/settings.php >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
+  # Log $database settings detection.
+  printf "DB settings capture:\n--------------------\n" >>"$setup_log"
+  perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' /opt/drupal/web/sites/default/settings.php >>"$setup_log"
+  printf "\n--------------------------------------------------------------------------------\n" >>"$setup_log"
+  # Proceed.
+  perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' /opt/drupal/web/sites/default/settings.php >> /opt/drupal/web/sites/default/db_settings.php
+  perl -pi -e 'BEGIN{undef $/;} s/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)//smig' /opt/drupal/web/sites/default/settings.php
+  printf "Updated settings.php:\n---------------------\n" >>"$setup_log"
+  cat /opt/drupal/web/sites/default/settings.php >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\n\nUpdated db_settings.php:\n------------------------\n" >>"$setup_log"
+  cat /opt/drupal/web/sites/default/db_settings.php >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
   log "  ...OK (database credentials)."
+
+  # Log FS.
+  printf -- "--------------------------------------------------------------------------------\nDefault site directory (post-config):\n-------------------------------------\n" >>"$setup_log"
+  ls -la /opt/drupal/web/sites/default >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
 
   log "...OK (Drupal setup)."
 }
@@ -315,7 +330,7 @@ update_cms()
       log "...ERROR!"
       log_error "ERROR: Drupal update failed! Restoring backup..."
       drush -y archive:restore /backups/preupdate_backup.tar.gz
-      rm -rf ./vendor
+      rm -rf /opt/drupal/vendor
       composer install
       rm -f "$disable_healthcheck"
       log "...OK (restoring)."
@@ -330,7 +345,7 @@ start_genoring()
 {
   log "[Start GenoRing]"
   # Check if Drupal should be installed.
-  if [ ! -e ./web/index.php ]; then
+  if [ ! -e /opt/drupal/web/index.php ]; then
     install_cms
   else
     log "* Drupal already downloaded."
@@ -377,8 +392,8 @@ start_genoring()
 
   # Make sure we removed offline file if not in offline mode.
   if [ -z $COMPOSE_PROFILES ] || [ $COMPOSE_PROFILES != 'offline' ]; then
-    if [ -e ./web/offline.html ]; then
-      rm -f ./web/offline.html
+    if [ -e /opt/drupal/web/offline.html ]; then
+      rm -f /opt/drupal/web/offline.html
     fi
   fi
 

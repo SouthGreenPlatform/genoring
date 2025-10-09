@@ -37,6 +37,8 @@ use File::Path qw( make_path remove_tree );
 use File::Spec;
 use Time::Piece;
 
+# No buffering.
+$| = 1;
 
 
 
@@ -537,7 +539,7 @@ B<Return>: (nothing)
 
 sub GetDiagosticLogs {
   # Provides diagnostic log.
-  print '-' x 80 . "\nGenoring command: $0 " . join(' ', @ARGV) . "\n";
+  print '' . ('-' x 80) . "\nGenoring command: $0 " . join(' ', @ARGV) . "\n";
   # @todo Add environment variables.
   print qx($Genoring::DOCKER_COMMAND -v 2>&1);
   print qx($Genoring::DOCKER_COMPOSE_COMMAND version 2>&1);
@@ -546,7 +548,7 @@ sub GetDiagosticLogs {
   print qx($Genoring::DOCKER_COMMAND ps 2>&1);
   print "\n" . ('-' x 80) . "\n";
   print qx($Genoring::DOCKER_COMMAND volume ls 2>&1);
-  print "\n" . ('-' x 80) . "\nConfig file:\n";
+  print "\n" . ('-' x 80) . "\nConfig file:\n------------\n";
   if (open(my $fh, '<', 'config.yml')) {
     print do { local $/; <$fh> };
     close($fh);
@@ -554,7 +556,7 @@ sub GetDiagosticLogs {
   else {
     print "Could not open config.yml: $!";
   }
-  print "\n" . ('-' x 80) . "\nDocker compose file:\n";
+  print "\n" . ('-' x 80) . "\nDocker compose file:\n--------------------\n";
   if (open(my $fh, '<', 'docker-compose.yml')) {
     print do { local $/; <$fh> };
     close($fh);
@@ -562,15 +564,16 @@ sub GetDiagosticLogs {
   else {
     print "Could not open docker-compose.yml: $!";
   }
-  print "\n" . ('-' x 80) . "\nSetup logs:\n";
+  print "\n" . ('-' x 80) . "\nSetup logs:\n-----------\n";
   print Run(
     "$Genoring::DOCKER_COMMAND run -v " . GetVolumeName('genoring-drupal-volume') . ":/opt/drupal " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm genoring /usr/bin/cat /opt/drupal/genoring_setup.log",
     "Failed to get diagnostic log!",
     0,
     0
   );
-  print "\n" . ('-' x 80) . "\nDocker compose logs:\n";
+  print "\n" . ('-' x 80) . "\nDocker compose logs:\n--------------------\n\n";
   GetLogs();
+  print "\n" . ('-' x 80) . "\n";
 }
 
 
