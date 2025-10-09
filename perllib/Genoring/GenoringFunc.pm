@@ -537,7 +537,7 @@ B<Return>: (nothing)
 
 sub GetDiagosticLogs {
   # Provides diagnostic log.
-  print '-' x 80 . "Genoring command: $0 " . join(' ', @ARGV) . "\n";
+  print '-' x 80 . "\nGenoring command: $0 " . join(' ', @ARGV) . "\n";
   # @todo Add environment variables.
   print qx($Genoring::DOCKER_COMMAND -v 2>&1);
   print qx($Genoring::DOCKER_COMPOSE_COMMAND version 2>&1);
@@ -1113,7 +1113,7 @@ sub SetupGenoringEnvironment {
 
   # @todo Only display if there are new environment files to setup.
   print <<"___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___";
-To continue, you will be asked to provide values for some setting variables for
+To continue, you may be asked to provide values for some setting variables for
 each module.
 ___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___
 
