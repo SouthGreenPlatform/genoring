@@ -171,7 +171,11 @@ sub Run {
   }
   else {
     if ($g_debug) {
-      open(my $pipe, '-|', "$g_exec_prefix $command")
+      my $full_command = "$g_exec_prefix $command";
+      $full_command =~ s/^\s+|\s+$//g;
+      my @command_array = ($full_command =~ /(".*?"|\S+)/g);
+      @command_array = map { s/^"(.*)"$/$1/g; $_ } @command_array;
+      open(my $pipe, '-|', @command_array)
         or die("Can't launch child: $!\n");
       while (defined(my $line = <$pipe>)) {
         $output .= $line;
@@ -243,7 +247,10 @@ sub CheckGenoringUser {
       && ($g_exec_prefix !~ m/^sudo /)
       && !Confirm("You are trying manage current GenoRing instance with a different account than the one used to setup that instance. This may lead to generation of files and directories with incorrect owner and permissions.\nContinue anyway with current user?")
   ) {
-    if ((0 == $>)
+    # @todo Check equivalents on Windows and Mac systems.
+    # Check if root with sudo capabilities.
+    if (('Unix' eq GetOs())
+        && (0 == $>)
         && (system('sudo -V >/dev/null 2>&1') == 0)
         && Confirm("You are logged in as root. Do you want to automatically switch to the account used to setup GenoRing?")
     ) {
@@ -5579,7 +5586,7 @@ sub ExportVolume
       # "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $ENV{'GENORING_VOLUMES_DIR'}:/backup alpine sh -c \"tar -czvf /backup/$backup_name -C /volume/ . && chown \\$(stat -c '%u:%g' /backup) /backup/$backup_name\"",
       "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $ENV{'GENORING_VOLUMES_DIR'}:/backup alpine sh -c \"tar -czvf /backup/$backup_name -C /volume/ .\"",
       "Failed to export Docker volume '$volume'.",
-      1,
+      0,
       0
     );
     # @todo For Linux systems, adjust file permissions.
