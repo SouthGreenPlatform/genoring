@@ -25,7 +25,7 @@ GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
 GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
 GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig
 GetModuleServices GetModuleVolumes GetOs GetProfile GetProjectName
-GetServices GetState GetStatus GetVolumeName GetVolumes
+GetServices GetState GetStatus GetVolumeName GetVolumes ImportIntoVolume
 HandleShellExecutionError InitGenoringUser InstallModule IsContainerRunning
 ListAlternatives ParseDependencies PerformContainerOperations
 PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
@@ -64,7 +64,7 @@ our @EXPORT =
     GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
     GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig
     GetModuleServices GetModuleVolumes GetOs GetProfile GetProjectName
-    GetServices GetState GetStatus GetVolumeName GetVolumes
+    GetServices GetState GetStatus GetVolumeName GetVolumes ImportIntoVolume
     HandleShellExecutionError InitGenoringUser InstallModule IsContainerRunning
     ListAlternatives ParseDependencies PerformContainerOperations
     PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles

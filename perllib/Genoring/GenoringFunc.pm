@@ -36,6 +36,7 @@ use File::Copy;
 use File::Path qw( make_path remove_tree );
 use File::Spec;
 use Time::Piece;
+use Cwd qw(abs_path);
 
 # No buffering.
 $| = 1;
@@ -5567,21 +5568,99 @@ B<Return>: (nothing)
 
 sub ExportVolume
 {
-  my ($volume) = @_;
+  my ($volume, $backup_name) = @_;
   my $available_volumes = GetVolumes();
   if ($volume && exists($available_volumes->{$volume})) {
-    my $backup_name = localtime->strftime($volume . '_%Y%d%mT%H%M.tar.gz');
+    $backup_name ||= localtime->strftime($volume . '_%Y%d%mT%H%M.tar.gz');
     print "Exporting volume '$volume' to '$ENV{'GENORING_VOLUMES_DIR'}/$backup_name'. Please wait, it may take some time...\n";
+    my $real_volume = GetVolumeName($volume);
+    # Note: we double-quote docker container sh command for DOS compatibility.
     Run(
-      "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $ENV{'GENORING_VOLUMES_DIR'}:/backup alpine sh -c 'tar -czvf /backup/$backup_name -C /volume . && chown \$(stat -c \"%u:%g\" /backup) /backup/$backup_name'",
+      # "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $ENV{'GENORING_VOLUMES_DIR'}:/backup alpine sh -c \"tar -czvf /backup/$backup_name -C /volume/ . && chown \\$(stat -c '%u:%g' /backup) /backup/$backup_name\"",
+      "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $ENV{'GENORING_VOLUMES_DIR'}:/backup alpine sh -c \"tar -czvf /backup/$backup_name -C /volume/ .\"",
       "Failed to export Docker volume '$volume'.",
       1,
       0
     );
+    # @todo For Linux systems, adjust file permissions.
     print "Volume '$volume' exported to '$ENV{'GENORING_VOLUMES_DIR'}/$backup_name'.\n";
   }
   else {
     die "ERROR: ExportVolume: Unknown volume '$volume'!\n";
+  }
+}
+
+
+=pod
+
+=head2 ImportIntoVolume
+
+B<Description>: Import a tar.gz file or a directory to a Docker named volume.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $volume: (string) (R)
+
+  The name of the Docker volume.
+
+=item $volume: (string) (R)
+
+  The name of the tar.gz file or the directory to import in the volume.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ImportIntoVolume
+{
+  my ($volume, $source) = @_;
+  if (!$source) {
+    die "ERROR: ImportIntoVolume: Missing source!\n";
+  }
+  elsif (!-r $source) {
+    die "ERROR: ImportIntoVolume: Source '$source' is not readable!\n";
+  }
+  elsif (!(-f $source || -d $source)) {
+    die "ERROR: ImportIntoVolume: Invalid source '$source' (not a file or a directory)!\n";
+  }
+
+  my $available_volumes = GetVolumes();
+  if ($volume && exists($available_volumes->{$volume})) {
+    print "Importing '$source' into volume '$volume'. Please wait, it may take some time...\n";
+    my $real_volume = GetVolumeName($volume);
+    # Docker requires absolute path for file system mounting.
+    if (my $abs_source = abs_path($source)) {
+      # Note: we double-quote docker container sh command for DOS compatibility.
+      if (-d $source) {
+        # Directory.
+        Run(
+          "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $abs_source:/import alpine sh -c \"cp -rfT /import/ /volume/\"",
+          "Failed to import directory '$source' into Docker volume '$volume'.",
+          0,
+          0
+        );
+      }
+      else {
+      # Archive file.
+        Run(
+          "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume --mount type=bind,source=$abs_source,target=/import/backup.tar.gz alpine sh -c \"tar -xzvf /import/backup.tar.gz -C /volume/\"",
+          "Failed to import archive '$source' into Docker volume '$volume'.",
+          0,
+          0
+        );
+      }
+    }
+    else {
+      die "ERROR: ImportIntoVolume: Unable to determine '$source' absolute path!\n";
+    }
+    print "Imported successfully.\n";
+  }
+  else {
+    die "ERROR: ImportIntoVolume: Unknown volume '$volume'!\n";
   }
 }
 

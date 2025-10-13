@@ -26,7 +26,9 @@ Syntax:
   | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-no-cache]
-  | shell [SERVICE] [-cmd=<COMMAND>] ] | export <VOLUME>
+  | shell [SERVICE] [-cmd=<COMMAND>] ]
+  | exportvol <VOLUME> [ARCHIVE.tar.gz]
+  | importvol <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-wait-ready[=DELAYSEC]]
   [-yes|-no] [-verbose] [-hide-compile]
@@ -258,10 +260,16 @@ Launches a bash shell in the main GenoRing container (the CMS container). If
 SERVICE is specified, the corresponding service container will be used instead.
 If COMMAND is specified, that command will be used instead of "bash".
 
-=item B<export [VOLUME]>:
+=item B<exportvol [VOLUME] [ARCHIVE.tar.gz]>:
 
-Exports the given Docker named volume to a tar.gz file in the "volumes"
-directory.
+Exports the given Docker named volume to a tar.gz file in the GenoRing "volumes"
+directory. An optional archive name can be provided by ARCHIVE.tar.gz,
+otherwise a new name is generated (using "[volume name]_[date].tar.gz").
+
+=item B<importvol [VOLUME] [ARCHIVE.tar.gz | DIRECTORY]>:
+
+Imports the given tar.gz archive file or directory into the given Docker named
+volume.
 
 =back
 
@@ -697,8 +705,11 @@ elsif ($command =~ m/^localhooks$/i) {
 elsif ($command =~ m/^containerhooks$/i) {
   ApplyContainerHooks(@arguments);
 }
-elsif ($command =~ m/^export$/i) {
+elsif ($command =~ m/^exportvol$/i) {
   ExportVolume(@arguments);
+}
+elsif ($command =~ m/^importvol$/i) {
+  ImportIntoVolume(@arguments);
 }
 else {
   warn "ERROR: Invalid command '$command'.\n\n" if $command;
