@@ -6,32 +6,37 @@
 
 genoring.pl - Manages GenoRing platform.
 
-=head1 SYNOPSIS
+=head1 USAGE
 
-  ./genoring.pl start
-  ./genoring.pl stop
+=head2 Syntax
 
-Multi-instances:
-  COMPOSE_PROJECT_NAME=instance_name ./genoring.pl start
-
-Syntax:
-
-  perl genoring.pl [help | man | start | stop | online | offline | backend
-  | logs [-f] | status
+  perl genoring.pl [help [command | flag] | man
+  | start | stop | online | offline | backend | logs [-f] | status
   | modules | services | volumes | alternatives <MODULE> | moduleinfo <MODULE>
   | setup [-auto | -minimal] [-reset]
   | reset [-f] [-delete-containers] [-keep-env]
   | enable <MODULE> | disable <MODULE> | uninstall <MODULE> [-keep-env]
   | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
-  | tolocal <SERVICE> <IP> | todocker <SERVICE [ALTERNATIVE]>
+  | tolocal <SERVICE> <IP> | todocker <SERVICE> [ALTERNATIVE]
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-no-cache]
   | shell [SERVICE] [-cmd=<COMMAND>] ]
   | exportvol <VOLUME> [ARCHIVE.tar.gz]
   | importvol <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
+  | version [MODULE] [-all | -update]
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-wait-ready[=DELAYSEC]]
   [-yes|-no] [-verbose] [-hide-compile]
+
+=head2 Example
+
+  ./genoring.pl start
+  ./genoring.pl stop
+
+Multi-instances:
+  COMPOSE_PROJECT_NAME=instance_name ./genoring.pl start -port 8888
+
+Use "man" for more details.
 
 =head1 REQUIRES
 
@@ -99,76 +104,179 @@ $Genoring::MODULES_DIR = File::Spec->catfile($Genoring::GENORING_DIR, 'modules')
 
 =head1 OPTIONS
 
-* Commands:
+=head2 COMMANDS
 
-=over 4
 
-=item B<help>:
+=head3 help
+
+=head4 Syntax
+
+  ./genoring.pl help
+
+=head4 Description
 
 Display help and exits.
 
-=item B<man>:
-->
+
+=head3 man
+
+=head4 Syntax
+
+  ./genoring.pl man
+
+=head4 Description
+
 Prints the manual page and exits.
 
-=item B<start>:
+
+=head3 start
+
+=head4 Syntax
+
+  ./genoring.pl start
+
+=head4 Description
 
 Starts GenoRing. For the first start, GenoRing is installed and initialized.
 
-=item B<stop>:
+
+=head3 stop
+
+=head4 Syntax
+
+  ./genoring.pl stop
+
+=head4 Description
 
 Stops GenoRing.
 
-=item B<online>:
+
+=head3 online
+
+=head4 Syntax
+
+  ./genoring.pl online
+
+=head4 Description
 
 Alias for "start". Starts GenoRing in "online" mode.
 
-=item B<offline>:
+
+=head3 offline
+
+=head4 Syntax
+
+  ./genoring.pl offline
+
+=head4 Description
 
 Starts GenoRing in "offline" mode, meaning that the web site displays a
 maintenance message and returns a 503 HTTP status code. The administration
 interface is not accessible and no web services are available.
 
-=item B<backend>:
+
+=head3 backend
+
+=head4 Syntax
+
+  ./genoring.pl backend
+
+=head4 Description
 
 Starts GenoRing in "backend" mode, meaning that the site is accessible but
 displays a maintenance page and no services are available. The admin users can
 still login and access the administration interface.
 
-=item B<logs [-f]>:
+
+=head3 logs
+
+=head4 Syntax
+
+  ./genoring.pl logs [-f]
+
+=head4 Description
 
 Display container logs. If the "-f" flag is used, logs are displayed in "follow"
 mode (updated live until the GenoRing script is stopped).
 
-=item B<status>:
+
+=head3 status
+
+=head4 Syntax
+
+  ./genoring.pl status
+
+=head4 Description
 
 Display current GenoRing status (ie. "running", "not running", "offline mode",
 ...).
 
-=item B<modules [0|1]>:
+
+=head3 modules
+
+=head4 Syntax
+
+  ./genoring.pl modules [0|1]
+
+=head4 Description
 
 Displays all available modules by default. If 0 is used, only disabled modules
 are listed and if 1 is used, only enabled modules are listed.
 
-=item B<services>:
+
+=head3 services
+
+=head4 Syntax
+
+  ./genoring.pl services
+
+=head4 Description
 
 Displays the list of GenoRing services with their corresponding (enabled)
 modules.
 
-=item B<volumes>:
+
+=head3 volumes
+
+=head4 Syntax
+
+  ./genoring.pl volumes
+
+=head4 Description
 
 Displays the list of GenoRing volumes with their corresponding (enabled)
 modules.
 
-=item B<alternatives MODULE>:
+
+=head3 alternatives
+
+=head4 Syntax
+
+  ./genoring.pl alternatives <MODULE>
+
+=head4 Description
 
 Displays the list of service alternatives for a given module.
 
-=item B<moduleinfo MODULE>:
+
+=head3 moduleinfo
+
+=head4 Syntax
+
+  ./genoring.pl moduleinfo <MODULE>
+
+=head4 Description
 
 Displays information on the given module.
 
-=item B<setup [-auto | -minimal] [-reset]>:
+
+=head3 setup
+
+=head4 Syntax
+
+  ./genoring.pl setup [-auto | -minimal] [-reset]
+
+=head4 Description
 
 Setups GenoRing environment and regenerates Docker Compose file.
 If '-auto' flag is used, all current or default settings are used. If '-minimal'
@@ -176,57 +284,134 @@ flag is used, only non-optional environment values will be asked. If '-reset'
 flag is used, current environment files are removed and need to be fully
 regenerated.
 
-=item B<reset [-f] [-delete-containers] [-keep-env]>:
+
+=head3 reset
+
+=head4 Syntax
+
+  ./genoring.pl reset [-f] [-delete-containers] [-keep-env]
+
+=head4 Description
 
 Reinitializes GenoRing system and removes everything (except backups) to restart
 GenoRing from scratch. If the '-f' flag is used, no confirmation is asked. If
 the '-delete-containers' flag is used, compiled containers are also removed.
 If '-keep-env' is used, current environment files are kept.
 
-=item B<enable MODULE>:
+
+=head3 enable
+
+=head4 Syntax
+
+  ./genoring.pl enable <MODULE>
+
+=head4 Description
 
 Installs and enables the given GenoRing module.
 
-=item B<disable MODULE>:
+
+=head3 disable
+
+=head4 Syntax
+
+  ./genoring.pl disable <MODULE>
+
+=head4 Description
 
 Disables the given GenoRing module.
 
-=item B<uninstall MODULE [-keep-env]>:
+
+=head3 uninstall
+
+=head4 Syntax
+
+  ./genoring.pl uninstall <MODULE> [-keep-env]
+
+=head4 Description
 
 Uninstalls the given GenoRing module. If -keep-env flag is used, settings are
 not removed.
 
-=item B<enalt MODULE SERVICE>:
+
+=head3 enalt
+
+=head4 Syntax
+
+  ./genoring.pl enalt <MODULE> <SERVICE>
+
+=head4 Description
 
 Enables the given GenoRing module service alternative.
 
-=item B<disalt MODULE SERVICE>:
+
+=head3 disalt
+
+=head4 Syntax
+
+  ./genoring.pl disalt <MODULE> <SERVICE>
+
+=head4 Description
 
 Disables the given GenoRing module service alternative and put back the default
 service.
 
-=item B<tolocal SERVICE IP>:
+
+=head3 tolocal
+
+=head4 Syntax
+
+  ./genoring.pl tolocal <SERVICE> <IP>
+
+=head4 Description
 
 Turns a Docker service SERVICE into a local service provided by the given IP.
 
-=item B<todocker SERVICE [ALTERNATIVE]>:
+
+=head3 todocker
+
+=head4 Syntax
+
+  ./genoring.pl todocker <SERVICE> [ALTERNATIVE]
+
+=head4 Description
 
 Puts back the given Docker service that was replaced by a local service. If
 ALTERNATIVE is specified, the given service alternative will be used.
 
-=item B<backup [BACKUP_NAME [MODULE]]>:
+
+=head3 backup
+
+=head4 Syntax
+
+  ./genoring.pl backup [BACKUP_NAME [MODULE]]
+
+=head4 Description
 
 Performs a general backup of the GenoRing system into a backup directory
 (volumes/backups/[BACKUP_NAME]/) or a backup of the given module data and config
 (in volumes/backups/[BACKUP_NAME]/[MODULE]/).
 
-=item B<restore [BACKUP_NAME [MODULE]]>:
+
+=head3 restore
+
+=head4 Syntax
+
+  ./genoring.pl restore [BACKUP_NAME [MODULE]]
+
+=head4 Description
 
 Restores a general backup of the GenoRing system from the backup directory
 (volumes/backups/[BACKUP_NAME]/) or from a backup of the given module
 (in volumes/backups/[BACKUP_NAME]/[MODULE]/).
 
-=item B<update>:
+
+=head3 update
+
+=head4 Syntax
+
+  ./genoring.pl update
+
+=head4 Description
 
 Updates GenoRing or a given GenoRing module. "Update" will update the software
 and the data managed by GenoRing or the given module. "update" deals with what
@@ -235,7 +420,14 @@ of the GenoRing module: for instance, "updating" GenoRing core will update
 Drupal modules while upgrading will change the version of GenoRing used which
 may bring new features or a different behavior of the GenoRing platform.
 
-=item B<upgrade>:
+
+=head3 upgrade
+
+=head4 Syntax
+
+  ./genoring.pl upgrade
+
+=head4 Description
 
 Upgrade GenoRing or a given GenoRing module. "Upgrade" will upgrade
 GenoRing core and its modules or the given GenoRing module to a newer version.
@@ -245,7 +437,14 @@ of the GenoRing module: for instance, "updating" GenoRing core will update
 Drupal modules while upgrading will change the version of GenoRing used which
 may bring new features or a different behavior of the GenoRing platform.
 
-=item B<compile MODULE SERVICE [-arm[=ARCH]] [-no-cache]>:
+
+=head3 compile
+
+=head4 Syntax
+
+  ./genoring.pl compile <MODULE> <SERVICE> [-arm[=ARCH]] [-no-cache]
+
+=head4 Description
 
 Compiles the Docker container corresponding to the given module service if
 sources are available. For ARM systems, you must use the "-arm" flag. It is also
@@ -254,46 +453,105 @@ possible to provide a specific ARM architecture (ARCH). If a source
 parameter) and if not, it will be generated (either using the ARCH architecture
 or the default 'linux/arm64' architecture).
 
-=item B<shell [SERVICE] [-cmd=COMMAND]>:
+
+=head3 shell
+
+=head4 Syntax
+
+  ./genoring.pl shell [SERVICE] [-cmd=<COMMAND>]
+
+=head4 Description
 
 Launches a bash shell in the main GenoRing container (the CMS container). If
 SERVICE is specified, the corresponding service container will be used instead.
 If COMMAND is specified, that command will be used instead of "bash".
 
-=item B<exportvol [VOLUME] [ARCHIVE.tar.gz]>:
+
+=head3 exportvol
+
+=head4 Syntax
+
+  ./genoring.pl exportvol <VOLUME> [ARCHIVE.tar.gz]
+
+=head4 Description
 
 Exports the given Docker named volume to a tar.gz file in the GenoRing "volumes"
 directory. An optional archive name can be provided by ARCHIVE.tar.gz,
 otherwise a new name is generated (using "[volume name]_[date].tar.gz").
 
-=item B<importvol [VOLUME] [ARCHIVE.tar.gz | DIRECTORY]>:
+
+=head3 importvol
+
+=head4 Syntax
+
+  ./genoring.pl importvol <VOLUME> [ARCHIVE.tar.gz | DIRECTORY]
+
+=head4 Description
 
 Imports the given tar.gz archive file or directory into the given Docker named
 volume.
 
-=back
 
-* Global flags:
+=head3 version
 
-=over 4
+=head4 Syntax
 
-=item B<-port=HTTP_PORT>:
+  ./genoring.pl version [MODULE] [-all | -update]
+
+=head4 Description
+
+Displays current GenorRing version. If MODULE is specified, displays the current
+module version. If "-update" flag is used, displays the most recent available
+version. If "-all" flag is used, displays all avaiable versions.
+
+
+
+=head2 GLOBAL FLAGS
+
+=head3 -port
+
+=head4 Syntax
+
+  ... -port=<HTTP_PORT> ...
+
+=head4 Description
 
 Specifies the HTTP port to use. Default: 8080.
 
-=item B<-arm[=ARCH]>:
+
+=head3 -arm
+
+=head4 Syntax
+
+  ... -arm[=ARCH] ...
+
+=head4 Description
 
 Use ARM versions for Docker compilation when available or run on ARM
 architectures. You may specify an architecture, for example: "-arm=linux/arm64".
 Default architecture is "linux/arm64". Using this flag excludes the "-platform"
 flag.
 
-=item B<-platform=ARCH>:
+
+=head3 -platform
+
+=head4 Syntax
+
+  ... -platform=<ARCH> ...
+
+=head4 Description
 
 Use the given architecture for Docker compilation and execution. This flag can
 not be used in conjunction with the "-arm" flag.
 
-=item B<-wait-ready=DELAYSEC>:
+
+=head3 -wait-ready
+
+=head4 Syntax
+
+  ... -wait-ready[=DELAYSEC] ...
+
+=head4 Description
 
 Maximum waiting time in seconds to wait for system to be ready. If the system is
 not ready during this time, genoring.pl script will just stop and let know the
@@ -305,42 +563,94 @@ sometimes, some docker services are never ready because of an error and the
 given delay ensure GenoRing ends gracefully and gives back the hand to the admin
 in such cases in reasonable time.
 
-=item B<-no-exposed-volumes>:
+
+=head3 -no-exposed-volumes
+
+=head4 Syntax
+
+  ... -no-exposed-volumes ...
+
+=head4 Description
 
 Disables Docker exposed named (shared) volumes. Must be used at installation
 time to be stored in config and used every time.
 
-=item B<-exposed-volumes>:
+
+=head3 -exposed-volumes
+
+=head4 Syntax
+
+  ... -exposed-volumes ...
+
+=head4 Description
 
 Forces Docker to use exposed named (shared) volumes. Must be used at
 installation time to be stored in config and used every time.
 
-=item B<-no-backup>:
+
+=head3 -no-backup
+
+=head4 Syntax
+
+  ... -no-backup ...
+
+=head4 Description
 
 Disables the use of automatic backups when performing site operations such as
 modifying modules.
 
-=item B<-yes | -no>:
 
-Automatically answers confirmations with the selected answer (ie. 'yes' or
-'no').
+=head3 -no
 
-=item B<-hide-compile>:
+=head4 Syntax
+
+  ... -no ...
+
+=head4 Description
+
+Automatically answers confirmations with 'no'. '-no' and '-yes' are mutually
+exclusive flags.
+
+
+=head3 -yes
+
+=head4 Syntax
+
+  ... -yes ...
+
+=head4 Description
+
+Automatically answers confirmations with 'yes'. '-no' and '-yes' are mutually
+exclusive flags.
+
+
+=head3 -hide-compile
+
+=head4 Syntax
+
+  ... -hide-compile ...
+
+=head4 Description
 
 Use this flag to hide missing container compilation details.
 
-=item B<-debug>:
+
+=head3 -debug
+
+=head4 Syntax
+
+  ... -debug ...
+
+=head4 Description
 
 Enables debug mode.
-
-=back
 
 =cut
 
 # Get configuration.
 my $config = GetConfig();
 
-print "GenoRing script v$Genoring::GENORING_VERSION (project instance: " . GetProjectName() . ")\n";
+print "GenoRing script $Genoring::GENORING_VERSION (project instance: " . GetProjectName() . ")\n\n";
 
 # Test license agreement.
 if (!-e "$Genoring::GENORING_DIR/agreed.txt") {
@@ -372,8 +682,11 @@ if (!$command || ($command =~ m/^-?-?help$|^[-\/]-?\?$/i)) {
 elsif ($command =~ m/^-?-?man$/i) {
   $man = 1;
 }
+elsif ($command =~ m/^-?-?v(?:ersion)$/i) {
+  $command = 'version';
+}
 
-my (@arguments);
+my @arguments;
 my $arg = shift(@argv);
 while (defined($arg)) {
   if ($arg =~ m/^--?([\w\-]+)(?:=(.*))?$/i) {
@@ -398,7 +711,7 @@ while (defined($arg)) {
 }
 
 if (exists($g_flags->{'help'})) {
-  $help = $g_flags->{'help'} || 1;
+  $help = $command;
 }
 
 if (exists($g_flags->{'verbose'})) {
@@ -406,14 +719,20 @@ if (exists($g_flags->{'verbose'})) {
 }
 
 if ($help) {
-  if (1 == $help) {
+  if ('1' eq $help) {
     # Display main help.
     pod2usage('-verbose' => 0, '-exitval' => 0);
   }
   else {
-    # @todo Display command-specific help.
-    # @see https://perldoc.perl.org/Pod::Usage
-    pod2usage('-verbose' => 1, '-exitval' => 0);
+    # Display command-specific help.
+    pod2usage(
+      '-verbose' => 99,
+      '-sections' => [
+        "OPTIONS/COMMANDS/$help",
+        "OPTIONS/GLOBAL FLAGS/$help",
+      ],
+      '-exitval' => 0,
+    );
   }
 }
 if ($man) {pod2usage('-verbose' => 1, '-exitval' => 0);}
@@ -711,6 +1030,35 @@ elsif ($command =~ m/^exportvol$/i) {
 elsif ($command =~ m/^importvol$/i) {
   ImportIntoVolume(@arguments);
 }
+elsif ($command =~ m/^version$/i) {
+  my ($module) = (@arguments);
+  if ($module) {
+    my $info = GetModuleInfo($module);
+    if (exists($info->{'version'})) {
+     print "$module: $info->{'version'}\n";
+    }
+    else {
+     print "No version information available for module '$module'\n";
+    }
+  }
+  else {
+    print "$Genoring::GENORING_VERSION\n";
+  }
+  if ($g_flags->{'all'}) {
+    my @versions = GetAvailableVersions(@arguments);
+    if (!@versions) {
+     print "Available versions: n/a\n";
+    }
+    else {
+      print "Available versions:\n* " . join("\n* ", @versions) . "\n";
+    }
+  }
+  elsif ($g_flags->{'update'}) {
+    my ($version) = GetAvailableVersions(@arguments);
+    $version ||= 'n/a';
+    print "Latest version: $version\n";
+  }
+}
 else {
   warn "ERROR: Invalid command '$command'.\n\n" if $command;
   pod2usage('-verbose' => 0, '-exitval' => 1);
@@ -732,7 +1080,7 @@ Valentin GUIGNON (Bioversity), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 01/10/2025
+Date 13/10/2025
 
 =head1 SEE ALSO
 

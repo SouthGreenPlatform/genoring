@@ -16,8 +16,8 @@ Perl5
 
 $g_debug $g_exec_prefix $g_flags $g_project
 ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
-CheckFreeSpace CheckGenoringUser
-CleanupOperations ClearCache Compile CompileMissingContainers Confirm
+CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
+CompareVersions Compile CompileMissingContainers Confirm
 CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
 CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
 DisableModule EnableAlternative EnableModule EndOperations ExportVolume
@@ -27,7 +27,7 @@ GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig
 GetModuleServices GetModuleVolumes GetOs GetProfile GetProjectName
 GetServices GetState GetStatus GetVolumeName GetVolumes ImportIntoVolume
 HandleShellExecutionError InitGenoringUser InstallModule IsContainerRunning
-ListAlternatives ParseDependencies PerformContainerOperations
+ListAlternatives ParseDependencies ParseVersion PerformContainerOperations
 PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
 RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
 Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
@@ -51,28 +51,28 @@ use Genoring::GenoringEnv;
 use Genoring::GenoringFunc;
 
 use base qw(Exporter);
-our @EXPORT =
-  qw(
-    $g_debug $g_exec_prefix $g_flags $g_project
-    ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
-    CheckFreeSpace CheckGenoringUser
-    CleanupOperations ClearCache Compile CompileMissingContainers Confirm
-    CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
-    CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
-    DisableModule EnableAlternative EnableModule EndOperations ExportVolume
-    GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
-    GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
-    GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig
-    GetModuleServices GetModuleVolumes GetOs GetProfile GetProjectName
-    GetServices GetState GetStatus GetVolumeName GetVolumes ImportIntoVolume
-    HandleShellExecutionError InitGenoringUser InstallModule IsContainerRunning
-    ListAlternatives ParseDependencies PerformContainerOperations
-    PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
-    RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
-    Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
-    SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
-    ToLocalService UninstallModule Update Upgrade WaitModulesReady
-  );
+our @EXPORT = qw(
+  $g_debug $g_exec_prefix $g_flags $g_project
+  ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
+  CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
+  CompareVersions Compile CompileMissingContainers Confirm
+  CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
+  CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
+  DisableModule EnableAlternative EnableModule EndOperations ExportVolume
+  GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
+  GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
+  GetModuleConf GetModuleInfo GetModuleRealState GetModules GetModulesConfig
+  GetModuleServices GetModuleVolumes GetOs GetProfile GetProjectName
+  GetServices GetState GetStatus GetVolumeName GetVolumes ImportIntoVolume
+  HandleShellExecutionError InitGenoringUser InstallModule IsContainerRunning
+  ListAlternatives ParseDependencies ParseVersion PerformContainerOperations
+  PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
+  RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
+  Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
+  SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
+  ToLocalService UninstallModule Update Upgrade WaitModulesReady
+  IsGitAvailable GetAvailableVersions
+);
 
 
 
@@ -89,9 +89,9 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 =head1 VERSION
 
-Version 1.0.0
+Version 1.0
 
-Date 18/09/2025
+Date 13/10/2025
 
 =head1 SEE ALSO
 

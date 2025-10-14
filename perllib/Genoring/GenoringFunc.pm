@@ -32,11 +32,13 @@ use utf8;
 # be more easily integrated into other projects).
 # For our uses here, the CPAN YAML parser should be enough.
 use CPAN::Meta::YAML;
+use Cwd qw( abs_path getcwd );
+use File::Basename;
 use File::Copy;
 use File::Path qw( make_path remove_tree );
 use File::Spec;
+use JSON::PP;
 use Time::Piece;
-use Cwd qw(abs_path);
 
 # No buffering.
 $| = 1;
@@ -88,6 +90,13 @@ B<$_g_modules_info>: (hash ref)
 
 Cache variable used to store modules' info. Should not be used directly.
 
+B<$_g_git_available>: (boolean)
+
+Tells if git has been detected or not. To be TRUE, there must be a .git
+directory, and the git command should be available. If not defined, it means no
+checks were done yet using IsGitAvailable. This global variable should not be
+used, insted use IsGitAvailable().
+
 =cut
 
 our $g_debug = $Genoring::DEBUG;
@@ -99,6 +108,7 @@ our $_g_modules = {};
 our $_g_services = {};
 our $_g_volumes = {};
 our $_g_modules_info = {};
+our $_g_git_available = undef;
 
 
 
@@ -1581,13 +1591,13 @@ sub GenerateDockerComposeFile {
           if ($volume_dep->{'major_version'}) {
             my $module_info = GetModuleInfo($module);
             my $version_constraint = $volume_dep->{'version_constraint'} || '=';
-            # @todo This will not work with minor versions above 10.
+            # @todo Code to test.
             my $dep_version = $volume_dep->{'major_version'} . '.' . ($volume_dep->{'minor_version'} || '');
-            if ((('=' eq $version_constraint) && ($module_info->{'version'} == $dep_version))
-              || (('<' eq $version_constraint) && ($module_info->{'version'} < $dep_version))
-              || (('<=' eq $version_constraint) && ($module_info->{'version'} <= $dep_version))
-              || (('>' eq $version_constraint) && ($module_info->{'version'} > $dep_version))
-              || (('>=' eq $version_constraint) && ($module_info->{'version'} >= $dep_version))
+            if ((('=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) == 0))
+              || (('<' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) < 0))
+              || (('<=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) <= 0))
+              || (('>' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) > 0))
+              || (('>=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) >= 0))
             ) {
               $volume_ok = 1;
             }
@@ -2048,6 +2058,221 @@ sub EndOperations {
 
 =pod
 
+=head2 CompareVersions
+
+B<Description>: Compare two version strings. Version string must follow the
+format:
+<MAJOR_VERSION>.<MINOR_VERSION>[-[RC | beta | alpha | dev][QUALIFIER_VERSION]]
+Eg.: "1.0", "2.3-beta1", "3.4-dev", "5.12-RC".
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $version_a: (string) (R)
+
+The first version string.
+
+=item $version_b: (string) (R)
+
+The second version string.
+
+=back
+
+B<Return>: (int)
+
+0 if the 2 versions are equal, >0 if $version_a is above $version_b, and <0 if
+$version_a is below $version_b.
+
+=cut
+
+sub CompareVersions {
+  my ($version_a, $version_b) = @_;
+
+  # Parse versions.
+  my ($maj_a, $min_a, $qual_a, $qualver_a) = ParseVersion($version_a);
+  my ($maj_b, $min_b, $qual_b, $qualver_b) = ParseVersion($version_b);
+
+  return $maj_a <=> $maj_b if $maj_a != $maj_b;
+  return $min_a <=> $min_b if $min_a != $min_b;
+
+  my %priority = (
+    'dev'   => 5,
+    ''      => 4,
+    'RC'    => 3,
+    'beta'  => 2,
+    'alpha' => 1,
+  );
+
+  my $cmp_qual = ($priority{$qual_a} // 0) <=> ($priority{$qual_b} // 0);
+  return $cmp_qual if $cmp_qual != 0;
+
+  return $qualver_a <=> $qualver_b;
+}
+
+
+=pod
+
+=head2 ParseVersion
+
+B<Description>: Parse a version into major, minor, qualifier and qualifier
+version. Supported version formats:
+<MAJOR_VERSION>.<MINOR_VERSION>[-[RC | beta | alpha | dev][QUALIFIER_VERSION]]
+Eg.: "1.0", "2.3-beta1", "3.4-dev", "5.12-RC".
+
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $version: (string) (R)
+
+A version string.
+
+=back
+
+B<Return>: (list)
+
+A list of 4 elements: major version number (int), minor version number (int),
+qualifier (string) and qualifier version (int). The qualifier can be an empty
+string, 'RC', 'beta' or 'alpha'. The qualifier version can be 0 if absent.
+The list is empty if parsing failed.
+
+=cut
+
+sub ParseVersion {
+  my ($version) = @_;
+  $version ||= '';
+  my ($maj, $min, $qual, $qualver) = ($version =~ /^(\d+)\.(\d+)(?:-(alpha|beta|dev|RC)(\d+)?)?$/);
+  $qual ||= '';
+  $qualver ||= 0;
+  return ($maj, $min, $qual, $qualver);
+}
+
+
+=pod
+
+=head2 IsGitAvailable
+
+B<Description>: Tell if local copy of GenoRing is using git, and the git
+command is available.
+
+B<ArgsCount>: 0
+
+B<Return>: (boolean)
+
+1 if GenoRing has a .git directory and git is available, 0 otherwise.
+
+=cut
+
+sub IsGitAvailable {
+  if (!defined($_g_git_available)) {
+    $_g_git_available = 0;
+    if (-d "$Genoring::GENORING_DIR/.git") {
+      my $result = qx(git --version 2>&1);
+      if (0 == $?) {
+        $_g_git_available = 1;
+      }
+    }
+  }
+  return $_g_git_available;
+}
+
+
+=pod
+
+=head2 GetAvailableVersions
+
+B<Description>: Returns a sorted list of available versions.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $module: (string) (U)
+
+If set, the version of a module will be fetched instead of GenoRing core.
+
+=item $stability: (string) (O)
+
+Minimum stability. Can be empty, RC, beta, alpha or dev.
+
+=back
+
+B<Return>: (list)
+
+A sorted list of version strings, the first one being the most recent one.
+
+=cut
+
+sub GetAvailableVersions {
+  my ($module, $stability) = @_;
+  if ($module) {
+    die "EROR: Not implemented yet!\n";
+  }
+  my @versions;
+  # Try with git first.
+  if (IsGitAvailable()) {
+    # Update tags.
+    my $original_dir = getcwd();
+    chdir($Genoring::GENORING_DIR);
+    qx(git fetch --tags);
+    my $tag_output = qx(git tag -l);
+    if ($?) {
+      # Clear on error.
+      $tag_output ='';
+    }
+    chdir($original_dir);
+    @versions = split(/\n/, $tag_output);
+  }
+
+  if (!@versions) {
+    my $json = qx(curl -s $Genoring::GENORING_TAGS_URL);
+    if (0 == $?) {
+      my $version_set = decode_json($json);
+      foreach my $version (@$version_set) {
+        push(@versions, $version->{'name'});
+      }
+    }
+  }
+
+  # Filter versions.
+  if ($stability && ($stability =~ m/^(?:RC|beta|alpha|dev)$/)) {
+    my %stability_check = ('' => 1, 'RC' => 1);
+    if ('beta' eq $stability) {
+      $stability_check{'beta'} = 1;
+    }
+    elsif ('alpha' eq $stability) {
+      $stability_check{'beta'} = 1;
+      $stability_check{'alpha'} = 1;
+    }
+    elsif ('dev' eq $stability) {
+      $stability_check{'beta'} = 1;
+      $stability_check{'alpha'} = 1;
+      $stability_check{'dev'} = 1;
+    }
+    @versions = grep {
+        my ($maj, $min, $qual, $qualver) = ParseVersion($_);
+        $maj && exists($stability_check{$qual});
+      }
+      @versions;
+  }
+  else {
+    # Only stable.
+    @versions = grep {
+      my ($maj, $min, $qual, $qualver) = ParseVersion($_);
+      $maj && !$qual;
+      }
+      @versions;
+  }
+  @versions = sort { CompareVersions($b, $a) } @versions;
+
+  return @versions;
+}
+
+
+=pod
+
 =head2 Update
 
 B<Description>: Updates the GenoRing system or the specified module.
@@ -2102,9 +2327,11 @@ B<ArgsCount>: 0-1
 
 =over 4
 
-=item $module: (string) (O)
+=item $element: (string) (O)
 
-The module name is only this module should be upgraded.
+A version string if the core needs to be upgraded to a specific version or a
+module name  if only the given module should be upgraded. The module name may
+be followed by a colon and a module version string.
 
 =back
 
@@ -2114,15 +2341,103 @@ B<Return>: (nothing)
 
 sub Upgrade {
 
-  my ($module) = @_;
-  if ($module) {
-    print "Upgrading GenoRing module '$module'...\n";
+  my ($element) = @_;
+  my $new_version = '';
+  my $module = 'genoring';
+  # @todo Complete implementation. Add error checks and feedback.
+  #   Implement module upgrades.
+  warn "WARNING: Experimental! This procedure has not been tested yet! Use at your own risks.\n";
+  if ($element) {
+    my ($majver, $minver, $qual, $qualver_a) = ParseVersion($element);
+    if ($majver) {
+      $new_version = $element;
+      print "Upgrading GenoRing framework to version $new_version...\n";
+    }
+    else {
+      ($module, $new_version) = split(/:/, $element);
+      if ($new_version) {
+        print "Upgrading module '$module' to version $new_version...\n";
+      }
+      else {
+        print "Upgrading module '$module'...\n";
+      }
+      die "EROR: Not implemented yet!\n";
+    }
+  }
+
+  print "Upgrading GenoRing framework...\n";
+  if (!$new_version) {
+    # Get last available stable version.
+    ($new_version) = GetAvailableVersions();
+  }
+  if ($new_version) {
+    # Check if it is an upgrade and Ask for upgrade confirmation.
+    my $version_comparison = CompareVersions($new_version, $Genoring::GENORING_VERSION);
+    if (((0 < $version_comparison) && Confirm("Upgrade to version $new_version?"))
+      || ((0 >$version_comparison) && Confirm("Are you sure you want to *DOWNGRADE* your current version ($Genoring::GENORING_VERSION) to version $new_version?"))
+    ) {
+      # @todo Add support for "dev" qualifier (not tagged).
+      my $context = PrepareOperations();
+      if (IsGitAvailable()) {
+        # Use git.
+        qx(git checkout --dry-run $new_version);
+        if (!$?) {
+          qx(git checkout $new_version);
+          # @todo Check for issues (conflicts, checkout failure, etc.).
+        }
+        else {
+           # In case of failure, set $version_comparison to 0 to avoid upgrades.
+          $version_comparison = 0;
+          warn "WARNING: Failed to upgrade to $new_version.\n";
+        }
+      }
+      else {
+        # @todo Perform a backup of GenoRing files.
+        # Without git, try download service.
+        my $download_url = "$Genoring::GENORING_REPOSITORY";
+        $download_url =~ s~\.git$~/archive/refs/tags/$new_version.tar.gz~;
+        my $tar_file = basename($download_url);
+        qx(curl -L -o $tar_file $download_url);
+        # @todo Make sure we got the file right. We should include a file
+        # signature verification system.
+        # Extract new files.
+        # "--strip-components=1" removes "genoring-$version" directory level.
+        qx(tar -xzf $tar_file -C $Genoring::GENORING_DIR --strip-components=1);
+        # @todo Make sure all went well.
+        unlink $tar_file;
+        # @todo In case of failure, restore backups and set $version_comparison to 0.
+      }
+      if (0 < $version_comparison) {
+        # Perform upgrade hooks only if it is an effective upgrade.
+        $context->{'module'} = $module;
+        $context->{'local_hooks'} = {
+          'upgrade' => {
+            'args' => "$Genoring::GENORING_VERSION $new_version",
+          },
+        };
+        $context->{'container_hooks'} = {
+          'upgrade' => {
+            'args' => "$Genoring::GENORING_VERSION $new_version",
+          },
+        };
+        PerformLocalOperations($context);
+        PerformContainerOperations($context);
+      }
+      CleanupOperations($context);
+      EndOperations($context);
+    }
+    else {
+      if (0 == $version_comparison) {
+        print "GenoRing is already up-to-date.\n";
+      }
+      else {
+        print "Upgrade aborted.\n";
+      }
+    }
   }
   else {
-    print "Upgrading GenoRing...\n";
+    warn "WARNING: Unable to fetch version information. Upgrade failed.\n";
   }
-  # @todo Implement.
-  die "EROR: Not implemented yet!\n";
 }
 
 
@@ -3185,6 +3500,8 @@ List of supported local hooks:
 - uninstall: cleanup local file system and remove data files and directories
   generated by the module.
 - update: update local file system for the given module.
+- upgrade: upgrade local file system for the given module. First argument is
+  current version and second argument is the new version to upgrade to.
 - backup: backup local files for the given module with the backup name as first
   argument.
 - restore: restore local files for the given module with the backup name as first
@@ -3309,6 +3626,8 @@ List of supported container hooks:
 - offline: called for GenoRing is set offline.
 - online: called for is set online.
 - update: called for a module on services when one of them is updated.
+- upgrade: upgrade local file system for the given module. First argument is
+  current version and second argument is the new version to upgrade to.
 - backup: called for a module on services when one of them must perform backups
   with the backup name as first argument.
 - restore: called for a module on services when one of them must restore files,
@@ -3328,7 +3647,7 @@ Restrict hooks to the specified module and its services. When set to a valid
 module name, only its hooks will be processed first and then only other module
 hooks related to this module will be run as well if $related is set to 1.
 
-=item $related: (bool) (O)
+=item $related: (bool) (U)
 
 Will also run hook scripts of other modules targeting one service of
 $spec_module.
@@ -5736,9 +6055,9 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 =head1 VERSION
 
-Version 1.0.0
+Version 1.0
 
-Date 18/09/2025
+Date 13/10/2025
 
 =head1 SEE ALSO
 

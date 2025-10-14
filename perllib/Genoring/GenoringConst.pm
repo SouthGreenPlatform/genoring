@@ -93,6 +93,15 @@ B<$GENORING_DIR>: (string)
 
 Installation directory of GenoRing.
 
+B<$GENORING_REPOSITORY>: (string)
+
+Git repository where GenoRing is.
+
+B<$GENORING_TAGS_URL>: (string)
+
+URL to fetch available tags in JSON format. The returned JSON must be an array
+of objects, and each object must have a key "name" with the version as value.
+
 B<$GENORING_VERSION>: (string)
 
 Current GenoRing script version.
@@ -160,7 +169,8 @@ our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $GENORING_DEFAULT_PORT = 8080;
 our $GENORING_DIR = $ENV{'GENORING_DIR'} || $FindBin::Bin;
 our $GENORING_REPOSITORY = 'https://github.com/SouthGreenPlatform/genoring.git';
-our $GENORING_VERSION = '1.0.0';
+our $GENORING_TAGS_URL = 'https://api.github.com/repos/SouthGreenPlatform/genoring/tags';
+our $GENORING_VERSION = '1.0-alpha7';
 our $IS_MOD_PERL = exists($ENV{'MOD_PERL'});
 our $CONFIG_FILE = 'config.yml';
 our $MODULE_NAME_REGEX = '[a-z][a-z0-9_]*';
@@ -229,9 +239,9 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 =head1 VERSION
 
-Version 1.0.0
+Version 1.0
 
-Date 18/09/2025
+Date 13/10/2025
 
 =head1 SEE ALSO
 

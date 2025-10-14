@@ -154,9 +154,9 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 =head1 VERSION
 
-Version 1.0.0
+Version 1.0
 
-Date 18/09/2025
+Date 13/10/2025
 
 =head1 SEE ALSO
 
