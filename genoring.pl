@@ -981,6 +981,7 @@ elsif ($command =~ m/^moduleinfo$/i) {
   $description =~ s/\n/\n    /g;
   print "Description: " . $description . "\n";
   print "Version: " . ($module_info->{'version'} || 'n/a') . "\n";
+  print "Tags: " . join(', ', @{$module_info->{'tags'} || []}) . "\n";
   print "Services: " . join(', ', keys(%{$module_info->{'services'}})) . "\n";
   print "Volumes: " . join(', ', keys(%{$module_info->{'volumes'}})) . "\n";
   # @todo Add alternatives and dependencies.
