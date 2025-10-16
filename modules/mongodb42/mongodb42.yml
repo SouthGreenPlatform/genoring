@@ -1,6 +1,9 @@
 name: "MongoDB"
 description: "MongoDB service."
 version: 1.0
+tags:
+ - mongodb
+ - gigwa
 genoring_script_version: 1.0
 services:
   genoring-mongodb42:

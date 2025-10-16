@@ -1,6 +1,15 @@
 name: "Gigwa"
 description: "A tool to explore large amounts of genotyping data by filtering it."
 version: 1.0
+tags:
+ - gigwa
+ - mongodb
+ - genotype
+ - genotyping
+ - visualization
+ - vcf
+ - brapi
+ - ga4gh
 genoring_script_version: 1.0
 services:
   genoring-gigwa:

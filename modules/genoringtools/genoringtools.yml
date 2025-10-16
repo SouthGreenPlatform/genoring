@@ -1,6 +1,23 @@
 name: "GenoRing Tools"
 description: "This is a backend service that can be used to run bioinformatics tools."
 version: 1.0
+tags:
+ - tool
+ - back-end
+ - bioperl
+ - samtools
+ - tabix
+ - genometools
+ - vcftools
+ - phylip
+ - mafft
+ - bowtie
+ - phyml
+ - blast
+ - hmmer
+ - mcl
+ - busco
+ - graphviz
 genoring_script_version: 1.0
 services:
   genoring-genoringtools:

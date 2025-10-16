@@ -3,6 +3,23 @@ name: "Name of the module"
 description: "A quick description of the module and what it provides."
 # The module version (used to support future updates).
 version: 1.0
+# Tags that characterize the module.
+# Use only lower cases. See other modules for tag examples. Try to reuse
+# existing tags rather than creating new ones. Prefer singular when possible.
+# Tags are used to filter modules. Typical tags:
+# - the module ecosystems: it may help find modules that extend another module
+#   (eg. "jbrowse" for a module providing jbrowse or a jbrowse plugin) or bring
+#   feature to an eco-system (eg. "brapi" for the BrAPI Mapper of for Gigwa).
+#   At least, a module should have its name as a tag, to appear in its own
+#   eco-system. If it provides multiple tools, each tool may appear as a tag,
+#   so the module will be listed when modules are filtered by a given tool.
+# - the module domain/keywords (eg. "genome", "gene", "germplasm", "genotyping",
+#   "phenotyping", "fasta", "vcf", ...)
+# - the module category ("back-end", "front-end", "tool", "visualization",
+#   "service", "user", ...).
+tags:
+ - tagname1
+ - tagname2
 # Minimal version of GenoRing script.
 genoring_script_version: 1.0
 # services: Optional. The list of services provided by the module.

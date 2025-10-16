@@ -1,6 +1,10 @@
 name: "BrAPI Mapper"
 description: "Provides Breeding API services (v1 and v2) and an interface to map data to those services."
 version: 1.0
+tags:
+ - brapip
+ - breeding
+ - service
 genoring_script_versionx: 1.0
 dependencies:
   services:
