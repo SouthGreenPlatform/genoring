@@ -824,9 +824,10 @@ if ($config->{'no-exposed-volumes'}) {
 # For Windows FS, we can't use exposed shared FS as it crashes so we force set
 # the appropriate flag.
 # With Mac, Docker Desktop runs in a VM and FS permissions are not managed as
-# expected and causes issues.
+# expected and cause issues.
 # Note: exposed volumes on those platforms can be forced using the flag
-# "-exposed-volumes".
+# "-exposed-volumes" and commands "exportvol" and "importvol" can be used to
+# manage volume contents.
 if (!CanUseExposedVolumes()
     && (!exists($g_flags->{'no-exposed-volumes'}))
     && (!$g_flags->{'exposed-volumes'})
