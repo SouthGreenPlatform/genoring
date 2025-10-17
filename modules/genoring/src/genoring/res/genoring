@@ -12,6 +12,13 @@
 # To keep it compatible with most shell system restrict to busybox commands
 # (see https://www.commandlinux.com/man-page/man1/busybox.1.html).
 
+# Make sure script is run as genoring user.
+if [ "$(id -u)" -eq 0 ]; then
+  # If root, re-run as genoring.
+  exec su genoring -c "$0 $@"
+  exit $?
+fi
+
 disable_healthcheck="/tmp/disable-healthcheck"
 genoring_template="drupal/recommended-project"
 genoring_template_version=""
