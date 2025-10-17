@@ -1,4 +1,3 @@
 #!/bin/sh
 
-composer -n require drupal/brapi
-drush -y pm-enable brapi
+genoring install_module brapi
