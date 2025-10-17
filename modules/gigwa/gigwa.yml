@@ -10,7 +10,7 @@ tags:
  - vcf
  - brapi
  - ga4gh
-genoring_script_version: 1.0
+genoring_script_version: 1.0-alpha1
 services:
   genoring-gigwa:
     name: "Gigwa Tomcat"

@@ -2474,8 +2474,8 @@ sub InstallModule {
   my $module_info = GetModuleInfo($module);
   # Check requirements.
   if (!$module_info
-      || !$module_info->{'genoring_script_version'}
-      || ($module_info->{'genoring_script_version'} > $Genoring::GENORING_VERSION)
+      || !exists($module_info->{'genoring_script_version'})
+      || (0 <= CompareVersions($module_info->{'genoring_script_version'}, $Genoring::GENORING_VERSION))
   ) {
     die "ERROR: InstallModule: Module '$module' not supported by current GenoRing script version!\nRequired version: " . ($module_info->{'genoring_script_version'} || 'n/a') . ", current script version: $Genoring::GENORING_VERSION.\n";
   }
@@ -3747,7 +3747,7 @@ APPLYCONTAINERHOOKS_HOOKS:
             $initialized_containers{$service} = 1;
           }
           # Make sure script is executable and run as root.
-          # Note: we trust hook scripts are they are stored outside GenoRing
+          # Note: we trust hook scripts as they are stored outside GenoRing
           # Docker containers.
           my $env_data = join(' --env-file ', GetEnvironmentFiles($services->{$service}), GetEnvironmentFiles($module));
           if ($env_data) {
@@ -4490,7 +4490,7 @@ Ex.:
       ],
     },
     'description' => 'A tool to explore large amounts of genotyping data by filtering it.',
-    'genoring_script_version' => '1.0',
+    'genoring_script_version' => '1.0-alpha1',
     'services' => {
       'genoring-gigwa' => {
         'name' => 'Gigwa Tomcat',
