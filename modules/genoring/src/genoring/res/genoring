@@ -15,7 +15,12 @@
 # Make sure script is run as genoring user.
 if [ "$(id -u)" -eq 0 ]; then
   # If root, re-run as genoring.
-  exec su genoring -c "$0 $@"
+  args=""
+  for arg in "$@"; do
+    escaped_arg=$(printf "$arg" | sed "s/\"/\"'\"'\"/g")
+    args="$args \"$escaped_arg\""
+  done
+  exec su genoring -c "exec $0 $args"
   exit $?
 fi
 
