@@ -1,0 +1,12 @@
+name: "CAS Server"
+description: "Enables and pre-configure CAS server for Drupal."
+version: 1.0
+tags:
+ - cas
+ - drupal
+ - ssl
+genoring_script_version: 1.0-alpha1
+dependencies:
+  services:
+    - "REQUIRES genoring genoring"
+    - "REQUIRES genoring genoring-proxy"
