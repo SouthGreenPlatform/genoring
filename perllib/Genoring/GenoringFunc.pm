@@ -452,48 +452,41 @@ sub RunShell {
     # Get image and add volumes if docker compose file is available (volumes
     # created).
     my $volumes_parameter = '';
-    if (-r $Genoring::DOCKER_COMPOSE_FILE) {
-      my $fh;
-      if (open($fh, '<:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
-        my $compose_data = CPAN::Meta::YAML->read_string(do { local $/; <$fh> });
-        close($fh);
-        if (exists($compose_data->[0]->{services}{$service})) {
-          # Get image name.
-          if (exists($compose_data->[0]->{services}{$service}{image})) {
-            $image = $compose_data->[0]->{services}{$service}{image};
-          }
-          # Extract volumes section (default to empty array if not present).
-          my $volumes = $compose_data->[0]->{services}{$service}{volumes} || [];
-          foreach my $volume (@$volumes) {
-            # Case 1: Short format "source:target" or "named_volume:target".
-            if (!ref($volume)) {
-              # Split on first colon to handle paths with colons (e.g., Windows paths).
-              my ($source, $target) = split(/:/, $volume, 2);
-              if (defined $target) {
-                if ($source !~ m~^/~) {
-                  $source = GetVolumeName($source);
-                }
-                $volumes_parameter .= " -v $source:$target";
-              }
-            }
-            # Case 2: Long format (hash with source/target keys).
-            elsif (ref($volume) eq 'HASH') {
-              if (exists $volume->{source} && exists $volume->{target}) {
-                my $source = $volume->{source};
-                if ($source !~ m~^/~) {
-                  $source = GetVolumeName($source);
-                }
-                $volumes_parameter .= ' -v ' . $source . ':' . $volume->{target};
-              }
-            }
-          }
+    if (-f $Genoring::DOCKER_COMPOSE_FILE) {
+      my $compose_data = ReadYaml($Genoring::DOCKER_COMPOSE_FILE);
+      if (exists($compose_data->[0]->{services}->{$service})) {
+        # Get image name.
+        if (exists($compose_data->[0]->{services}->{$service}->{image})) {
+          $image = $compose_data->[0]->{services}->{$service}->{image};
         }
-        if ($volumes_parameter) {
-          $volumes_parameter .= ' ';
+        # Extract volumes section (default to empty array if not present).
+        my $volumes = $compose_data->[0]->{services}->{$service}->{volumes} || [];
+        foreach my $volume (@$volumes) {
+          # Case 1: Short format "source:target" or "named_volume:target".
+          if (!ref($volume)) {
+            # Split on first colon to handle paths with colons (e.g., Windows paths).
+            my ($source, $target) = split(/:/, $volume, 2);
+            if (defined $target) {
+              if ($source !~ m~^/~) {
+                $source = GetVolumeName($source);
+              }
+              $volumes_parameter .= " -v $source:$target";
+            }
+          }
+          # Case 2: Long format (hash with source/target keys).
+          elsif (ref($volume) eq 'HASH') {
+            if (exists $volume->{source} && exists $volume->{target}) {
+              my $source = $volume->{source};
+              if ($source !~ m~^/~) {
+                $source = GetVolumeName($source);
+              }
+              $volumes_parameter .= ' -v ' . $source . ':' . $volume->{target};
+            }
+          }
         }
       }
-      else {
-        warn "WARNING: failed to open Docker compose file '$Genoring::DOCKER_COMPOSE_FILE':\n$!\nNo volumes will be mounted.\n";
+      if ($volumes_parameter) {
+        $volumes_parameter .= ' ';
       }
     }
     # Disable warning message when the docker container closes.
@@ -1390,85 +1383,59 @@ sub GenerateDockerComposeFile {
     # Work on module services.
     opendir(my $dh, "$Genoring::MODULES_DIR/$module/services")
       or die "ERROR: GenerateDockerComposeFile: Failed to access '$Genoring::MODULES_DIR/$module/services' directory!\n$!";
-    my @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/services/$_" } readdir($dh));
+    my @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -f "$Genoring::MODULES_DIR/$module/services/$_" } readdir($dh));
     closedir($dh);
     foreach my $service_yml (@services) {
-      my $svc_fh;
-      open($svc_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/services/$service_yml")
-        or die "ERROR: GenerateDockerComposeFile: Failed to open module service file '$service_yml'.\n$!";
+      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/services/$service_yml");
       # Trim extension.
       my $service = substr($service_yml, 0, -4);
       $services{$service} = {
         'version' => $module_info->{'version'} || '',
         'module' => $module,
-        'definition' => '    ' . join('    ', <$svc_fh>),
+        'definition' => $yaml->[0],
       };
       # Remove dependencies as they are managed after.
-      $services{$service}->{'definition'} =~ s~^    depends_on:\s*\n(?:^      [^\n]*\n)+~~gsm;
+      delete($services{$service}->{'definition'}->{'depends_on'});
 
       if ($g_flags->{'no-exposed-volumes'}) {
         # Replace all exposed volumes by named volumes instead.
-        $services{$service}->{'definition'} =~ m~^    volumes:\s*\n((?:^      [^\n]*\n)+)~gsm;
-        my @service_volumes = split(/\n/, $1);
-        $services{$service}->{'definition'} =~ s~^    volumes:\s*\n(?:^      [^\n]*\n)+~    volumes:\n~gsm;
         my @new_service_volumes;
-        while (@service_volumes) {
-          my $service_volume = shift(@service_volumes);
-          if ($service_volume =~ m~^      type:\s*bind~) {
-            # For explicit binds, we keep them as they are. Indeed, in case of
-            # direct file binding, we can not use named volumes.
+        foreach my $service_volume (@{$services{$service}->{'definition'}->{'volumes'} || []}) {
+          # For explicit binds, we keep them as they are. Indeed, in case of
+          # direct file binding, we can not use named volumes.
+          if (('HASH' eq ref($service_volume))
+              && exists($service_volume->{'type'})
+              && ($service_volume->{'type'} eq 'bind')
+          ) {
             push(@new_service_volumes, $service_volume);
-            my $next_bind_line = 1;
-            do {
-              $service_volume = shift(@service_volumes);
-              if (!$service_volume) {
-                $next_bind_line = 0;
-              }
-              elsif ($service_volume =~ m~^      -~) {
-                $next_bind_line = 0;
-                unshift(@service_volumes, $service_volume);
-                $service_volume = undef;
-              }
-              else {
-                # if ($service_volume =~ m~^        source:\s+\$\{VOLUMES_DIR\}/~) {
-                #   $service_volume =~ s~^        source:\s+\$\{VOLUMES_DIR\}/~        source: genoring-volume-~;
-                #   $service_volume =~ s~[^\w\s:\-]~-~g;
-                #   my ($unexposed_volume) = $service_volume =~ m~^        source: (\S+)~;
-                #   $volumes{$unexposed_volume} = {
-                #     'module' => $module,
-                #     # We create (below) and manage non-exposed volumes before
-                #     # the use of Docker Compose.
-                #     'definition' => "    external: true\n",
-                #   };
-                # }
-                push(@new_service_volumes, $service_volume);
-              }
-            } while($next_bind_line);
+            next;
           }
-          elsif ($service_volume =~ m~^      \$\{GENORING_VOLUMES_DIR\}/~) {
-            $service_volume =~ s~^      \$\{GENORING_VOLUMES_DIR\}/~      genoring-volume-~;
+
+          if ($service_volume =~ m~^\$\{GENORING_VOLUMES_DIR\}/~) {
+            # Replaces GenoRing volume root path by 'genoring-volume-'.
+            $service_volume =~ s~^\$\{GENORING_VOLUMES_DIR\}/~genoring-volume-~;
+            # Replaces all slashs before ":" by dashes.
             $service_volume =~ s~/(?=.*:)~-~g;
-            my ($unexposed_volume) = $service_volume =~ m~^      (\S+)\s*:~;
+            # Extract new volume name (until ":").
+            my ($unexposed_volume) = $service_volume =~ m~^(\S+)\s*:~;
             $volumes{$unexposed_volume} = {
               'module' => $module,
               # We create (below) and manage non-exposed volumes before the use
               # of Docker Compose.
-              'definition' => "    external: true\n",
+              'definition' => {'external' => 'true'},
             };
           }
           if ($service_volume) {
             push(@new_service_volumes, $service_volume);
           }
         }
-        my $new_service_vol = join("\n", @new_service_volumes);
-        $services{$service}->{'definition'} =~ s~^    volumes:\n~    volumes:\n$new_service_vol\n~gsm;
+        $services{$service}->{'definition'}->{'volumes'} = [@new_service_volumes];
       }
-      close($svc_fh);
     }
 
     # Parse module dependencies to compute service dependencies.
     # @todo Take into account versions.
-    foreach my $module_dep (@{$module_info->{'dependencies'}{'services'} || []}) {
+    foreach my $module_dep (@{$module_info->{'dependencies'}->{'services'} || []}) {
       my $dependencies = ParseDependencies($module_dep);
       my @mod_services;
       if (!$dependencies->{'service'}) {
@@ -1495,13 +1462,13 @@ sub GenerateDockerComposeFile {
             $service_dependencies->{$dep_service} ||= {};
             if ($dependencies->{'profiles'} && @{$dependencies->{'profiles'}}) {
               foreach my $dep_profile (@{$dependencies->{'profiles'}}) {
-                $service_dependencies->{$dep_service}{$dep_profile} ||= [];
-                push(@{$service_dependencies->{$dep_service}{$dep_profile}}, @mod_services);
+                $service_dependencies->{$dep_service}->{$dep_profile} ||= [];
+                push(@{$service_dependencies->{$dep_service}->{$dep_profile}}, @mod_services);
               }
             }
             else {
-              $service_dependencies->{$dep_service}{''} ||= [];
-              push(@{$service_dependencies->{$dep_service}{''}}, @mod_services);
+              $service_dependencies->{$dep_service}->{''} ||= [];
+              push(@{$service_dependencies->{$dep_service}->{''}}, @mod_services);
             }
           }
         }
@@ -1514,25 +1481,25 @@ sub GenerateDockerComposeFile {
               foreach my $dep_profile (@{$dependencies->{'profiles'}}) {
                 if ('online' eq $dep_profile) {
                   foreach $dep_profile ('dev', 'staging', 'prod') {
-                    $service_dependencies->{$mod_service}{$dep_profile} ||= [];
+                    $service_dependencies->{$mod_service}->{$dep_profile} ||= [];
                     push(
-                      @{$service_dependencies->{$mod_service}{$dep_profile}},
+                      @{$service_dependencies->{$mod_service}->{$dep_profile}},
                       @dep_services
                     );
                   }
                 }
                 else {
-                  $service_dependencies->{$mod_service}{$dep_profile} ||= [];
+                  $service_dependencies->{$mod_service}->{$dep_profile} ||= [];
                   push(
-                    @{$service_dependencies->{$mod_service}{$dep_profile}},
+                    @{$service_dependencies->{$mod_service}->{$dep_profile}},
                     @dep_services
                   );
                 }
               }
             }
             else {
-              $service_dependencies->{$mod_service}{''} ||= [];
-              push(@{$service_dependencies->{$mod_service}{''}}, @dep_services);
+              $service_dependencies->{$mod_service}->{''} ||= [];
+              push(@{$service_dependencies->{$mod_service}->{''}}, @dep_services);
             }
           }
         }
@@ -1542,27 +1509,25 @@ sub GenerateDockerComposeFile {
     # Work on module volumes.
     opendir($dh, "$Genoring::MODULES_DIR/$module/volumes")
       or next;
-    my @volumes = (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/volumes/$_" } readdir($dh));
+    my @volumes = (grep { $_ =~ m/^[^\.].*\.yml$/ && -f "$Genoring::MODULES_DIR/$module/volumes/$_" } readdir($dh));
     closedir($dh);
     foreach my $volume_yml (@volumes) {
-      my $vl_fh;
-      open($vl_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/volumes/$volume_yml")
-        or die "ERROR: GenerateDockerComposeFile: Failed to open module volume file '$volume_yml'.\n$!";
+      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/volumes/$volume_yml");
       my $volume = substr($volume_yml, 0, -4);
       $volumes{$volume} = {
         'module' => $module,
-        'definition' => '    ' . join('    ', <$vl_fh>),
+        'definition' => $yaml->[0],
       };
-      if ($g_flags->{'no-exposed-volumes'}) {
-        $volumes{$volume}->{'definition'} =~ s/^(\s+)driver[^\n]+\n?(?:\g1 [^\n]+\n?)*//gms;
+      if ($g_flags->{'no-exposed-volumes'}
+        && exists($volumes{$volume}->{'definition'}->{'driver'})
+      ) {
         # We create (below) and manage non-exposed volumes before the use of
         # Docker Compose.
-        $volumes{$volume}->{'definition'} .= "    external: true\n";
+        $volumes{$volume}->{'definition'} = {'external' => 'true'};
       }
-      close($vl_fh);
     }
     # Check required shared volume are available.
-    foreach my $volume_dep (@{$module_info->{'dependencies'}{'volumes'} || []}) {
+    foreach my $volume_dep (@{$module_info->{'dependencies'}->{'volumes'} || []}) {
       my $dependencies = ParseDependencies($volume_dep);
       if ('REQUIRES' eq $dependencies->{'constraint'}) {
         $volume_dependencies->{$module} ||= [];
@@ -1621,18 +1586,13 @@ sub GenerateDockerComposeFile {
 
   # Generate "services" and "volumes" sections from enabled services.
   print "  All modules processed.\n";
-  my $dc_fh;
-  # If $Genoring::DOCKER_COMPOSE_FILE already exists, remove unused volumes.
-  if (open($dc_fh, '<:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
-    my $compose_data = do { local $/; <$dc_fh> };
-    close($dc_fh);
-    if ($compose_data =~ m/(?:^|.*\n)volumes:/) {
-      # Removes what is before "volumes:".
-      $compose_data =~ s/(?:^|.*\n)volumes:\s*\n//s;
-      # Removes what is after.
-      $compose_data =~ s/^\S.*//sm;
-      # Get all currently defined volumes.
-      my @existing_volumes = $compose_data =~ m/^  ([\w\-]+):/gm;
+
+  # If $Genoring::DOCKER_COMPOSE_FILE already exists, delete unused volumes from
+  # Docker system.
+  if (-f $Genoring::DOCKER_COMPOSE_FILE) {
+    my $yaml = ReadYaml($Genoring::DOCKER_COMPOSE_FILE);
+    if (exists($yaml->[0]{'volume'})) {
+      my @existing_volumes = keys(%{$yaml->[0]{'volume'}});
       # Remove unused volumes.
       foreach my $unused_volume (@existing_volumes) {
         if (!exists($volumes{$unused_volume})) {
@@ -1648,109 +1608,94 @@ sub GenerateDockerComposeFile {
     }
   }
 
-  # Add other modules to genoring container dependencies (depends_on:).
-  if (open($dc_fh, '>:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
-    print {$dc_fh} "# GenoRing docker compose file\n# COMPOSE_PROJECT_NAME=$ENV{'COMPOSE_PROJECT_NAME'}\n# WARNING: This file is auto-generated by genoring.sh script. Any direct\n# modification may be lost when genoring.pl will need to regenerate it.\n";
-    # For each enabled service, add the section name, the indented definition,
-    # and the 'container_name:' field.
-    print {$dc_fh} "\nservices:\n";
-    foreach my $service (sort keys(%services)) {
-      my $service_name = GetContainerName($service);
-      print {$dc_fh} "\n  $service:\n";
-      print {$dc_fh} $services{$service}->{'definition'};
-      if ($services{$service}->{'definition'} !~ m/\n$/s) {
-        print {$dc_fh} "\n";
-      }
-      print {$dc_fh} "    container_name: $service_name\n";
-      # Add dependencies between services.
-      if (exists($service_dependencies->{$service})
-        && (my $profile_count = scalar(keys(%{$service_dependencies->{$service}})))
-      ) {
-        # Filter service dependencies to only keep used services.
-        if ((1 < $profile_count) || !exists($service_dependencies->{$service}->{''})) {
-          # Profile-specific.
-          foreach my $dep_profile ('dev', 'staging', 'prod', 'backend', 'offline') {
-            my %higher_services = map
-              { $_ => 1 }
-              grep
-                {exists($services{$_})}
-                (
-                  @{$service_dependencies->{$service}->{$dep_profile} || []},
-                  @{$service_dependencies->{$service}->{''} || []}
-                );
-            my @higher_services = sort keys(%higher_services);
-            my $ds_fh;
-            # Create "dependencies" directory if missing.
-            mkdir('dependencies') unless (-d 'dependencies');
-            if (open($ds_fh, '>:utf8', "dependencies/$service.$dep_profile.yml")) {
-              print {$ds_fh} "services:\n  $service:\n";
-              if (@higher_services) {
-                print {$ds_fh}
-                  "    depends_on:\n      "
-                  . join(":\n        condition: service_started\n      ", @higher_services)
-                  . ":\n        condition: service_started\n";
-              }
-              close($ds_fh);
+  my $compose = {
+    'services' => {},
+  };
+  # For each enabled service, add the section name, the indented definition,
+  # and the 'container_name:' field.
+  foreach my $service (sort keys(%services)) {
+    my $service_name = GetContainerName($service);
+    $compose->{'services'}->{$service} = $services{$service}->{'definition'};
+    $compose->{'services'}->{$service}->{'container_name'} = $service_name;
+    # Add dependencies between services.
+    if (exists($service_dependencies->{$service})
+      && (my $profile_count = scalar(keys(%{$service_dependencies->{$service}})))
+    ) {
+      # Filter service dependencies to only keep used services.
+      if ((1 < $profile_count) || !exists($service_dependencies->{$service}->{''})) {
+        # Profile-specific.
+        foreach my $dep_profile ('dev', 'staging', 'prod', 'backend', 'offline') {
+          my %higher_services = map
+            { $_ => 1 }
+            grep
+              {exists($services{$_})}
+              (
+                @{$service_dependencies->{$service}->{$dep_profile} || []},
+                @{$service_dependencies->{$service}->{''} || []}
+              );
+          my @higher_services = sort keys(%higher_services);
+          my $ds_fh;
+          # Create "dependencies" directory if missing.
+          mkdir('dependencies') unless (-d 'dependencies');
+          my $dependencies = {'services' => {$service => {}}};
+          if (@higher_services) {
+            foreach my $higher_service (@higher_services) {
+              $dependencies->{'services'}->{$service}->{'depends_on'} ||= {};
+              $dependencies->{'services'}->{$service}->{'depends_on'}->{$higher_service} = {
+                'condition' => 'service_started',
+              };
             }
           }
-          print {$dc_fh} "    extends:\n      file: \${PWD}/dependencies/$service.\${COMPOSE_PROFILES}.yml\n      service: $service\n";
+          WriteYaml("dependencies/$service.$dep_profile.yml", $dependencies);
         }
-        else {
-          # All profiles.
-          my %higher_services = map { $_ => 1 } grep {exists($services{$_})} @{$service_dependencies->{$service}->{''}};
-          my @higher_services = sort keys(%higher_services);
-          print {$dc_fh} "    depends_on:\n      " . join(":\n        condition: service_started\n      ", @higher_services) . ":\n        condition: service_started\n";
-        }
-      }
-    }
-    # For volumes, add the section name, the indented definition and the
-    # 'name:' field. Section names and volume names are prefixed with
-    # 'genoring-'.
-    print {$dc_fh} "\nvolumes:\n";
-    foreach my $volume (sort keys(%volumes)) {
-      my $volume_name = GetVolumeName($volume);
-      print {$dc_fh} "  $volume:\n";
-      print {$dc_fh} $volumes{$volume}->{'definition'};
-      print {$dc_fh} "    name: \"$volume_name\"\n";
-      # Manage non-exposed volumes.
-      if ($g_flags->{'no-exposed-volumes'}) {
-        Run(
-          "$Genoring::DOCKER_COMMAND volume create $volume_name",
-          "Failed to create volume '$volume_name'.",
-          0,
-          $g_flags->{'verbose'}
-        );
-      }
-    }
-
-    # Check for extra hosts to add.
-    if (-e $Genoring::EXTRA_HOSTS) {
-      my $extra_fh;
-      if (open($extra_fh, '<:utf8', $Genoring::EXTRA_HOSTS)) {
-        my $extra_hosts = do { local $/; <$extra_fh> };
-        close($extra_fh);
-        # Trim.
-        $extra_hosts =~ s/^\s+|[ \t\f]+$//gm;
-        $extra_hosts =~ s/^\n+//gsm;
-        if ($extra_hosts) {
-          if ($extra_hosts !~ m/^(\w+: "\[?[\d.:]+\]?"\n)+$/s) {
-            warn "WARNING: It seems that the extra hosts file '$Genoring::EXTRA_HOSTS' has been corrupted. GenoRing may not be able to run without manual adjustments in '$Genoring::DOCKER_COMPOSE_FILE' in the 'extra_hosts:' section.\n";
-          }
-          # Indent.
-          $extra_hosts =~ s/^/  /gm;
-          print {$dc_fh} "extra_hosts:\n$extra_hosts";
-        }
+        $compose->{'services'}->{$service}->{'extends'} = {
+          'file' => "\${PWD}/dependencies/$service.\${COMPOSE_PROFILES}.yml",
+          'service' => $service,
+        };
       }
       else {
-        warn "WARNING: failed to open extra hosts file '$Genoring::EXTRA_HOSTS'.\n$!\n";
+        # All profiles.
+        my %higher_services = map { $_ => 1 } grep {exists($services{$_})} @{$service_dependencies->{$service}->{''}};
+        my @higher_services = sort keys(%higher_services);
+        foreach my $higher_service (@higher_services) {
+          $compose->{'services'}->{$service}->{'depends_on'} = {
+            $higher_service => {
+              'condition' => 'service_started',
+            },
+          };
+        }
       }
     }
+  }
 
-    close($dc_fh);
+  # For volumes, add the section name, the indented definition and the
+  # 'name:' field. Section names and volume names are prefixed with
+  # 'genoring-'.
+  $compose->{'volumes'} = {};
+  foreach my $volume (sort keys(%volumes)) {
+    my $volume_name = GetVolumeName($volume);
+    $compose->{'volumes'}->{$volume} = $volumes{$volume}->{'definition'};
+    $compose->{'volumes'}->{$volume}->{'name'} = $volume_name;
+    # Manage non-exposed volumes.
+    if ($g_flags->{'no-exposed-volumes'}) {
+      Run(
+        "$Genoring::DOCKER_COMMAND volume create $volume_name",
+        "Failed to create volume '$volume_name'.",
+        0,
+        $g_flags->{'verbose'}
+      );
+    }
   }
-  else {
-    die "ERROR: GenerateDockerComposeFile: Failed to open Docker Compose file '$Genoring::DOCKER_COMPOSE_FILE':\n$!\n";
+
+  # Check for extra hosts to add.
+  if (-f $Genoring::EXTRA_HOSTS) {
+    my $yaml = ReadYaml($Genoring::EXTRA_HOSTS);
+    # Only add extra hosts if there are some.
+    if ($yaml && ('ARRAY' eq ref($yaml)) && @$yaml) {
+      $compose->{'extra_hosts'} = $yaml;
+    }
   }
+  WriteYaml($Genoring::DOCKER_COMPOSE_FILE, $compose, "# GenoRing docker compose file\n# COMPOSE_PROJECT_NAME=$ENV{'COMPOSE_PROJECT_NAME'}\n# WARNING: This file is auto-generated by genoring.sh script. Any direct\n# modification may be lost when genoring.pl will need to regenerate it.\n");
 }
 
 
@@ -3218,6 +3163,7 @@ sub ToDockerService {
 
   }
 
+  # @todo Implement...
   # Rename service to its original name or copy alt service.
   # Remove service from extra_hosts.
   # GenerateDockerComposeFile();
@@ -4073,20 +4019,11 @@ The GenoRing config.
 sub GetConfig {
   if (!$_g_config) {
     # Load config.
-    my $config_fh;
-    if (open($config_fh, '<:utf8', $Genoring::CONFIG_FILE)) {
-      my $yaml_text = do { local $/; <$config_fh> };
-      close($config_fh);
-      my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
-        or die
-          "ERROR: failed to read config file '$Genoring::CONFIG_FILE':\n"
-          . CPAN::Meta::YAML->errstr;
+    if (-f $Genoring::CONFIG_FILE) {
+      my $yaml = ReadYaml($Genoring::CONFIG_FILE);
       $_g_config = $yaml->[0];
     }
     else {
-      if (-e $Genoring::CONFIG_FILE) {
-        warn "WARNING: failed to open config file '$Genoring::CONFIG_FILE':\n$!\n";
-      }
       $_g_config = {};
     }
   }
@@ -4113,18 +4050,7 @@ sub SaveConfig {
     'no-exposed-volumes' => $g_flags->{'no-exposed-volumes'},
     'modules' => $_g_modules->{'config'},
   };
-  my $yaml = CPAN::Meta::YAML->new($config);
-  my $yaml_text = $yaml->write_string()
-    or die "ERROR: failed to generate config!\n"
-    . CPAN::Meta::YAML->errstr;
-  my $config_fh;
-  if (open($config_fh, '>:utf8', $Genoring::CONFIG_FILE)) {
-    print {$config_fh} $yaml_text;
-    close($config_fh);
-  }
-  else {
-    die "ERROR: failed to write config file '$Genoring::CONFIG_FILE':\n$!\n";
-  }
+  WriteYaml($Genoring::CONFIG_FILE, $config, "# GenoRing config file\n");
 }
 
 
@@ -4512,18 +4438,8 @@ sub GetModuleInfo {
   if (!$_g_modules_info->{$module}) {
     $_g_modules_info->{$module} = {};
     if (-f "$Genoring::MODULES_DIR/$module/$module.yml") {
-      if (open(my $alt_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/$module.yml")) {
-        my $yaml_text = do { local $/; <$alt_fh> };
-        close($alt_fh);
-        my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
-          or die
-            "ERROR: failed to parse module info file '$Genoring::MODULES_DIR/$module/$module.yml':\n"
-            . CPAN::Meta::YAML->errstr;
-        $_g_modules_info->{$module} = $yaml->[0];
-      }
-      else {
-        warn "WARNING: GetModuleInfo: Failed to open module info file '$Genoring::MODULES_DIR/$module/$module.yml'!\n$!";
-      }
+      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/$module.yml");
+      $_g_modules_info->{$module} = $yaml->[0];
     }
   }
   return $_g_modules_info->{$module};
@@ -4613,7 +4529,7 @@ sub GetModuleVolumes {
     # Other cases.
     my $module_info = GetModuleInfo($module);
     if (('used' eq $type) || ('all' eq $type)) {
-      foreach my $volume_dep (@{$module_info->{'dependencies'}{'volumes'}}) {
+      foreach my $volume_dep (@{$module_info->{'dependencies'}->{'volumes'}}) {
         my $dependencies = ParseDependencies($volume_dep);
         foreach my $dependency (@{$dependencies->{'dependencies'}}) {
           if ($dependency->{'element'}) {
@@ -4622,7 +4538,7 @@ sub GetModuleVolumes {
           else {
             my $dep_module_info = GetModuleInfo($dependency->{'module'});
             foreach my $dep_volume (keys(%{$dep_module_info->{'volumes'} || {}})) {
-              if ('shared' eq $dep_module_info->{'volumes'}{$dep_volume}{'type'}) {
+              if ('shared' eq $dep_module_info->{'volumes'}->{$dep_volume}->{'type'}) {
                 push(@volumes, $dep_volume);
               }
             }
@@ -4633,7 +4549,7 @@ sub GetModuleVolumes {
     if (('shared' eq $type) || ('exposed' eq $type) || ('all' eq $type)) {
       foreach my $volume (keys(%{$module_info->{'volumes'}})) {
         if (('all' eq $type)
-            || ($type eq $module_info->{'volumes'}{$volume}->{'type'})
+            || ($type eq $module_info->{'volumes'}->{$volume}->{'type'})
         ) {
           push(@volumes, $volume);
         }
@@ -5115,19 +5031,140 @@ sub RemoveModuleConf {
 
   if ($_g_modules->{'config'}->{$module}) {
     delete($_g_modules->{'config'}->{$module});
-    my $yaml = CPAN::Meta::YAML->new($_g_modules->{'config'});
-    my $yaml_text = $yaml->write_string()
-      or die "ERROR: failed to generate module config!\n"
-      . CPAN::Meta::YAML->errstr;
-    my $module_fh;
-    if (open($module_fh, '>:utf8', $Genoring::CONFIG_FILE)) {
-      print {$module_fh} $yaml_text;
-      close($module_fh);
-    }
-    else {
-      die "ERROR: failed to write config file '$Genoring::CONFIG_FILE':\n$!\n";
+    SaveConfig();
+  }
+}
+
+
+=pod
+
+=head2 ExpandYamlArrays
+
+B<Description>: Expands arrays not supported by CPAN::Meta::YAML.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $yaml: (mixed) (R)
+
+YAML data (or sub-data).
+
+=back
+
+B<Return>: (mixed)
+
+The YAML data with all array extended.
+
+=cut
+
+sub ExpandYamlArrays {
+  my ($yaml) = @_;
+  if ('HASH' eq ref($yaml)) {
+    keys %$yaml;
+    while(my($key, $subyaml) = each %$yaml) {
+      $subyaml = ExpandYamlArrays($subyaml);
+      $yaml->{$key} = $subyaml;
     }
   }
+  elsif (ref($yaml)) {
+    my $new_array = [];
+    foreach my $subyaml (@$yaml) {
+      $subyaml = ExpandYamlArrays($subyaml);
+      push(@$new_array, $subyaml);
+    }
+    $yaml = $new_array;
+  }
+  elsif ($yaml =~ m/^\[\s*".*"\s*\]$/) {
+    $yaml =~ s/^\[\s*"|"\s*\]$//g;
+    $yaml = [split(/"\s*,\s*"/, $yaml)];
+  }
+  return $yaml;
+}
+
+
+=pod
+
+=head2 ReadYaml
+
+B<Description>: Read a YAML file into a PERL array.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $yaml_file: (string) (R)
+
+YAML file path.
+
+=back
+
+B<Return>: (array)
+
+The YAML data into a structured array.
+
+=cut
+
+sub ReadYaml {
+  my ($yaml_file) = @_;
+  my $y_fh;
+  open($y_fh, '<:utf8', $yaml_file)
+    or die "ERROR: ReadYaml: Failed to access '$yaml_file'!\n$!";
+  my $yaml_text = do { local $/; <$y_fh> };
+  close($y_fh);
+  my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
+    or die
+      "ERROR: failed to load YAML file '$yaml_file':\n"
+      . CPAN::Meta::YAML->errstr;
+  $yaml = ExpandYamlArrays($yaml);
+  return $yaml;
+}
+
+
+=pod
+
+=head2 WriteYaml
+
+B<Description>: Write YAML content to a YAML file.
+
+B<ArgsCount>: 2-3
+
+=over 4
+
+=item $yaml_file: (string) (R)
+
+YAML file path.
+
+=item $yaml_data: (array) (R)
+
+YAML data structure.
+
+=item $header: (string) (O)
+
+An optional header to add at the begining of the YAML file.
+By default, the initial "---\n" is removed. If it is needed, set the $header
+to "---\n". The $header can also be used to add comments.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub WriteYaml {
+  my ($yaml_file, $yaml_data, $header) = @_;
+  $header //= '';
+  my $yaml_object = CPAN::Meta::YAML->new($yaml_data);
+  my $yaml_text = $yaml_object->write_string()
+    or die "ERROR: failed to generate YAML data for file '$yaml_file'!\n"
+    . CPAN::Meta::YAML->errstr;
+  $yaml_text =~ s/^---\n//;
+
+  my $y_fh;
+  open($y_fh, '>:utf8', $yaml_file)
+    or die "ERROR: WriteYaml: Failed to write YAML file '$yaml_file'!\n$!";
+  print {$y_fh} $header . $yaml_text;
+  close($y_fh);
 }
 
 
