@@ -1371,6 +1371,8 @@ sub GenerateDockerComposeFile {
   my %volumes;
   my $service_dependencies = {};
   my $volume_dependencies = {};
+  my $service_overrides = {};
+  my $service_merges = {};
   foreach my $module (@$modules) {
     print "  - Processing $module module\n";
 
@@ -1383,10 +1385,15 @@ sub GenerateDockerComposeFile {
     # Work on module services.
     opendir(my $dh, "$Genoring::MODULES_DIR/$module/services")
       or die "ERROR: GenerateDockerComposeFile: Failed to access '$Genoring::MODULES_DIR/$module/services' directory!\n$!";
-    my @services = (grep { $_ =~ m/^[^\.].*\.yml$/ && -f "$Genoring::MODULES_DIR/$module/services/$_" } readdir($dh));
+    my @service_files = readdir($dh);
+    my @services = (grep { $_ =~ m/^[^\.]*\.yml$/ && -f "$Genoring::MODULES_DIR/$module/services/$_" } @service_files);
+    my @service_override_files = (grep { $_ =~ m/^[^\.]*\.override\.yml$/ && -f "$Genoring::MODULES_DIR/$module/services/$_" } @service_files);
+    my @service_merge_files = (grep { $_ =~ m/^[^\.]*\.merge\.yml$/ && -f "$Genoring::MODULES_DIR/$module/services/$_" } @service_files);
     closedir($dh);
+    # Get environment files if some.
+    my @env_files = GetEnvironmentFiles($module);
     foreach my $service_yml (@services) {
-      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/services/$service_yml");
+      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/services/$service_yml", \@env_files);
       # Trim extension.
       my $service = substr($service_yml, 0, -4);
       $services{$service} = {
@@ -1431,6 +1438,22 @@ sub GenerateDockerComposeFile {
         }
         $services{$service}->{'definition'}->{'volumes'} = [@new_service_volumes];
       }
+    }
+    # Manages overrides.
+    foreach my $service_yml (@service_override_files) {
+      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/services/$service_yml", \@env_files);
+      # Trim "override" extension.
+      my $service = substr($service_yml, 0, -13);
+      $service_overrides->{$service} ||= [];
+      push(@{$service_overrides->{$service}}, $yaml->[0]);
+    }
+    # Manages merges.
+    foreach my $service_yml (@service_merge_files) {
+      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/services/$service_yml", \@env_files);
+      # Trim "merge" extension.
+      my $service = substr($service_yml, 0, -10);
+      $service_merges->{$service} ||= [];
+      push(@{$service_merges->{$service}}, $yaml->[0]);
     }
 
     # Parse module dependencies to compute service dependencies.
@@ -1512,7 +1535,7 @@ sub GenerateDockerComposeFile {
     my @volumes = (grep { $_ =~ m/^[^\.].*\.yml$/ && -f "$Genoring::MODULES_DIR/$module/volumes/$_" } readdir($dh));
     closedir($dh);
     foreach my $volume_yml (@volumes) {
-      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/volumes/$volume_yml");
+      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/volumes/$volume_yml", \@env_files);
       my $volume = substr($volume_yml, 0, -4);
       $volumes{$volume} = {
         'module' => $module,
@@ -1535,6 +1558,32 @@ sub GenerateDockerComposeFile {
       }
     }
     print "    OK\n";
+  }
+
+  # Apply overrides.
+  foreach my $service (keys(%$service_overrides)) {
+    if (exists($services{$service})) {
+      # Apply overrides.
+      foreach my $override (@{$service_overrides->{$service}}) {
+        $services{$service}->{'definition'} = OverrideData(
+          $services{$service}->{'definition'},
+          $override
+        );
+      }
+    }
+  }
+
+  # Apply merges.
+  foreach my $service (keys(%$service_merges)) {
+    if (exists($services{$service})) {
+      # Apply merges.
+      foreach my $merge (@{$service_merges->{$service}}) {
+        $services{$service}->{'definition'} = MergeData(
+          $services{$service}->{'definition'},
+          $merge
+        );
+      }
+    }
   }
 
   # Check volume dependencies.
@@ -5089,13 +5138,18 @@ sub ExpandYamlArrays {
 
 B<Description>: Read a YAML file into a PERL array.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1-2
 
 =over 4
 
 =item $yaml_file: (string) (R)
 
 YAML file path.
+
+=item $env_files: (array ref) (R)
+
+Optional reference to an array of path to environment files to use for
+substitution.
 
 =back
 
@@ -5106,12 +5160,38 @@ The YAML data into a structured array.
 =cut
 
 sub ReadYaml {
-  my ($yaml_file) = @_;
+  my ($yaml_file, $env_files) = @_;
   my $y_fh;
   open($y_fh, '<:utf8', $yaml_file)
     or die "ERROR: ReadYaml: Failed to access '$yaml_file'!\n$!";
   my $yaml_text = do { local $/; <$y_fh> };
   close($y_fh);
+
+  my %environment_variables;
+  if ($env_files && (ref($env_files) eq 'ARRAY')) {
+    foreach my $env_file (@$env_files) {
+      next unless -f $env_file;
+      open(my $env_fh, '<', $env_file)
+        or die "ERROR: ReadYaml: Failed to access env file '$env_file'!\n$!";
+      while (my $line = <$env_fh>) {
+        chomp $line;
+        next if $line =~ /^\s*#/;
+        next unless $line =~ /^([^=]+)=(.*)$/;
+        my ($key, $value) = ($1, $2);
+        $environment_variables{$key} = $value;
+      }
+      close($env_fh);
+    }
+    # Remove special environment variables.
+    delete($environment_variables{'GENORING_HOST'});
+    delete($environment_variables{'GENORING_PORT'});
+    # Remplacer les variables d'environnement dans $yaml_text
+    foreach my $env_var (keys(%environment_variables)) {
+      $yaml_text =~ s/\$\{$env_var\}|\$$env_var\b/$environment_variables{$env_var}/g;
+    }
+  }
+
+
   my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
     or die
       "ERROR: failed to load YAML file '$yaml_file':\n"
@@ -5165,6 +5245,214 @@ sub WriteYaml {
     or die "ERROR: WriteYaml: Failed to write YAML file '$yaml_file'!\n$!";
   print {$y_fh} $header . $yaml_text;
   close($y_fh);
+}
+
+
+=pod
+
+=head2 DeepCopy
+
+B<Description>: Create a copy of data stucture.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $data: (mixed) (R)
+
+The original structure.
+
+=back
+
+B<Return>: (mixed)
+
+The structure clone.
+
+=cut
+
+sub DeepCopy {
+  my ($data) = @_;
+
+  return $data unless ref($data);
+
+  if (ref($data) eq 'HASH') {
+    my %copy;
+    foreach my $key (keys(%$data)) {
+      $copy{$key} = DeepCopy($data->{$key});
+    }
+    return \%copy;
+  }
+
+  if (ref($data) eq 'ARRAY') {
+    my @copy;
+    foreach my $i (0..$#$data) {
+      $copy[$i] = DeepCopy($data->[$i]);
+    }
+    return \@copy;
+  }
+
+  return $data;
+}
+
+
+=pod
+
+=head2 OverrideData
+
+B<Description>: Overrides a data structure with a given data stucture.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $data_source: (mixed) (R)
+
+The original structure.
+
+=item $data_override: (mixed) (R)
+
+The overriding structure.
+
+=back
+
+B<Return>: (mixed)
+
+The overrided structure.
+
+=cut
+
+sub OverrideData {
+  my ($data_source, $data_override) = @_;
+
+  # No source, use override data.
+  unless (defined($data_source)) {
+    return DeepCopy($data_override);
+  }
+
+  # Nothing to override, remove source data.
+  unless (defined($data_override)) {
+    return undef;
+  }
+
+  # Source data is a scalar, override with override data.
+  unless (ref($data_source)) {
+    return ref($data_override)
+      ? DeepCopy($data_override)
+      : $data_override;
+  }
+
+  # Override data is a scalar while source data is not, override source data ref by
+  # override scalar.
+  unless (ref($data_override)) {
+    return $data_override;
+  }
+
+  # Both are hashes, add new keys and override existings.
+  if ((ref($data_source) eq 'HASH')
+      && (ref($data_override) eq 'HASH')
+  ) {
+    my $merged_hash = DeepCopy($data_source);
+    foreach my $key (keys(%$data_override)) {
+      if (exists($merged_hash->{$key})) {
+        my $override_value = OverrideData($merged_hash->{$key}, $data_override->{$key});
+        if (defined($override_value)) {
+          $merged_hash->{$key} = $override_value;
+        }
+        else {
+          delete($merged_hash->{$key});
+        }
+      }
+      else {
+        $merged_hash->{$key} = DeepCopy($data_override->{$key});
+      }
+    }
+    return $merged_hash;
+  }
+
+  # Both are arrays or not the same references, override all values.
+  return DeepCopy($data_override);
+}
+
+
+=pod
+
+=head2 MergeData
+
+B<Description>: Merges 2 data structures.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $data_source: (mixed) (R)
+
+The original structure.
+
+=item $data_merge: (mixed) (R)
+
+The structure to merge.
+
+=back
+
+B<Return>: (mixed)
+
+The merged structure.
+
+=cut
+
+sub MergeData {
+  my ($data_source, $data_merge) = @_;
+
+  # No source, use merge data.
+  unless (defined($data_source)) {
+    return DeepCopy($data_merge);
+  }
+
+  # Nothing to merge, use source data.
+  unless (defined($data_merge)) {
+    return DeepCopy($data_source);
+  }
+
+  # Source data is a scalar, override with merge data.
+  unless (ref($data_source)) {
+    return ref($data_merge)
+      ? DeepCopy($data_merge)
+      : $data_merge;
+  }
+
+  # Merge data is a scalar while source data is not, override source data ref by
+  # merge scalar.
+  unless (ref($data_merge)) {
+    return $data_merge;
+  }
+
+  # Both are hashes, add new keys and merge existings.
+  if ((ref($data_source) eq 'HASH')
+      && (ref($data_merge) eq 'HASH')
+  ) {
+    my $merged_hash = DeepCopy($data_source);
+    foreach my $key (keys(%$data_merge)) {
+      if (exists($merged_hash->{$key})) {
+        $merged_hash->{$key} = MergeData($merged_hash->{$key}, $data_merge->{$key});
+      }
+      else {
+        $merged_hash->{$key} = DeepCopy($data_merge->{$key});
+      }
+    }
+    return $merged_hash;
+  }
+
+  # Both are arrays, merge values.
+  if ((ref($data_source) eq 'ARRAY')
+      && (ref($data_merge) eq 'ARRAY')
+  ) {
+    my $merged_array = DeepCopy($data_source);
+    push(@$merged_array, @{DeepCopy($data_merge)});
+    return $merged_array;
+  }
+
+  # Not the same references, override with merge data.
+  return DeepCopy($data_merge);
 }
 
 
