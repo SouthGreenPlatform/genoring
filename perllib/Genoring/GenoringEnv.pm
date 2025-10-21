@@ -140,6 +140,7 @@ else {
 
 $ENV{'GENORING_NO_EXPOSED_VOLUMES'} ||= '';
 
+# Use current user and group identifiers by default if not set.
 $ENV{'GENORING_UID'} ||= $>;
 $ENV{'GENORING_GID'} ||= $) + 0;
 

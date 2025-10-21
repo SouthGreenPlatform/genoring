@@ -286,11 +286,18 @@ B<Return>: (nothing)
 =cut
 
 sub InitGenoringUser {
-  $ENV{'GENORING_UID'} ||= $>;
-  $ENV{'GENORING_GID'} ||= $) + 0;
+  # Check if volumes are exposed.
+  if ($g_flags->{'no-exposed-volumes'}) {
+    # Clear user and group to use fallback identifiers as there is nothing to
+    # share between host and containers.
+    $ENV{'GENORING_UID'} = 0;
+    $ENV{'GENORING_GID'} = 0;
+    return;
+  }
+  # Use setting user and group if available.
   if (-r 'env/genoring_genoring.env') {
-    $ENV{'GENORING_UID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID') || $>;
-    $ENV{'GENORING_GID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_GID') || ($) + 0);
+    $ENV{'GENORING_UID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID') // $>;
+    $ENV{'GENORING_GID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_GID') // ($) + 0);
   }
 }
 
