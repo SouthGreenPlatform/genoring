@@ -296,8 +296,14 @@ sub InitGenoringUser {
   }
   # Use setting user and group if available.
   if (-r 'env/genoring_genoring.env') {
-    $ENV{'GENORING_UID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID') // $>;
-    $ENV{'GENORING_GID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_GID') // ($) + 0);
+    $ENV{'GENORING_UID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_UID');
+    $ENV{'GENORING_GID'} = GetEnvVariable('env/genoring_genoring.env', 'GENORING_GID');
+    if (!$ENV{'GENORING_UID'} && ($ENV{'GENORING_UID'} ne '0')) {
+      $ENV{'GENORING_UID'} = $>;
+    }
+    if (!$ENV{'GENORING_GID'} && ($ENV{'GENORING_GID'} ne '0')) {
+      $ENV{'GENORING_GID'} = $) + 0;
+    }
   }
 }
 
@@ -3951,7 +3957,7 @@ sub Compile {
     $no_cache = '--no-cache';
   }
   Run(
-    "$Genoring::DOCKER_BUILD_COMMAND $no_cache --build-arg GENORING_UID=\${GENORING_UID} --build-arg GENORING_GID=\${GENORING_GID} -t $service $service_src_path",
+    "$Genoring::DOCKER_BUILD_COMMAND $no_cache --build-arg GENORING_UID=$ENV{GENORING_UID} --build-arg GENORING_GID=$ENV{GENORING_GID} -t $service $service_src_path",
     "Failed to compile container (service ${module}[$service])",
     1,
     1

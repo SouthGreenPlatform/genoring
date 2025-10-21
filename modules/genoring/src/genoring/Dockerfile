@@ -14,16 +14,19 @@ ENV POSTGRES_HOST=db
 ENV POSTGRES_PORT=5432
 ENV POSTGRES_DRUPAL_DB=drupal
 ENV POSTGRES_USER=postgres
-ENV POSTGRES_PASSWORD="G3noR!n&P0stGre"
 ENV DRUPAL_VERSION=11
 ENV DRUPAL_TRUSTED_HOST=""
 ENV DRUPAL_USER=genoring
-ENV DRUPAL_PASSWORD="G3noR!n&Drup@["
 ENV DRUPAL_AUTO_UPDATE=1
 ENV COMPOSER_HOME=/home/genoring/.composer
 ENV HOME=/home/genoring
 ENV PATH=${PATH}:/opt/genoring:/opt/drupal/vendor/bin
 ENV PHP_INI_SCAN_DIR=:/opt/drupal/php
+# The following environment variable must be set at run time.
+# ENV POSTGRES_PASSWORD=...
+# ENV DRUPAL_PASSWORD=...
+# Note: GenoRing takes care of all these environment variables. You should only
+# worry about those if you run the container outside GenoRing framework.
 
 # Setup applications, libraries and PHP:
 # - 'sudo' is needed to allow the 'genoring' user running the daemon to run
@@ -90,50 +93,49 @@ RUN set -eux \
 
 # Add genoring user and group. Makes sure GENORING_GID and GENORING_UID are not
 # already in use in the container, and if so, changes existing GID and UID.
-# Définir le fallback UID/GID (6305)
 RUN if [ "${GENORING_GID}" = "0" ]; then \
-        echo "GID 0 (root) detected, using fallback GID ${FALLBACK_ID} for genoring" && \
-        GENORING_GID=${FALLBACK_ID}; \
-    fi && \
-    if getent group "${GENORING_GID}" >/dev/null; then \
-        EXISTING_GROUP=$(getent group "${GENORING_GID}" | cut -d: -f1) && \
-        if [ "${EXISTING_GROUP}" = "root" ]; then \
-            echo "Conflict with root group, using fallback GID ${FALLBACK_ID}" && \
-            GENORING_GID=${FALLBACK_ID}; \
-        else \
-            NEW_GID=$((GENORING_GID + 1000)) && \
-            while getent group "${NEW_GID}" >/dev/null; do \
-                NEW_GID=$((NEW_GID + 1)); \
-            done && \
-            groupmod -g "${NEW_GID}" "${EXISTING_GROUP}" && \
-            find / -gid "${GENORING_GID}" -exec chgrp -h "${EXISTING_GROUP}" {} \; || true; \
-        fi; \
-    fi && \
-    groupadd -g "${GENORING_GID}" genoring
+      printf "GID 0 (root) detected, using fallback GID ${FALLBACK_ID} for genoring\\n"; \
+      GENORING_GID=${FALLBACK_ID}; \
+  fi; \
+  if getent group "${GENORING_GID}" >/dev/null; then \
+    EXISTING_GROUP=$(getent group "${GENORING_GID}" | cut -d: -f1); \
+    if [ "${EXISTING_GROUP}" = "root" ]; then \
+      printf "Conflict with root group, using fallback GID ${FALLBACK_ID}\\n"; \
+      GENORING_GID=${FALLBACK_ID}; \
+    else \
+      NEW_GID=$((GENORING_GID + 1000)); \
+      while getent group "${NEW_GID}" >/dev/null; do \
+        NEW_GID=$((NEW_GID + 1)); \
+      done; \
+      groupmod -g "${NEW_GID}" "${EXISTING_GROUP}"; \
+      find / -gid "${GENORING_GID}" -exec chgrp -h "${EXISTING_GROUP}" {} \\; \
+    fi; \
+  fi; \
+  groupadd -g "${GENORING_GID}" genoring
 
 RUN if [ "${GENORING_UID}" = "0" ]; then \
-        echo "UID 0 (root) detected, using fallback UID ${FALLBACK_ID} for genoring" && \
-        GENORING_UID=${FALLBACK_ID}; \
-    fi && \
-    if id "${GENORING_UID}" >/dev/null 2>/dev/null; then \
-        EXISTING_USER=$(id "${GENORING_UID}" | cut -d'(' -f2 | cut -d')' -f1) && \
-        if [ "${EXISTING_USER}" = "root" ]; then \
-            echo "Conflict with root user, using fallback UID ${FALLBACK_ID}" && \
-            GENORING_UID=${FALLBACK_ID}; \
-        else \
-            NEW_UID=$((GENORING_UID + 1000)) && \
-            while id "${NEW_UID}" >/dev/null 2>/dev/null; do \
-                NEW_UID=$((NEW_UID + 1)); \
-            done && \
-            usermod -u "${NEW_UID}" "${EXISTING_USER}" && \
-            find / -uid "${GENORING_UID}" -exec chown -h "${EXISTING_USER}" {} \; || true; \
-        fi; \
-    fi && \
-    if ! id genoring >/dev/null 2>/dev/null; then \
-        useradd -u "${GENORING_UID}" -g genoring -m -s /bin/bash genoring; \
+    printf "UID 0 (root) detected, using fallback UID ${FALLBACK_ID} for genoring\\n"; \
+    GENORING_UID=${FALLBACK_ID}; \
+  fi && \
+  if id "${GENORING_UID}" >/dev/null 2>/dev/null; then \
+    EXISTING_USER=$(id "${GENORING_UID}" | cut -d'(' -f2 | cut -d')' -f1); \
+    if [ "${EXISTING_USER}" = "root" ]; then \
+      printf "Conflict with root user, using fallback UID ${FALLBACK_ID}\\n"; \
+      GENORING_UID=${FALLBACK_ID}; \
     else \
-        usermod -u "${GENORING_UID}" -g genoring genoring; \
-    fi
+      NEW_UID=$((GENORING_UID + 1000)); \
+      while id "${NEW_UID}" >/dev/null 2>/dev/null; do \
+        NEW_UID=$((NEW_UID + 1)); \
+      done && \
+      usermod -u "${NEW_UID}" "${EXISTING_USER}"; \
+      find / -uid "${GENORING_UID}" -exec chown -h "${EXISTING_USER}" {} \\; \
+    fi; \
+  fi; \
+  if ! id genoring >/dev/null 2>/dev/null; then \
+    useradd -u "${GENORING_UID}" -g genoring -m -s /bin/bash genoring; \
+  else \
+    usermod -u "${GENORING_UID}" -g genoring genoring; \
+  fi
 
 # Allow apps to know they run into a Docker container.
 RUN touch /.dockerenv
@@ -205,7 +207,7 @@ RUN printf "%s\n" "#!/bin/sh" \
     "  /usr/bin/chmod -R ugo+rwX /opt/drupal/private /opt/drupal/config /opt/drupal/web/sites/default/files" \
     "}" \
     "if [ \"\$#\" -ne 1 ]; then" \
-    "  echo \"Invalid syntax!\"" \
+    "  printf \"Invalid syntax!\\\n\"" \
     "  exit 1" \
     "fi" \
     "case \$1 in" \
@@ -225,7 +227,7 @@ RUN printf "%s\n" "#!/bin/sh" \
     "    www_permissions" \
     "    ;;" \
     "  *)" \
-    "    echo \"Invalid argument: \$1\"" \
+    "    printf \"Invalid argument: \$1\\\n\"" \
     "    exit 1" \
     "    ;;" \
     "esac" >/opt/genoring/genoring_root.sh \
