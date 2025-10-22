@@ -3356,6 +3356,7 @@ sub Backup {
   ) {
     $mode = 'backend';
   }
+  my $errors;
 
   eval {
     # Stop if running.
@@ -3365,9 +3366,9 @@ sub Backup {
 
     # Launch backup hooks (modules/*/hooks/backup.pl).
     print "- Backuping modules data...\n";
-    my $errors = ApplyLocalHooks('backup', $module, $backup_name);
-    if ($errors && Confirm("WARNING: Some errors occured during the local system backup process. Do you want to continue?")) {
-      # @todo Restart as needed.
+    $errors = ApplyLocalHooks('backup', $module, $backup_name);
+    if ($errors && !Confirm("WARNING: Some errors occured during the local system backup process. Do you want to continue?")) {
+      warn "ABORTED. Restoring system...\n";
       die "Aborted.\n";
     }
     print "  ...Modules backuped on local system, backuping services data...\n";
@@ -3381,7 +3382,8 @@ sub Backup {
     # enabled module service (ie. modules/"svc1"/hooks/backup_"svc2".sh).
     print "  - Calling service backup hooks...\n";
     $errors = ApplyContainerHooks('backup', $module, 1, $backup_name);
-    if ($errors && Confirm("WARNING: Some errors occured during the service backup process. Do you want to continue?")) {
+    if ($errors && !Confirm("WARNING: Some errors occured during the service backup process. Do you want to continue?")) {
+      warn "ABORTED. Restoring system...\n";
       die "Aborted.\n";
     }
     print "  ...Services backuped.\n";
@@ -3403,6 +3405,15 @@ sub Backup {
     print "- Stopping Genoring...\n";
     StopGenoring();
     print "  ...OK.\n";
+  }
+
+  if ($errors) {
+    if (ref($errors)) {
+      die "Aborted:\n" . join("\n", values(%$errors));
+    }
+    else {
+      die "Aborted:\n$errors\n";
+    }
   }
 }
 
@@ -3699,13 +3710,17 @@ Additional arguments to transmit to the hook script in command line.
 
 =back
 
-B<Return>: (nothing)
+B<Return>: (hash ref)
+A reference to a hash which keys are hook names and values are error messages
+of each hook execution if a failure occurred. The hash is empty if no error
+occurred.
 
 =cut
 
 sub ApplyContainerHooks {
   my ($hook_name, $spec_module, $related, $args) = @_;
   $args ||= '';
+  my $errors = {};
 
   if (!$hook_name) {
     die "ERROR: ApplyContainerHooks: Missing hook name!\n";
@@ -3803,6 +3818,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           );
           if ($?) {
             print "  Failed.\n$output\n";
+            $errors->{$hook} = $output;
           }
           else {
             print "  OK.\n";
@@ -3814,6 +3830,7 @@ APPLYCONTAINERHOOKS_HOOKS:
       print "DEBUG: ...OK.\n";
     }
   }
+  return $errors;
 }
 
 
