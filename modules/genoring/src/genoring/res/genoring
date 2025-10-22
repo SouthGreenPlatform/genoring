@@ -732,7 +732,7 @@ backup()
 {
   backup_name="${1:-$(date +"drupal_backup_%Y%m%d_%H%M%S")}"
   mkdir -p /backups/$backup_name/genoring/
-  drush -y archive:dump --destination=/backups/$backup_name/genoring/ --overwrite --exclude-code-paths=web/sites/default/db_settings.php
+  drush -y archive:dump --destination=/backups/$backup_name/genoring/ --overwrite --exclude-code-paths=web/sites/default/db_settings.php,web/sites/simpletest/.+
   if [ $? -gt 0 ]; then
     log_error "ERROR: Failed to perform site backup!"
     exit 1
