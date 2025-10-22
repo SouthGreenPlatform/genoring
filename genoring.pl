@@ -23,7 +23,7 @@ genoring.pl - Manages GenoRing platform.
   | shell [SERVICE] [-cmd=<COMMAND>] ]
   | exportvol <VOLUME> [ARCHIVE.tar.gz]
   | importvol <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
-  | version [MODULE] [-all | -update]
+  | version [MODULE] [-all | -latest]
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-wait-ready[=DELAYSEC]]
   [-yes|-no] [-verbose] [-hide-compile]
@@ -500,12 +500,12 @@ volume.
 
 =head4 Syntax
 
-  ./genoring.pl version [MODULE] [-all | -update]
+  ./genoring.pl version [MODULE] [-all | -latest]
 
 =head4 Description
 
 Displays current GenorRing version. If MODULE is specified, displays the current
-module version. If "-update" flag is used, displays the most recent available
+module version. If "-latest" flag is used, displays the most recent available
 version. If "-all" flag is used, displays all avaiable versions.
 
 
@@ -1059,7 +1059,7 @@ elsif ($command =~ m/^version$/i) {
       print "Available versions:\n* " . join("\n* ", @versions) . "\n";
     }
   }
-  elsif ($g_flags->{'update'}) {
+  elsif ($g_flags->{'latest'}) {
     my ($version) = GetAvailableVersions(@arguments);
     $version ||= 'n/a';
     print "Latest version: $version\n";
