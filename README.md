@@ -465,9 +465,10 @@ Report issues or support request on GenoRing Git issue queue at:
    GenoRing?**
 
 **A.** Create or use the "extra_hosts.yml" file and add your host in a new line,
-   following the format: "hostanme:IP_address". Ex.:
+   following the format: "hostanme: IP_address" (note: the space after the colon
+   is important, otherwise it is not a valid YAML). Ex.:
 
-   `my.genoring.site:192.168.0.123`
+   `my.genoring.site: 192.168.0.123`
 
    Then rebuild your config:
 

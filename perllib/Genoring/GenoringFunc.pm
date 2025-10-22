@@ -1676,12 +1676,23 @@ sub GenerateDockerComposeFile {
     my $yaml = ReadYaml($Genoring::EXTRA_HOSTS);
     # Only add extra hosts if there are some.
     if ($yaml && ('ARRAY' eq ref($yaml)) && @$yaml) {
-      # We need to replace hash elements by scalars to avoid
+      # We need to replace ref elements by scalars to avoid
       # "circular reference" detection in CPAN::Meta::YAML->write_string().
       foreach my $extra_host (@$yaml) {
         if ('HASH' eq ref($extra_host)) {
           my @sub_extra_hosts =  map { "$_:$extra_host->{$_}"; } (keys(%$extra_host));
           push(@extra_hosts, @sub_extra_hosts);
+        }
+        elsif ('ARRAY' eq ref($extra_host)) {
+          foreach my $sub_extra_host (@$extra_host) {
+            if ('HASH' eq ref($sub_extra_host)) {
+              my @sub_extra_hosts =  map { "$_:$sub_extra_host->{$_}"; } (keys(%$sub_extra_host));
+              push(@extra_hosts, @sub_extra_hosts);
+            }
+            else {
+              push(@extra_hosts, $sub_extra_host);
+            }
+          }
         }
         else {
           push(@extra_hosts, $extra_host);
@@ -5175,7 +5186,7 @@ B<ArgsCount>: 1-2
 
 YAML file path.
 
-=item $env_files: (array ref) (R)
+=item $env_files: (array ref) (O)
 
 Optional reference to an array of path to environment files to use for
 substitution.
@@ -5196,6 +5207,12 @@ sub ReadYaml {
   my $yaml_text = do { local $/; <$y_fh> };
   close($y_fh);
 
+  # Remove comments (starting only) to check if YAML is empty.
+  $yaml_text =~ s/^\s*#.*\n//gm;
+  if ($yaml_text !~ m/\w/) {
+    # Empty YAML.
+    return [];
+  }
   my %environment_variables;
   if ($env_files && (ref($env_files) eq 'ARRAY')) {
     foreach my $env_file (@$env_files) {
@@ -5220,12 +5237,18 @@ sub ReadYaml {
     }
   }
 
-
-  my $yaml = CPAN::Meta::YAML->read_string($yaml_text)
-    or die
-      "ERROR: failed to load YAML file '$yaml_file':\n"
-      . CPAN::Meta::YAML->errstr;
-  $yaml = ExpandYamlArrays($yaml);
+  my $yaml = [];
+  eval {
+    $yaml = CPAN::Meta::YAML->read_string($yaml_text)
+      or die
+        "ERROR: failed to load YAML file '$yaml_file':\n"
+        . CPAN::Meta::YAML->errstr;
+    $yaml = ExpandYamlArrays($yaml);
+  }
+  or do {
+    my $error = $@;
+    die "ERROR: failed to load YAML file '$yaml_file':\n$error";
+  };
   return $yaml;
 }
 
@@ -5263,11 +5286,18 @@ B<Return>: (nothing)
 sub WriteYaml {
   my ($yaml_file, $yaml_data, $header) = @_;
   $header //= '';
-  my $yaml_object = CPAN::Meta::YAML->new($yaml_data);
-  my $yaml_text = $yaml_object->write_string()
-    or die "ERROR: failed to generate YAML data for file '$yaml_file'!\n"
-    . CPAN::Meta::YAML->errstr;
-  $yaml_text =~ s/^---\n//;
+  my $yaml_text = '';
+  eval {
+    my $yaml_object = CPAN::Meta::YAML->new($yaml_data);
+    $yaml_text = $yaml_object->write_string()
+      or die "ERROR: failed to generate YAML data for file '$yaml_file'!\n"
+      . CPAN::Meta::YAML->errstr;
+    $yaml_text =~ s/^---\n//;
+  }
+  or do {
+    my $error = $@;
+    die "ERROR: failed to generate YAML data for file '$yaml_file'!\n$error";
+  };
 
   my $y_fh;
   open($y_fh, '>:utf8', $yaml_file)
