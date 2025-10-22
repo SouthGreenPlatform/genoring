@@ -3365,7 +3365,11 @@ sub Backup {
 
     # Launch backup hooks (modules/*/hooks/backup.pl).
     print "- Backuping modules data...\n";
-    ApplyLocalHooks('backup', $module, $backup_name);
+    my $errors = ApplyLocalHooks('backup', $module, $backup_name);
+    if ($errors && Confirm("WARNING: Some errors occured during the local system backup process. Do you want to continue?")) {
+      # @todo Restart as needed.
+      die "Aborted.\n";
+    }
     print "  ...Modules backuped on local system, backuping services data...\n";
 
     # Start containers in backend mode.
@@ -3376,27 +3380,29 @@ sub Backup {
     # Apply docker backup hooks of each enabled module service for each
     # enabled module service (ie. modules/"svc1"/hooks/backup_"svc2".sh).
     print "  - Calling service backup hooks...\n";
-    ApplyContainerHooks('backup', $module, 1, $backup_name);
+    $errors = ApplyContainerHooks('backup', $module, 1, $backup_name);
+    if ($errors && Confirm("WARNING: Some errors occured during the service backup process. Do you want to continue?")) {
+      die "Aborted.\n";
+    }
     print "  ...Services backuped.\n";
-
-    # Restart as needed.
-    if ('running' eq $current_mode) {
-      print "- Restarting GenoRing...\n";
-      StartGenoring('online');
-      print "  ...OK.\n";
-    }
-    elsif (('backend' ne $current_mode) && ('offline' ne $current_mode)) {
-      # Stop containers.
-      print "- Stopping Genoring...\n";
-      StopGenoring();
-      print "  ...OK.\n";
-    }
-
     print "Backup done. Backup created in 'backups/$backup_name/'.\n";
   };
 
   if ($@) {
     print "ERROR: Backup failed!\n$@\n";
+  }
+
+  # Restart as needed.
+  if ('running' eq $current_mode) {
+    print "- Restarting GenoRing...\n";
+    StartGenoring('online');
+    print "  ...OK.\n";
+  }
+  elsif (('backend' ne $current_mode) && ('offline' ne $current_mode)) {
+    # Stop containers.
+    print "- Stopping Genoring...\n";
+    StopGenoring();
+    print "  ...OK.\n";
   }
 }
 
@@ -3490,24 +3496,24 @@ sub Restore {
     ApplyContainerHooks('restore', $module, 1, $backup_name);
     print "  ...Services restored.\n";
 
-    # Restart as needed.
-    if ('running' eq $current_mode) {
-      print "- Restarting GenoRing...\n";
-      StartGenoring('online');
-      print "  ...OK.\n";
-    }
-    elsif (('backend' ne $current_mode) && ('offline' ne $current_mode)) {
-      # Stop containers.
-      print "- Stopping Genoring...\n";
-      StopGenoring();
-      print "  ...OK.\n";
-    }
-
     print "Restore done.\n";
   };
 
   if ($@) {
     print "ERROR: Restore failed!\n$@\n";
+  }
+
+  # Restart as needed.
+  if ('running' eq $current_mode) {
+    print "- Restarting GenoRing...\n";
+    StartGenoring('online');
+    print "  ...OK.\n";
+  }
+  elsif (('backend' ne $current_mode) && ('offline' ne $current_mode)) {
+    # Stop containers.
+    print "- Stopping Genoring...\n";
+    StopGenoring();
+    print "  ...OK.\n";
   }
 }
 
@@ -5244,10 +5250,9 @@ sub ReadYaml {
         "ERROR: failed to load YAML file '$yaml_file':\n"
         . CPAN::Meta::YAML->errstr;
     $yaml = ExpandYamlArrays($yaml);
-  }
-  or do {
-    my $error = $@;
-    die "ERROR: failed to load YAML file '$yaml_file':\n$error";
+  };
+  if ($@) {
+    die "ERROR: failed to load YAML file '$yaml_file':\n$@";
   };
   return $yaml;
 }
@@ -5293,10 +5298,9 @@ sub WriteYaml {
       or die "ERROR: failed to generate YAML data for file '$yaml_file'!\n"
       . CPAN::Meta::YAML->errstr;
     $yaml_text =~ s/^---\n//;
-  }
-  or do {
-    my $error = $@;
-    die "ERROR: failed to generate YAML data for file '$yaml_file'!\n$error";
+  };
+  if ($@) {
+    die "ERROR: failed to generate YAML data for file '$yaml_file'!\n$@";
   };
 
   my $y_fh;
