@@ -319,14 +319,19 @@ To run Drupal automated tests:
   # exit
 ```
 
-Run multiple instances of GenoRing:
+Run multiple instances of GenoRing (Linux/Mac):
 You will have to create a volume directory for each instance.
 ```
-
   # COMPOSE_PROJECT_NAME=gr_inst1 perl genoring.pl start
   # COMPOSE_PROJECT_NAME=gr_inst2 perl genoring.pl start
   # COMPOSE_PROJECT_NAME=gr_inst3 perl genoring.pl start
   ...
+```
+With Windows, you need a first command to set COMPOSE_PROJECT_NAME environment
+variable and a second one to run GenoRing. For example:
+```
+  # set COMPOSE_PROJECT_NAME=gr_inst1
+  # perl genoring.pl start
 ```
 
 For more commands, just run "perl genoring.pl" or "perl genoring.pl man".
@@ -355,16 +360,27 @@ It is possible to later switch back to container service using:
 
 ### Known issues
 
-- ARM support is not fully functional yet.
 - For Windows platform support, exposed GenoRing volumes are disabled. Due to a
   large amount of files generated, it often crashes Docker Desktop and prevents
   GenoRing from functionning. Since named Docker volumes can still be accessed
   through Docker Desktop, having those also shared as local files in local file
   system is not necessary and is automatically disabled. To force the use of
   such exposed volumes on Windows system (and face associated issues), you can
-  however use the flag "--no-exposed-volumes=0". And in reverse, you can disable
-  the use of exposed volumes on local file system using "--no-exposed-volumes"
-  on any system.
+  however use the flag `--no-exposed-volumes=0` or `--exposed-volumes`. And in
+  reverse, you can disable the use of exposed volumes on local file system using
+  `--no-exposed-volumes` on any system.
+  Note: it is also possible to export/import Docker volumes using GenoRing
+  commands:
+  - to list volumes: `./genoring.pl volumes`
+  - to export: `./genoring.pl exportvol <volume> [ARCHIVE.tar.gz]`
+  - to import: `./genoring.pl importvol <volume> <ARCHIVE.tar.gz | DIRECTORY>`
+- For Mac platform support, exposed GenoRing volumes are disabled. Unlike
+  Windows platform, the file system problem comes form user permissions. On Mac,
+  Docker Desktop runs itself in a virtual machine that uses a different UID and
+  GID that cannot be mapped into containers. Therefore, exposed files have
+  permissions that become problematic when inside a container.
+  Note: like Windows users, Mac users may access container volume files using
+  alternative ways (Docker Desktop or GenoRing volume commands above).
 
 ### Report
 
@@ -374,16 +390,18 @@ Report issues or support request on GenoRing Git issue queue at:
 
 ### F.A.Q.
 
-Q. How do I access to GenoRing when it is started?
-A. Just open a web browser and use the URL http://your.host.name-or-ip:8080/
+**Q. How do I access to GenoRing when it is started?**
+
+**A.** Just open a web browser and use the URL http://your.host.name-or-ip:8080/
    unless you specified a different port than the default "8080".
    Ex.: http://192.168.0.2:8080/ or http://my.server.com:8080/
    If you are running GenoRing on you local machine for testing, you can also
    access it through: http://localhost:8080/
    Currently, HTTPS (SSL) is not supported but it will in future versions.
 
-Q. Why GenoRing relies on a PERL script to manage everything?
-A. The main goals of GenoRing are to be easy to use, with very few requirements,
+**Q. Why GenoRing relies on a PERL script to manage everything?**
+
+**A.** The main goals of GenoRing are to be easy to use, with very few requirements,
   to be modular and, easy to maintain.
   Running it with a single command line was a key point. Several choices were
   possible:
@@ -407,8 +425,9 @@ A. The main goals of GenoRing are to be easy to use, with very few requirements,
   - Maybe other more complex solutions exist as well but a PERL script remains a
     simple choice and still not too complex to maintain.
 
-Q. Is it possible to replace the Drupal CMS by another system?
-A. Yes. The GenoRing code module "genoring" is just a module like the others. It
+**Q. Is it possible to replace the Drupal CMS by another system?**
+
+**A.** Yes. The GenoRing code module "genoring" is just a module like the others. It
    is possible to provide an alternative service to the Drupal one. The drawback
    will be that most modules have been designed to work with Drupal and may not
    work properly with an alternative system. To mitigate that problem, a wrapper
@@ -417,21 +436,42 @@ A. Yes. The GenoRing code module "genoring" is just a module like the others. It
    An alternative system could provide its own implementation of that wrapper
    script to perform similar operations.
 
-Q. I want to integrate a custom application to GenoRing. How to proceed?
-A. Start by copying the module template directory (modules/TEMPLATE), remove
+**Q. I want to integrate a custom application to GenoRing. How to proceed?**
+
+**A.** Start by copying the module template directory (modules/TEMPLATE), remove
    unnecessary files and hooks, edit and add what is needed. Then, you should be
    able to enable your custom module and have it integrated to GenoRing just as
    any regular module.
 
-Q. How to add Drupal extensions and themes to the Drupal instance provided by
-   GenoRing? Do I need to use a local version instead?
-A. You don't need to use a local version. You can use "composer" to manage
+**Q. How to add Drupal extensions and themes to the Drupal instance provided by
+   GenoRing? Do I need to use a local version instead?**
+
+**A.** You don't need to use a local version. You can use "composer" to manage
    Drupal extensions through the GenoRing shell (`genoring.pl shell`).
 
-Q. I would like to use my institute Single Sign On service (SSO) to log into
-   GenoRing automatically. Is it possible?
-A. Yes, through a Drupal extension as long as such an extension exists for your
+**Q. I would like to use my institute Single Sign On service (SSO) to log into
+   GenoRing automatically. Is it possible?**
+
+**A.** Yes, through a Drupal extension as long as such an extension exists for your
    SSO system. You will have to add that extension and configure it.
+   For example, the [CAS](https://www.drupal.org/project/cas) module can be used
+   if your institution has a CAS server.
+   Note: you can also setup Drupal as a
+   [CAS server](https://www.drupal.org/project/cas_server) but you cannot use
+   both CAS and CAS server modules (conflicts).
+
+**Q. For testing, I use a non public domain name that I set up in my local
+   /etc/hosts file. How can I have it handled properly with Docker containers of
+   GenoRing?**
+
+**A.** Create or use the "extra_hosts.yml" file and add your host in a new line,
+   following the format: "hostanme:IP_address". Ex.:
+
+   `my.genoring.site:192.168.0.123`
+
+   Then rebuild your config:
+
+   `perl genoring.pl setup`
 
 ### Trouble shooting
 

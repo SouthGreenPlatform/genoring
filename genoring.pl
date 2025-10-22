@@ -35,8 +35,11 @@ genoring.pl - Manages GenoRing platform.
 
 Multi-instances:
   - Linux/Mac:
+
     COMPOSE_PROJECT_NAME=instance_name ./genoring.pl start -port 8888
+
   - Windows:
+
     set COMPOSE_PROJECT_NAME=instance_name
     ./genoring.pl start -port 8888
 
