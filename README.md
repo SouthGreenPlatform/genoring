@@ -503,6 +503,15 @@ Report issues or support request on GenoRing Git issue queue at:
   access static files. You will have to investigate if the volumes are properly
   mounted and were correctly initialized.
 
+* When using Docker Desktop, sometimes it is not possible to restart GenoRing.
+  An error like: `Error response from daemon: error while mounting volume '...':
+  failed to mount local volume: mount ...:...., flags: 0x1000: no such file or
+  directory` appears. It is because Docker Desktop tries to mount a GenoRing
+  volume with a bad definition. Go on Docker Desktop interface and delete the
+  corresponding GenoRing volumes (the ones prefixed by your
+  COMPOSE_PROJECT_NAME). Then try again to start GenoRing and it should work.
+  Note: this works for *exposed volumes*.
+
 
 ## Authors and acknowledgment
 
