@@ -1,4 +1,4 @@
   listen ${SSL_PORT} ssl;
 
-  ssl_certificate     /etc/nginx/genoring/ssl/${NGINX_HOST}.crt;
-  ssl_certificate_key /etc/nginx/genoring/ssl/${NGINX_HOST}.key;
+  ssl_certificate     /etc/ssl/certs/${GENORING_HOST}.crt;
+  ssl_certificate_key /etc/ssl/private/${GENORING_HOST}.key;

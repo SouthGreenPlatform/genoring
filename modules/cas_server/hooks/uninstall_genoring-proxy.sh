@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # Remove certificates.
-rm -f /etc/nginx/genoring/ssl/${NGINX_HOST}.key
-rm -f /etc/nginx/genoring/ssl/${NGINX_HOST}.crt
+rm -f /etc/nginx/genoring/ssl/${GENORING_HOST}.key
+rm -f /etc/nginx/genoring/ssl/${GENORING_HOST}.crt
 rmdir /etc/nginx/genoring/ssl
 
 # Remove SSL config.

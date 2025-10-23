@@ -1,3 +1,5 @@
 ports:
   # Change left port to change SSL port on local server.
   - ${SSL_PORT}:443
+volumes:
+  - genoring-proxy-ssl:/etc/ssl

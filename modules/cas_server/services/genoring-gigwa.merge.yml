@@ -1,0 +1,3 @@
+volumes:
+  - genoring-gigwa-jdk_certificates:/usr/local/openjdk-17/lib/security
+  - genoring-gigwa-openssl_certificates:/usr/local/share/ca-certificates/
