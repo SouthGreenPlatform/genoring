@@ -1567,7 +1567,7 @@ sub GenerateDockerComposeFile {
       my $dependencies = ParseDependencies($volume_dep);
       if ('REQUIRES' eq $dependencies->{'constraint'}) {
         $volume_dependencies->{$module} ||= [];
-        push(@{$volume_dependencies->{$module}}, $dependencies->{'dependencies'});
+        push(@{$volume_dependencies->{$module}}, @{$dependencies->{'dependencies'}});
       }
     }
     print "    OK\n";
@@ -1601,50 +1601,63 @@ sub GenerateDockerComposeFile {
 
   # Check volume dependencies.
   foreach my $module (keys(%$volume_dependencies)) {
-    foreach my $volume_deps (values(%{$volume_dependencies->{$module}})) {
-      my $volume_ok = 0;
-      foreach my $volume_dep (@$volume_deps) {
-        # Check if the requirement is on a whole module (ie. no volume name).
-        if (!$volume_dep->{'element'}) {
-          if (grep($volume_dep->{'module'}, @$modules)) {
-            $volume_ok = 1;
-          }
-          # else warn "WARNING: module '$module' requires volumes from module '$module' but that module is not enabled! GenoRing may fail to start.\n";
+    my $volume_ok = 0;
+    foreach my $volume_dep (@{$volume_dependencies->{$module}}) {
+      # Check if the requirement is on a whole module (ie. no volume name).
+      if (!$volume_dep->{'element'}) {
+        if (grep($volume_dep->{'module'}, @$modules)) {
+          $volume_ok = 1;
         }
-        elsif ($volume_dep->{'element'}
-            && exists($volumes{$volume_dep->{'element'}})
-        ) {
-          # Check for version constraints.
-          if ($volume_dep->{'major_version'}) {
-            my $module_info = GetModuleInfo($module);
-            my $version_constraint = $volume_dep->{'version_constraint'} || '=';
-            # @todo Code to test.
-            my $dep_version = $volume_dep->{'major_version'} . '.' . ($volume_dep->{'minor_version'} || '');
-            if ((('=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) == 0))
-              || (('<' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) < 0))
-              || (('<=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) <= 0))
-              || (('>' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) > 0))
-              || (('>=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) >= 0))
-            ) {
-              $volume_ok = 1;
-            }
-          }
-          else {
-            # No version constraint and volume is there.
+        # else warn "WARNING: module '$module' requires volumes from module '$module' but that module is not enabled! GenoRing may fail to start.\n";
+      }
+      elsif ($volume_dep->{'element'}
+          && exists($volumes{$volume_dep->{'element'}})
+      ) {
+        # Check for version constraints.
+        if ($volume_dep->{'major_version'}) {
+          my $module_info = GetModuleInfo($module);
+          my $version_constraint = $volume_dep->{'version_constraint'} || '=';
+          # @todo Code to test.
+          my $dep_version = $volume_dep->{'major_version'} . '.' . ($volume_dep->{'minor_version'} || '');
+          if ((('=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) == 0))
+            || (('<' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) < 0))
+            || (('<=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) <= 0))
+            || (('>' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) > 0))
+            || (('>=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) >= 0))
+          ) {
             $volume_ok = 1;
           }
         }
-        if ($volume_ok) {
-          last;
+        else {
+          # No version constraint and volume is there.
+          $volume_ok = 1;
         }
       }
-      if (!$volume_ok) {
-        # @todo Display a more informative message.
-        warn "WARNING: module '$module' has unmet volume dependencies! GenoRing may fail to start.\n";
+      if ($volume_ok) {
+        last;
       }
+    }
+    if (!$volume_ok) {
+      # @todo Display a more informative message.
+      warn "WARNING: module '$module' has unmet volume dependencies! GenoRing may fail to start.\n";
     }
   }
   # Done with all modules info.
+
+  # Add internal volumes.
+  foreach my $service (keys(%services)) {
+    next if (!exists($services{$service}->{'definition'}->{'volumes'})
+     || !@{$services{$service}->{'definition'}->{'volumes'}});
+    foreach my $volume (@{$services{$service}->{'definition'}->{'volumes'}}) {
+      next if (ref($volume));
+      my ($volume_name) = ($volume =~ m/^([\w\-]+):/);
+      if ($volume_name && !exists($volumes{$volume_name})) {
+        $volumes{$volume_name} = {
+          'name' => GetVolumeName($volume_name),
+        };
+      }
+    }
+  }
 
   # Generate "services" and "volumes" sections from enabled services.
   print "  All modules processed.\n";
@@ -2570,6 +2583,7 @@ sub InstallModule {
   $context->{'container_hooks'} = {
     'enable' => {
       'revert' => 'disable',
+      'related' => 1,
     },
   };
 
@@ -2674,6 +2688,7 @@ sub EnableModule {
   $context->{'container_hooks'} = {
     'enable' => {
       'revert' => 'disable',
+      'related' => 1,
     },
   };
 
@@ -2779,7 +2794,10 @@ sub DisableModule {
   };
   if ($uninstall) {
     $context->{'local_hooks'}->{'uninstall'} = {'order' => 2,};
-    $context->{'container_hooks'}->{'uninstall'} = {'related' => 1, 'order' => 2,};
+    $context->{'container_hooks'}->{'uninstall'} = {
+      'related' => 1,
+      'order' => 2,
+    };
   }
 
   eval {
@@ -3614,8 +3632,32 @@ sub ApplyLocalHooks {
       }
       print "  Processing $module module hook $hook_name...";
       my $hook_script = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', "$hook_name.pl");
-      # @todo Add environment variables.
+      # Get module environment variables.
+      my @env_files = GetEnvironmentFiles($module);
+      my %module_env = ();
+      foreach my $env_file (@env_files) {
+        if (open(my $fh, '<', $env_file)) {
+          while (my $line = <$fh>) {
+            chomp $line;
+            next if $line =~ /^\s*#/;
+            next if $line =~ /^\s*$/;
+            my ($key, $value) = split /=/, $line, 2;
+            $key =~ s/^\s+|\s+$//g;
+            if (($key =~ m/^\w+$/) && defined($value)) {
+              $value =~ s/^\s+|\s+$//g;
+              $module_env{$key} = $value;
+            }
+          }
+          close($fh);
+        }
+        else {
+          warn "WARNING: Failed to process $module module environment file '$env_file'.\n$!\n";
+        }
+      }
+
       eval {
+        # Temporarily add environment variables.
+        local @ENV{ keys(%module_env) } = values(%module_env);
         Run(
           # "export \$(cat env/*.env | grep '^\w'| xargs -d '\\n') && perl $hook_script $args",
           # cat env/*.env | grep '^\w' | while IFS='=' read -r name value; do export "$name=$value"; done
@@ -4942,7 +4984,7 @@ sub GetEnvironmentFiles {
     if (-d "$Genoring::MODULES_DIR/$module/env") {
       # List module env files.
       if (opendir(my $dh, "$Genoring::MODULES_DIR/$module/env")) {
-        my @module_env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -r "$Genoring::MODULES_DIR/$module/env/$_" } readdir($dh));
+        my @module_env_files = (grep { $_ =~ m/^[^\.].*\.env$/ && -f "$Genoring::MODULES_DIR/$module/env/$_" } readdir($dh));
         closedir($dh);
         foreach my $env_file (@module_env_files) {
           # Check if environment file exist.
