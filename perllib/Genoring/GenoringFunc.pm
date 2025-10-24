@@ -351,8 +351,24 @@ sub StartGenoring {
   elsif ($mode eq 'offline') {
     $ENV{'COMPOSE_PROFILES'} = 'offline';
   }
+  if ($g_debug) {
+    print "DEBUG: Using profile '" . $ENV{'COMPOSE_PROFILES'} . "'.\n";
+  }
   # Check that genoring docker is not already running.
   my ($id, $state, $name, $image) = IsContainerRunning($ENV{'COMPOSE_PROJECT_NAME'});
+  if ($state && ($state =~ m/running/)) {
+    my $compose_profile = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $ENV{'COMPOSE_PROJECT_NAME'} sh -c 'printf "\$COMPOSE_PROFILES"' 2>/dev/null);
+    if ($g_debug) {
+      print "DEBUG: Currently running with profile '" . $compose_profile . "'.\n";
+    }
+    # Check if it is running in the same mode.
+    if ($compose_profile !~ m/^$ENV{'COMPOSE_PROFILES'}$/) {
+      # Stop GenoRing.
+      StopGenoring();
+      # We need to restart in the correct mode.
+      $state = 0;
+    }
+  }
   if (!$state || ($state !~ m/running/)) {
     ApplyLocalHooks('start');
     # Not running, start it.
@@ -733,7 +749,7 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return ();
   }
-  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}} 2>/dev/null");
+  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}" 2>/dev/null);
   my @ps = split(/\n+/, $ps_all);
   foreach my $ps (@ps) {
     my @status = split(/\s+/, $ps);
@@ -3829,13 +3845,14 @@ APPLYCONTAINERHOOKS_HOOKS:
           }
           # Provide module files to container if not done already.
           if (!exists($initialized_containers{$service})) {
-            # Copy GenoRing module files as root.
+            # Remove previous copy of GenoRing module files.
             Run(
               "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
               "Failed to prepare module file copy in $service_name ($module $hook hook)",
               0,
               $g_flags->{'verbose'}
             );
+            # Copy GenoRing module files as root.
             Run(
               "$Genoring::DOCKER_COMMAND cp $Genoring::MODULES_DIR/ $service_name:/genoring/modules",
               "Failed to copy module files in $service_name ($module $hook hook)",

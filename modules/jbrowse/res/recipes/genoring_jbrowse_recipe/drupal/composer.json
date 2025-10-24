@@ -1,0 +1,19 @@
+{
+  "name": "genoring/genoring_jbrowse_recipe",
+  "description": "GenoRing JBrowse recipe.",
+  "type": "drupal-recipe",
+  "license": "GPL-2.0-or-later",
+  "homepage": "https://github.com/SouthGreenPlatform/genoring",
+  "authors": [
+    {
+      "name": "Valentin Guignon",
+      "email": "guignonv@yahoo.fr"
+    }
+  ],
+  "support": {
+    "issues": "https://github.com/SouthGreenPlatform/genoring/issues"
+  },
+  "require": {
+    "drupal/genoring": "^1.0.x-dev"
+  }
+}

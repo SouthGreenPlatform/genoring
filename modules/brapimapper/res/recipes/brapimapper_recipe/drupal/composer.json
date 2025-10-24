@@ -1,0 +1,20 @@
+{
+  "name": "genoring/brapimapper_recipe",
+  "description": "GenoRing BrAPI Mapper recipe.",
+  "type": "drupal-recipe",
+  "license": "GPL-2.0-or-later",
+  "homepage": "https://github.com/SouthGreenPlatform/genoring",
+  "authors": [
+    {
+      "name": "Valentin Guignon",
+      "email": "guignonv@yahoo.fr"
+    }
+  ],
+  "support": {
+    "issues": "https://github.com/SouthGreenPlatform/genoring/issues"
+  },
+  "require": {
+    "drupal/brapi": "^4.0@beta",
+    "drupal/xnttbrapi": "^1.0@beta"
+  }
+}

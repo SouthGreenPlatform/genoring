@@ -1,0 +1,10 @@
+uuid: e3aa6360-a311-4f69-9ad6-78ed52af67f9
+langcode: en
+status: true
+dependencies: {  }
+label: 'Gigwa'
+id: gigwa
+service: 'https://${GENORING_HOST}/*'
+sso: true
+attributes:
+  name: name

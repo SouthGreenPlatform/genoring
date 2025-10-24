@@ -1,0 +1,11 @@
+name: 'BrAPI Mapper recipe'
+description: 'BrAPI Mapper recipe.'
+type: 'Administration'
+install:
+  - brapi
+  - xnttbrapi
+config:
+  strict: false
+  import:
+    brapi: '*'
+    xnttbrapi: '*'

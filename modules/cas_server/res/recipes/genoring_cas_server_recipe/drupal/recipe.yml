@@ -1,0 +1,9 @@
+name: 'CAS recipe'
+description: 'CAS recipe.'
+type: 'Administration'
+install:
+  - cas_server
+config:
+  strict: false
+  import:
+    cas_server: '*'

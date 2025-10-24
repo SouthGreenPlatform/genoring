@@ -1,0 +1,36 @@
+_meta:
+  version: '1.0'
+  entity_type: menu_link_content
+  uuid: 28d2f771-73c1-476a-8e93-3ff914d88ffb
+  bundle: menu_link_content
+  default_langcode: en
+default:
+  enabled:
+    -
+      value: true
+  title:
+    -
+      value: 'JBrowse Demo'
+  menu_name:
+    -
+      value: main
+  link:
+    -
+      uri: 'http://${GENORING_HOST}:${GENORING_PORT}/jbrowse/index.html?data=sample_data/json/yeast'
+      title: ''
+      options: {  }
+  external:
+    -
+      value: false
+  rediscover:
+    -
+      value: false
+  weight:
+    -
+      value: 0
+  expanded:
+    -
+      value: true
+  revision_translation_affected:
+    -
+      value: true

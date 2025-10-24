@@ -3,15 +3,8 @@
 # Automatically exit on error.
 set -e
 
-# Enable Gigwa module.
-# genoring install_module gigwa
-
-# Add integration.
 if [ -z $GIGWA_DIRECT_ACCESS ] || [ $GIGWA_DIRECT_ACCESS -eq 0 ]; then
-  genoring add_integration /genoring/modules/gigwa/res/integration.yml
+  genoring install_recipe modules/gigwa/res/recipes/gigwa_embeded_recipe
 fi
 
-# Add Gigwa menu item.
-genoring add_menuitem /genoring/modules/gigwa/res/menu.yml
-
-genoring command drush cr
+genoring install_recipe modules/gigwa/res/recipes/gigwa_recipe

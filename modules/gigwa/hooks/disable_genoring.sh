@@ -3,13 +3,5 @@
 # Automatically exit on error.
 set -e
 
-# Enable Gigwa module.
-# genoring uninstall_module gigwa
-
-# Remove Gigwa menu item.
-genoring remove_menuitem /genoring/modules/gigwa/res/menu.yml
-
-# Remove integration.
-genoring remove_integration /genoring/modules/gigwa/res/integration.yml
-
-genoring command drush cr
+genoring uninstall_recipe modules/gigwa/res/recipes/gigwa_recipe
+genoring uninstall_recipe modules/gigwa/res/recipes/gigwa_embeded_recipe

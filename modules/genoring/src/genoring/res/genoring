@@ -26,10 +26,13 @@ fi
 
 disable_healthcheck="/tmp/disable-healthcheck"
 genoring_template="drupal/recommended-project"
-genoring_template_version=""
+genoring_template_version="^11"
 setup_dir="_temp_composer_setup"
 setup_log="/opt/drupal/genoring_setup.log"
 [ -f "$setup_log" ] && setup_log="/dev/null"
+# We are currently using modules in dev status so we allow dev stability at the
+# moment. This may change to 'stable", "RC", or "beta" in the future.
+# stability="stable"
 stability="dev"
 
 rm -f "$disable_healthcheck"
@@ -45,7 +48,7 @@ cleanup()
   # started but failed. We need to clean things up and remove index.php file to
   # have the system retry to install everything.
   if [ -d "$setup_dir" ]; then
-    rm -rf "$setup_dir" /opt/drupal/web/index.php 2>/dev/null
+    rm -rf "$setup_dir" /opt/drupal/web/index.php
   fi
   rm -f "$disable_healthcheck"
   printf "\nStopped: cleanup.\n" >>"$setup_log"
@@ -112,13 +115,20 @@ install_cms()
     # We use a dedicated setup directory to avoid artifacts that may be already
     # present in current directory (ie. on Mac systems, the "web" directory is
     # often pre-created), preventing composer from creating the project.
-    rm -rf "$setup_dir" 2>/dev/null
+    rm -rf "$setup_dir"
     mkdir -p "$setup_dir"
+
+    # Check if a specific Drupal version was provided.
+    if [ ! -z $DRUPAL_VERSION ]; then
+      log "* Selecting Drupal $DRUPAL_VERSION core..."
+      genoring_template_version=$DRUPAL_VERSION
+    fi
+
     # Create temporary setup directory and prepare Drupal download settings.
     printf "\nGenoring template: $genoring_template $genoring_template_version\n" >>"$setup_log"
     # For Composer debugging:
     # printf "DEBUG\n"; while :; do sleep 60; done
-    if (cd "$setup_dir" && composer create-project --no-interaction --no-install -s $stability $genoring_template . $genoring_template_version 2>&1 | tee -a "$setup_log"); then
+    if (cd "$setup_dir" && composer create-project --no-interaction --no-install $genoring_template . $genoring_template_version 2>&1 | tee -a "$setup_log"); then
       if [ -d "/opt/drupal/web" ] && [ "$(stat -c %u /opt/drupal/web)" != "$(id -u)" ]; then
         printf "WARNING: /opt/drupal/web exists. Trying to change owner.\n" >>"$setup_log"
         sudo /opt/genoring/genoring_root.sh base_permissions >>"$setup_log" 2>&1
@@ -130,21 +140,17 @@ install_cms()
       printf -- "--------------------------------------------------------------------------------\nDrupal directory (post-composer):\n---------------------------------\n" >>"$setup_log"
       ls -la . >>"$setup_log"
       printf -- "--------------------------------------------------------------------------------\n" >>"$setup_log"
+      # Set stability for modules.
+      composer config --no-interaction minimum-stability $stability
       log "* Add drush..."
       composer require --no-interaction --no-install "drush/drush" 2>&1 | tee -a "$setup_log"
       log "* Add GenoRing recipe..."
       composer require --no-interaction --no-install "drupal/genoring_recipe:^1.0.x-dev" 2>&1 | tee -a "$setup_log"
     else
       log_error "WARNING: Failed to setup composer!"
-      rm -rf "$setup_dir" 2>/dev/null
+      rm -rf "$setup_dir"
       exit 1
     fi
-  fi
-
-  # Check if a specific Drupal version was provided.
-  if [ ! -z $DRUPAL_VERSION ]; then
-    log "* Selecting Drupal $DRUPAL_VERSION core..."
-    composer require --no-interaction --no-install "drupal/core-composer-scaffold:^$DRUPAL_VERSION" "drupal/core-project-message:^$DRUPAL_VERSION" "drupal/core-recommended:^$DRUPAL_VERSION"  2>&1 | tee -a "$setup_log"
   fi
 
   # Install Drupal files.
@@ -330,9 +336,9 @@ update_cms()
   log "Updating Drupal..."
   # Check if updates could run well.
   # @todo Maybe check free disk space as well?
-  if composer update --with-all-dependencies --dry-run; then
+  if composer update --no-interaction --with-all-dependencies --dry-run; then
     # Set Drupal offline.
-    drush state:set system.maintenance_mode 1 --input-format=integer
+    drush -y state:set system.maintenance_mode 1 --input-format=integer
     # Backup DB.
     log "* Backup Drupal..."
     drush -y archive:dump --destination=/backups/preupdate_backup.tar.gz --overwrite
@@ -344,7 +350,7 @@ update_cms()
     fi
     log "  ...OK (backup)."
     touch "$disable_healthcheck"
-    if composer update --with-all-dependencies && drush -y updb; then
+    if composer update --no-interaction --with-all-dependencies && drush -y updb; then
       rm -f "$disable_healthcheck"
       log "...OK (update)."
     else
@@ -353,12 +359,12 @@ update_cms()
       log_error "ERROR: Drupal update failed! Restoring backup..."
       drush -y archive:restore /backups/preupdate_backup.tar.gz
       rm -rf /opt/drupal/vendor
-      composer install
+      composer install --no-interaction
       rm -f "$disable_healthcheck"
       log "...OK (restoring)."
     fi
     # Set Drupal back online.
-    drush state:set system.maintenance_mode 0 --input-format=integer
+    drush -y state:set system.maintenance_mode 0 --input-format=integer
   fi
 }
 
@@ -439,7 +445,7 @@ inittest()
   mkdir -p /opt/drupal/web/sites/simpletest/browser_output
   chmod -R uog+rwX /opt/drupal/web/sites/simpletest /opt/drupal/web/sites/simpletest/browser_output
   if [ "$(id -u)" -eq 0 ]; then
-    su genoring -c "composer require drupal/core-dev --dev --update-with-all-dependencies  --no-interaction"
+    su genoring -c "composer require drupal/core-dev --dev --update-with-all-dependencies --no-interaction"
     chown -R genoring:genoring  /opt/drupal/web/sites/simpletest/browser_output
   else
     composer require drupal/core-dev --dev --update-with-all-dependencies --no-interaction
@@ -468,263 +474,94 @@ inittest()
 # Manage GenoRing commands.
 #######################################
 
-install_module()
+expand_environment()
+{
+  file_path=$1
+  env_vars=$2
+  for file in "$file_path"/*; do
+    if [ -f "$file" ]; then
+      if [ "$2" = "1" ]; then
+        perl -pi -e 's/\${([A-Za-z_][A-Za-z0-9_]*)}/ exists($ENV{$1}) ? $ENV{$1} : "\$\{$1\}" /eg;' "$file"
+      else
+        perl -pi -e '
+          BEGIN {
+            our %allowed;
+            @allowed{'"$2"'} = @ENV{'"$2"'};
+          }
+          s/\${([A-Za-z_][A-Za-z0-9_]*)}/ exists($allowed{$1}) ? $allowed{$1} : "\$\{$1\}" /eg;
+        ' "$file"
+      fi
+    elif [ -d "$file" ]; then
+      expand_environment $file $env_vars
+    fi
+  done
+}
+
+install_recipe()
 {
   if [ -z "$1" ]; then
-    log_error "ERROR: install_module(): Missing module name!"
+    log_error "ERROR: install_recipe(): Missing recipe directory!"
     exit 1
   fi
-  composer require --no-interaction "drupal/$1"
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to install module '$1'!"
-    exit 1
-  fi
-  drush pm:enable -y $1
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to enable module '$1'!"
-    exit 1
+  # Remove trailing slashes.
+  recipe_path=$(expr "$1" : '\(.*[^/]\)')
+  recipe=$(basename "$recipe_path")
+  if [ -d "/genoring/$recipe_path/drupal" ] || [ -d "/opt/drupal/recipes/$recipe" ]; then
+    # Copy recipe if not there.
+    if [ ! -d "/opt/drupal/recipes/$recipe" ]; then
+      cp -r "/genoring/$recipe_path/drupal" "/opt/drupal/recipes/$recipe"
+
+      # Expand environment variables if needed.
+      if [ ! -z "$2" ]; then
+        expand_environment "/opt/drupal/recipes/$recipe" $2
+      fi
+
+      # Add recipe dependencies.
+      if [ -f "/opt/drupal/recipes/$recipe/composer.json" ]; then
+        composer config --no-interaction repo.$recipe path "/opt/drupal/recipes/$recipe"
+        composer require --no-interaction genoring/$recipe
+        if [ $? -gt 0 ]; then
+          log_error "ERROR: Failed to install recipe '$recipe_path' prerequisits!"
+          exit 1
+        fi
+        drush cr -y
+      fi
+    fi
+
+    # Apply recipe.
+    cd web
+    php core/scripts/drupal recipe "../recipes/$recipe"
+    cd ..
+    if [ $? -gt 0 ]; then
+      log_error "ERROR: Failed to install recipe '$recipe_path'!"
+      exit 1
+    fi
+
+    # Rebuild Drupal cache.
+    drush cr -y
   fi
 }
 
-uninstall_module()
+uninstall_recipe()
 {
   if [ -z "$1" ]; then
-    log_error "ERROR: uninstall_module(): Missing module name!"
+    log_error "ERROR: uninstall_recipe(): Missing recipe directory!"
     exit 1
   fi
-  drush pm:uninstall -y $1
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to uninstall module '$1'!"
-    exit 1
-  fi
-  composer remove --no-interaction "drupal/$1"
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to remove module '$1'!"
-    exit 1
-  fi
-}
-
-add_menuitem()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: add_menuitem(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add menu item if not exist.
-  drush php:script --script-path=/opt/genoring/lib genoringapi add_menuitem $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to add menu item using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-remove_menuitem()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: remove_menuitem(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Remove menu items.
-  drush php:script --script-path=/opt/genoring/lib genoringapi remove_menuitem $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to remove menu item using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-add_page()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: add_page(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add page.
-  drush php:script --script-path=/opt/genoring/lib genoringapi add_page $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to add page using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-remove_page()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: remove_page(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Remove menu items.
-  drush php:script --script-path=/opt/genoring/lib genoringapi remove_page $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to remove page using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-add_integration()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: add_integration(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add integration.
-  drush php:script --script-path=/opt/genoring/lib genoringapi add_integration $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to add integration using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-remove_integration()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: remove_integration(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Remove integration.
-  drush php:script --script-path=/opt/genoring/lib genoringapi remove_integration $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to remove integration using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-add_user()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: add_user(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add user.
-  drush php:script --script-path=/opt/genoring/lib genoringapi add_user $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to add user using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-remove_user()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: remove_user(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Remove user.
-  drush php:script --script-path=/opt/genoring/lib genoringapi remove_user $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to remove user using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-add_group()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: add_group(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add group.
-  drush php:script --script-path=/opt/genoring/lib genoringapi add_group $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to add group using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-remove_group()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: remove_group(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Remove group.
-  drush php:script --script-path=/opt/genoring/lib genoringapi remove_group $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to remove group using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-add_user_to_group()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: add_user_to_group(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add user to group.
-  drush php:script --script-path=/opt/genoring/lib genoringapi add_user_to_group $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to add user to group using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-remove_user_from_group()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: remove_user_from_group(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add user to group.
-  drush php:script --script-path=/opt/genoring/lib genoringapi remove_user_from_group $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to remove user from group using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-add_permission()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: add_permission(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add permission to group.
-  drush php:script --script-path=/opt/genoring/lib genoringapi add_permission $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to add permission using YAML file '$1'!"
-    exit 1
-  fi
-}
-
-remove_permission()
-{
-  if [ -z "$1" ]; then
-    log_error "ERROR: add_permission(): Missing YAML file!"
-    exit 1
-  fi
-
-  # Add permission to group.
-  drush php:script --script-path=/opt/genoring/lib genoringapi remove_permission $1
-
-  if [ $? -gt 0 ]; then
-    log_error "ERROR: Failed to add permission using YAML file '$1'!"
-    exit 1
+  # Remove trailing slashes.
+  recipe_path=$(expr "$1" : '\(.*[^/]\)')
+  recipe=$(basename "$recipe_path")
+  if [ -d "/genoring/$recipe_path/drupal" ]; then
+    # @todo To implement.
+    # - remove menu items
+    # - remove entities
+    # - uninstall modules
+    # - remove dependencies
+    # - remove configs?
+    # Remove recipe.
+    rm -rf "/opt/drupal/recipes/$recipe"
+    drush cr -y
+    log_error "WARNING: Recipe uninstallation not implemented!"
   fi
 }
 
@@ -753,7 +590,7 @@ restore()
   cp -R /tmp/drupal_res/* /opt/drupal
   rm -rf /tmp/drupal_res
   # We update the composer libraries.
-  composer update
+  composer update --no-interaction
   # Now we restore the rest (database and files).
   drush -y archive:restore  --db --files --overwrite /backups/$1/genoring/archive.tar.gz
 
@@ -809,32 +646,10 @@ Available commands:
     Displays this help.
   start:
     Starts GenoRing and the PHP FPM daemon (never returns unless killed).
-  install_module <module>:
-    Downloads and installs the given Drupal module.
-  uninstall_module <module>:
-    Uninstalls and removes the given Drupal module.
-  add_menuitem <uri> <label> [menu_machine_name]:
-    Add the given URI to the Drupal menu 'menu_machine_name' using the label
-    'label'. If the URI is already in use, the menu item is not added.
-  remove_menuitem <uri>:
-    Removes all the menu items with the given URI.
-  add_user <user_name> <email> [password]:
-    Adds the user with the given 'user_name', 'email' and 'password' to Drupal.
-  remove_user <user_name>:
-    Removes the user that uses the name 'user_name' from Drupal (reassign
-    content to 'anonymous').
-  add_group <group_name>:
-    Adds the role 'group_name' to Drupal.
-  remove_group <group_name>:
-    Removes the role 'group_name' from Drupal.
-  add_user_to_group <user_name> <group_name>:
-    Gives the given role to the given user.
-  remove_user_from_group <user_name> <group_name>:
-    Removes the given role from the given user.
-  add_permission <permission_name> <group_name>:
-    Grants the given permission to the given group.
-  remove_permission <permission_name> <group_name>:
-    Removes the given permission from the given group.
+  install_recipe <recipe_directory>:
+    Perform the given recipe (in '<recipe_directory>/drupal/') on Drupal.
+  uninstall_recipe <recipe_directory>:
+    Reverse the given recipe (in '<recipe_directory>/drupal/') on Drupal.
   backup [backup_name]:
     Generates a Drupal site archive using the given name.
     Default name is 'drupal_backup_YYYYMMDD_HHIISS' where YYYY is the year, MM
@@ -877,53 +692,11 @@ case "$cmd" in
   inittest|inittests)
     inittest "$@"
     ;;
-  install_module)
-    install_module "$@"
+  install_recipe)
+    install_recipe "$@"
     ;;
-  uninstall_module)
-    uninstall_module "$@"
-    ;;
-  add_menuitem)
-    add_menuitem "$@"
-    ;;
-  remove_menuitem)
-    remove_menuitem "$@"
-    ;;
-  add_page)
-    add_page "$@"
-    ;;
-  remove_page)
-    remove_page "$@"
-    ;;
-  add_integration)
-    add_integration "$@"
-    ;;
-  remove_integration)
-    remove_integration "$@"
-    ;;
-  add_user)
-    add_user "$@"
-    ;;
-  remove_user)
-    remove_user "$@"
-    ;;
-  add_group)
-    add_group "$@"
-    ;;
-  remove_group)
-    remove_group "$@"
-    ;;
-  add_user_to_group)
-    add_user_to_group "$@"
-    ;;
-  remove_user_from_group)
-    remove_user_from_group "$@"
-    ;;
-  add_permission)
-    add_permission "$@"
-    ;;
-  remove_permission)
-    remove_permission "$@"
+  uninstall_recipe)
+    uninstall_recipe "$@"
     ;;
   backup)
     backup "$@"

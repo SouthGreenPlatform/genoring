@@ -311,11 +311,15 @@ replacement to implement such a script, handle the commands and adapt them as
 needed. Now, it is up to the core replacement developer to handle or not the
 installation of a "some_module" module on the replacement CMS.
 
-Most of the commands of the "genoring" script work with a YAML file to allow
-more flexibility. In the future, if there are GenoRing core alternatives, some
-additional YAML fields may be used specificly by an implementation and ignored
-by others. However, GenoRing modules must provide a minimum YAML file structure
-as described below for each command.
+Since things can get very complicated to translate commands between CMS, a
+more generic approach is used: the concet of "recipe". A "recipe" is a directory
+holding whatever is needed to integrate a module to a CMS. Each implementation
+of the core genoring scipt is responsible for handling its own recipe. For
+instance, the default implementation supporting Drupal will find its own recipe
+files in the "drupal" subdirectory of the recipe directory provided to either
+install_recipe or uninstall_recipe commands. An alternative CMS implementation
+could have its own kind of recipe structure in its own subdirectory, as well as
+supporting and adapting part or all of the "drupal" recipe to its own CMS.
 
 The commands supported by the main "genoring" container script "genoring" are:
 
@@ -324,108 +328,41 @@ The commands supported by the main "genoring" container script "genoring" are:
 * start: starts the CMS in foreground mode. It is the endpoint command to use
   for the container.
 
-* install_module <module>: downloads and installs the given module.
+* install_recipe <recipe_directory> [expand_env]: the recipe directory must
+  contain a subdirectory with the name of the CMS (lower cased with underscores)
+  it is designed for. For instance, for Drupal, it must have a "drupal"
+  subdirectory containing a Drupal recipe.
+  "recipe_directory" should be a relative path from genoring root with no
+  trailing slash. Usually, recipes should be stored in a module
+  "res/recipes/<module>_recipe" directory. It is important, to avoid conflicting
+  recipes, that the last subdirectory uses the module name or a name starting
+  with the module name and ends with "_recipe".
+  For example: "modules/brapimapper/res/recipes/brapimapper_recipe".
+  In that example, Drupal recipe fro the Brapi Mapper module will be located in
+  "modules/brapimapper/res/recipes/brapimapper_recipe/drupal".
+  The recipe is a set of files describbing things to do to the CMS to integrate
+  a module. For Drupal CMS, it is based on
+  [Drupal Recipes](https://www.drupal.org/docs/extending-drupal/drupal-recipes).
+  When you provide a Drupal recipe for your GenoRing module, in your
+  "composer.json", use a package name "genoring/<module>_recipe" (starting with
+  "genoring/" and followed by a slash and the last subdirectory name).
+  If "expand_env" is set to "1", environment variables (of the form
+  ${ENV_VAR_NAME}) in all recipe files are expanded. If set to a string, the
+  string is expected to contain environment variable names separated by comas
+  (no spaces), and only those environment variables will be replaced.
+  Note: only the "genoring" core module and the installed module environment
+  files are loaded during the module installation process.
+  Note: if you want to use public recipes (ie. published on composer repos), you
+  may get them using `composer require drupal/<recipe_name>` in the module
+  enable hook, followed by `genoring install_recipe drupal/<recipe_name>`.
 
-* uninstall_module <module>: uninstalls and removes the given module.
-
-* add_menuitem <YAML>: adds the given menu item to a given CMS menu. If the URI
-  is already in use, the menu item is not added.
-  YAML file structure:
-    ---
-    uri: <string>   # URI of the menu link. It can be an absolute external URL
-                    # with scheme and host, but it should not include the scheme
-                    # and the host for local routes as they are unknown. Leading
-                    # slash is recommended but not required.
-    label: <string> # Label of the menu item.
-    menu: <string>  # Optional machine name of the target menu.
-                    # Default to "main".
-    add_scheme_and_host: <boolean> # When the given URI does not correspond to
-                    # a route managed by the CMS, the CMS may ignore that URI.
-                    # To avoid that, if "add_scheme_and_host" is "true", it
-                    # means GenoRing must prepend current site scheme and host
-                    # to the given URI to make it absolute and taken into
-                    # account by the CMS. This is the case when external tools
-                    # are embeded in the CMS: the tool manages its routes while
-                    # Drupal has no clue about those routes.
-
-* remove_menuitem <YAML>: removes all the menu items with the given URI.
-  YAML file structure:
-    ---
-    uri: <string> # URI of the menu link.
-
-* add_page <YAML>: adds a page to the site.
-  YAML file structure:
-    ---
-    name: <string>    # Page machine name. Can be used as URL path name.
-    title: <string>   # Page title.
-    content: <string> # Page HTML content.
-
-* remove_page <YAML>: removes a page from the site.
-  YAML file structure:
-    ---
-    name: <string>    # Page machine name.
-
-* add_integration <YAML>:
-  YAML file structure:
-    ---
-    name: <string> # Integration name.
-    uri: <string>  # URI of the site to integrate.
-    path: <string> # Site path to access the integration.
-
-* remove_integration <YAML>:
-  YAML file structure:
-    ---
-    name: <string> # Integration name.
-
-* add_user <YAML>: adds the user with the given 'user_name', 'email' and
-  'password' to the CMS.
-  YAML file structure:
-    ---
-    user_name: <string> # User login.
-    email: <string>     # User e-mail address.
-    password: <string>  # User password.
-
-* remove_user <user_name>: removes the user that uses the name 'user_name' from
-  the CMS (reassigning owned content to 'anonymous').
-  YAML file structure:
-    ---
-    user_name: <string> # User login.
-
-* add_group <YAML>: adds the role 'group_name' to the CMS.
-  YAML file structure:
-    ---
-    group_name: <string> # The group or role name.
-
-* remove_group <group_name>: removes the role 'group_name' from the CMS.
-  YAML file structure:
-    ---
-    group_name: <string> # The group or role name.
-
-* add_user_to_group <YAML>: gives the given role to the given user.
-  YAML file structure:
-    ---
-    user_name: <string>  # User login.
-    group_name: <string> # The group or role name.
-
-* remove_user_from_group <YAML>: removes the given role from the given user.
-  YAML file structure:
-    ---
-    user_name: <string>  # User login.
-    group_name: <string> # The group or role name.
-
-* add_permission <YAML>: grants the given permission to the given group.
-  YAML file structure:
-    ---
-    permission: <string> # Permission name.
-    group_name: <string> # Optional group or role name. If not set, gives the
-                         # permission to everybody.
-
-* remove_permission <YAML>: removes the given permission from the given group.
-  YAML file structure:
-    ---
-    permission: <string> # Permission name.
-    group_name: <string> # Optional group or role name. If not set, remove the
-                         # permission from everybody.
+* uninstall_recipe <recipe_directory>: the recipe directory must contain a
+  subdirectory with the name of the CMS (lower cased with underscores) it is
+  designed for. For instance, for Drupal, it must have a "drupal" subdirectory
+  containing a Drupal recipe.
+  The recipe is a set of files describbing things to do to the CMS to integrate
+  a module. For Drupal CMS, it is based on
+  [Drupal Recipes](https://www.drupal.org/docs/extending-drupal/drupal-recipes).
 
 * backup [backup_name]: generates a CMS site archive using the given name.
   Default name should include the date in the format 'backup_YYYYMMDD_HHIISS'

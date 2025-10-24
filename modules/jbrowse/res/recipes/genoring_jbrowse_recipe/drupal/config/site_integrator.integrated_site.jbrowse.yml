@@ -1,0 +1,18 @@
+uuid: 870ffd9c-2321-473a-8433-6fd2a7840e47
+langcode: en
+status: true
+dependencies: {  }
+id: jbrowse
+label: JBrowse
+base_url: 'http://genoring-proxy/app/jbrowse'
+path: /jbrowse
+mode: 2
+height: 500px
+width: ''
+passthrough: {  }
+enabled: true
+editable: true
+verify: false
+redirections: {  }
+filtering: {  }
+roles: {  }

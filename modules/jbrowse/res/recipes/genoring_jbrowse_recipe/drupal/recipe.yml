@@ -1,0 +1,9 @@
+name: 'GenoRing JBrowse recipe'
+description: 'GenoRing JBrowse recipe.'
+type: 'Administration'
+install:
+  - genoring_jbrowse
+config:
+  strict: false
+  import:
+    genoring_jbrowse: '*'

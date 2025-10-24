@@ -18,7 +18,7 @@ if (-d $ENV{'GENORING_VOLUMES_DIR'} . '/proxy/nginx/includes') {
     my $volumes_path = File::Spec->catfile($ENV{'GENORING_VOLUMES_DIR'}, 'proxy', 'nginx', 'includes');
     # Process NGINX config template to replace environment variables.
     my $output = qx(
-      $Genoring::DOCKER_COMMAND run --rm --env-file $ENV{'PWD'}/env/brapimapper_brapi.env --env-file $ENV{'PWD'}/env/genoring_nginx.env -v $res_path:/brapimapper -v $volumes_path:/nginx -w / alpine sh -c "apk add envsubst && envsubst < /brapimapper/brapimapper.template > /nginx/brapimapper.conf"
+      $Genoring::DOCKER_COMMAND run --rm --env-file $ENV{'PWD'}/env/brapimapper_brapi.env --env-file $ENV{'PWD'}/env/genoring_nginx.env --env-file $ENV{'PWD'}/env/genoring_genoring.env -v $res_path:/brapimapper -v $volumes_path:/nginx -w / alpine sh -c "apk add envsubst && envsubst < /brapimapper/brapimapper.template > /nginx/brapimapper.conf"
     );
   }
 }

@@ -1,4 +1,0 @@
-label: 'JBrowse Demo'
-uri: '/jbrowse/index.html?data=sample_data/json/yeast'
-menu: 'main'
-add_scheme_and_host: true
