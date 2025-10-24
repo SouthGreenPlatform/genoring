@@ -73,7 +73,8 @@ our @EXPORT = qw(
   ToLocalService UninstallModule Update Upgrade WaitModulesReady
   IsGitAvailable GetAvailableVersions
 );
-
+# Init $NULL.
+$Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';
 
 
 

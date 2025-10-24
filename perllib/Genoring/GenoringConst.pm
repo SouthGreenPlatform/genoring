@@ -126,6 +126,10 @@ B<$MODULE_NAME_REGEX>: (string)
 
 Regular expression used to match valid module names.
 
+B<$NULL>: (string)
+
+The null output (/dev/null on Linux and nul on Windows).
+
 B<%OS>: (hash)
 
 Hash associating an OS name ($^O) to a normalized OS architecture.
@@ -174,6 +178,7 @@ our $GENORING_VERSION = '1.0-alpha7';
 our $IS_MOD_PERL = exists($ENV{'MOD_PERL'});
 our $CONFIG_FILE = 'config.yml';
 our $MODULE_NAME_REGEX = '[a-z][a-z0-9_]*';
+our $NULL = '/dev/null';
 # See https://perldoc.perl.org/perlport
 our %OS = (
   ''         => 'Unix',

@@ -357,7 +357,7 @@ sub StartGenoring {
   # Check that genoring docker is not already running.
   my ($id, $state, $name, $image) = IsContainerRunning($ENV{'COMPOSE_PROJECT_NAME'});
   if ($state && ($state =~ m/running/)) {
-    my $compose_profile = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $ENV{'COMPOSE_PROJECT_NAME'} sh -c 'printf "\$COMPOSE_PROFILES"' 2>/dev/null);
+    my $compose_profile = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $ENV{'COMPOSE_PROJECT_NAME'} sh -c 'printf "\$COMPOSE_PROFILES"' 2>$Genoring::NULL);
     if ($g_debug) {
       print "DEBUG: Currently running with profile '" . $compose_profile . "'.\n";
     }
@@ -749,7 +749,7 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return ();
   }
-  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}" 2>/dev/null);
+  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}" 2>$Genoring::NULL);
   my @ps = split(/\n+/, $ps_all);
   foreach my $ps (@ps) {
     my @status = split(/\s+/, $ps);
