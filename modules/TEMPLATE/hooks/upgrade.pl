@@ -6,6 +6,7 @@
 # It is run from GenoRing base directory.
 # It is normally called when all GenoRing dockers are down before any update is
 # performed by container update hooks.
+# Parameters are: current version string, and new version string.
 
 use strict;
 use warnings;
