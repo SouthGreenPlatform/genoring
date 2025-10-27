@@ -1,5 +1,5 @@
 image: genoring-jbrowse
-build: ${GENORING_DIR}/modules/jbrowse/src/jbrowse
+build: ${GENORING_DIR}/modules/jbrowse/src/genoring-jbrowse
 pull_policy: never
 profiles: ["backend","offline"]
 env_file:
