@@ -11,7 +11,8 @@ height: ''
 width: ''
 passthrough:
   - /docs/gigwa_docs.html
-  - /login
+  - /login.do
+  - /login/cas
 enabled: true
 editable: null
 verify: false

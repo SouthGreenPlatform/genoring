@@ -449,6 +449,16 @@ sub RunShell {
     $message = "Failed to run '$command' in '$service' container!";
   }
 
+  # Check if only local shell with environment variable is required.
+  if ($g_flags->{'local'}) {
+    print "Open local shell with GenoRing environement.\n";
+    if ('bash' eq $command) {
+      $command = "GENORING_SHELL=1 $command";
+    }
+    system($command);
+    return;
+  }
+
   my ($id, $state, $name, $image) = IsContainerRunning($service_name);
   my $warning_handler = $SIG{__WARN__};
   if ($state && ($state =~ m/running/)) {
@@ -749,14 +759,10 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return ();
   }
-  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}" 2>$Genoring::NULL);
+  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=^$container\\\$ --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}" 2>$Genoring::NULL);
   my @ps = split(/\n+/, $ps_all);
-  foreach my $ps (@ps) {
-    my @status = split(/\s+/, $ps);
-    # Name filter does not do an exact match so we do it here.
-    if ($status[2] eq $container) {
-      return (@status);
-    }
+  if (@ps) {
+    return split(/\s+/, shift(@ps));
   }
   return ();
 }
@@ -2437,7 +2443,7 @@ sub Upgrade {
     # Check if it is an upgrade and Ask for upgrade confirmation.
     my $version_comparison = CompareVersions($new_version, $Genoring::GENORING_VERSION);
     if (((0 < $version_comparison) && Confirm("Upgrade to version $new_version?"))
-      || ((0 >$version_comparison) && Confirm("Are you sure you want to *DOWNGRADE* your current version ($Genoring::GENORING_VERSION) to version $new_version?"))
+      || ((0 > $version_comparison) && Confirm("Are you sure you want to *DOWNGRADE* your current version ($Genoring::GENORING_VERSION) to version $new_version?"))
     ) {
       # @todo Add support for "dev" qualifier (not tagged).
       my $context = PrepareOperations();
@@ -2538,7 +2544,7 @@ sub InstallModule {
   # Check requirements.
   if (!$module_info
       || !exists($module_info->{'genoring_script_version'})
-      || (0 <= CompareVersions($module_info->{'genoring_script_version'}, $Genoring::GENORING_VERSION))
+      || (0 < CompareVersions($module_info->{'genoring_script_version'}, $Genoring::GENORING_VERSION))
   ) {
     die "ERROR: InstallModule: Module '$module' not supported by current GenoRing script version!\nRequired version: " . ($module_info->{'genoring_script_version'} || 'n/a') . ", current script version: $Genoring::GENORING_VERSION.\n";
   }
@@ -6435,9 +6441,9 @@ sub ImportIntoVolume
         );
       }
       else {
-      # Archive file.
+        # Archive file.
         Run(
-          "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume --mount type=bind,source=$abs_source,target=/import/backup.tar.gz alpine sh -c \"tar -xzvf /import/backup.tar.gz -C /volume/\"",
+          "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $abs_source:/import/backup.tar.gz alpine sh -c \"tar -xzvf /import/backup.tar.gz -C /volume/\"",
           "Failed to import archive '$source' into Docker volume '$volume'.",
           0,
           0
@@ -6521,7 +6527,7 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 13/10/2025
+Date 27/10/2025
 
 =head1 SEE ALSO
 

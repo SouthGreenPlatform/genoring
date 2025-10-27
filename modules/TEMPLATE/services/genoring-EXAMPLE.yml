@@ -15,9 +15,7 @@ env_file:
 ports:
   - 8080:80
 volumes:
-  - type: bind
-    source: ${GENORING_VOLUMES_DIR}/some_local_file
-    target: /opt/some_file_in_container
+  - ${GENORING_VOLUMES_DIR}/some_local_file:/opt/some_file_in_container
   - ${GENORING_VOLUMES_DIR}/some_local_volume:/opt/some_docker_directory
   - genoring-data-volume:/data
   - genoring-backups-volume:/backups
