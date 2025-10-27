@@ -171,6 +171,11 @@ sub Run {
     print "COMMAND: $g_exec_prefix $command\n";
   }
 
+  # Rewrite environment variables for Windows.
+  if ('Win32' eq GetOs()) {
+    $command =~ s/\$\{(\w+)\}/%$1%/g;
+  }
+
   $error_message ||= 'Execution failed!';
   $error_message = ($fatal_error ? 'ERROR: ' : 'WARNING: ')
     . $subroutine
@@ -3341,7 +3346,7 @@ sub Backup {
     die "ERROR: Backup: Invalid back name '$backup_name'. Only letters, numbers, dots, underscores and dashes are allowed and the name must begin with a letter.\n";
   }
 
-  my $backupdir = "$Genoring::VOLUMES_DIR/backups/$backup_name";
+  my $backupdir = File::Spec->catfile($Genoring::VOLUMES_DIR, 'backups', $backup_name);
   if (-d $backupdir) {
     # Check if directory is not empty.
     opendir(my $dh, $backupdir)
@@ -3353,7 +3358,7 @@ sub Backup {
     }
   }
   else {
-    if (!mkdir $backupdir) {
+    if (!make_path($backupdir)) {
       die "ERROR: Backup: Failed to create backup directory '$backupdir'.\n";
     }
   }
@@ -6067,13 +6072,18 @@ B<ArgsCount>: 2-5
 
 =over 4
 
-=item $source_file_subpath: (string) (R)
+=item $files: (string | hash ref) (R)
 
-Sub-path to the file to copy without leading slash.
+Sub-path to the file to copy from a path without leading slash.
+If $files is a hash ref, then each hash key is a sub-path to a file to copy
+from the GenoRing "volumes" and each corresponding key is a sub-path to the
+corresponding file to add to the GenoRing "volumes". In that case,
+$single_target parameter should not be set.
 
-=item $target_file_subpath: (string) (R)
+=item $single_target: (string) (U)
 
-Sub-path to the file to add without leading slash.
+Sub-path to the file to add to a path without leading slash.
+This parameter is only used for single file copy.
 
 =item $source_base: (string) (U)
 
@@ -6126,11 +6136,25 @@ sub CopyFiles
       warn "WARNING: Invalid parameters for Genoring::CopyFiles()! Relative paths are not allowed ($files => $single_target).\n";
       return;
     }
+    my $target_path = $target_base . $single_target;
     if (!-r $source_base . $files) {
       warn "WARNING: Genoring::CopyFiles(): Missing source file '$source_base$files'.\n";
     }
-    elsif ((!-e $target_base . $single_target) || $replace_existing) {
-      copy($source_base .$files, $target_base . $single_target);
+    elsif ((!-e $target_path) || $replace_existing) {
+      if ($g_flags->{'no-exposed-volumes'} && ($target_path =~ m/^$Genoring::VOLUMES_DIR/)) {
+        # Todo
+        # Identify corresponding volume.
+        # Use docker alpine.
+        # Run(
+        #   "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source/ /volume/\"",
+        #   "Failed to copy directory '$source' into Docker volume '$volume'.",
+        #   0,
+        #   0
+        # );
+      }
+      else {
+        copy($source_base .$files, $target_path);
+      }
     }
   }
   elsif ('HASH' eq ref($files)) {
@@ -6152,7 +6176,12 @@ sub CopyFiles
         next;
       }
       elsif ((!-e $target_base . $target) || $replace_existing) {
-        copy($source_base . $source, $target_base . $target);
+        if ($g_flags->{'no-exposed-volumes'}) {
+          # Todo
+        }
+        else {
+          copy($source_base . $source, $target_base . $target);
+        }
       }
     }
   }
