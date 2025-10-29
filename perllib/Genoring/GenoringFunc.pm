@@ -45,6 +45,7 @@ $| = 1;
 
 
 
+
 # Script global variables
 ##########################
 
@@ -292,7 +293,8 @@ B<Return>: (nothing)
 
 sub InitGenoringUser {
   # Check if volumes are exposed.
-  if ($g_flags->{'no-exposed-volumes'}) {
+  my $config = GetConfig();
+  if ($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'}) {
     # Clear user and group to use fallback identifiers as there is nothing to
     # share between host and containers.
     $ENV{'GENORING_UID'} = 0;
@@ -421,7 +423,7 @@ sub StopGenoring {
       "$Genoring::DOCKER_COMPOSE_COMMAND --profile \"*\" down --remove-orphans",
       "Failed to stop GenoRing!",
       1,
-      $g_flags->{'verbose'}
+      $g_debug || $g_flags->{'verbose'}
     );
   }
   ApplyLocalHooks('stop');
@@ -982,6 +984,7 @@ sub Reinitialize {
       exit(0);
     }
   }
+  my $config = GetConfig();
 
   # Stop genoring.
   print "- Stop GenoRing...\n";
@@ -999,7 +1002,7 @@ sub Reinitialize {
     "$Genoring::DOCKER_COMMAND container prune -f",
     "Failed to prune containers!",
     0,
-    $g_flags->{'verbose'}
+    $g_debug || $g_flags->{'verbose'}
   );
   print "  ...Done.\n";
 
@@ -1020,12 +1023,12 @@ sub Reinitialize {
         "$Genoring::DOCKER_COMMAND volume rm -f " . join(' ', map { GetVolumeName($_) } @$volumes),
         "Failed to remove GenoRing volumes for module '$module'!",
         0,
-        $g_flags->{'verbose'}
+        $g_debug || $g_flags->{'verbose'}
       );
     }
     # Remove internal volumes if not exposed (ie. not cleaned by "volumes" local
     # directory cleaning).
-    if ($g_flags->{'no-exposed-volumes'}) {
+    if ($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'}) {
       my $module_info = GetModuleInfo($module);
       my @module_volumes;
       foreach my $module_volume (keys(%{$module_info->{'volumes'}})) {
@@ -1038,7 +1041,7 @@ sub Reinitialize {
           "$Genoring::DOCKER_COMMAND volume rm -f " . join(' ', map { GetVolumeName($_) } @module_volumes),
           "Failed to remove GenoRing internal volumes for module '$module'!",
           0,
-          $g_flags->{'verbose'}
+          $g_debug || $g_flags->{'verbose'}
         );
       }
     }
@@ -1069,6 +1072,8 @@ sub Reinitialize {
   if (!$g_flags->{'keep-env'}) {
     RemoveEnvFiles();
   }
+
+  ClearCache();
 
   print "Reinitialization done!\n";
 }
@@ -1409,10 +1414,12 @@ sub GenerateDockerComposeFile {
   my $modules = GetModules(1);
   my %services;
   my %volumes;
+  my %volume_mapping;
   my $service_dependencies = {};
   my $volume_dependencies = {};
   my $service_overrides = {};
   my $service_merges = {};
+  my $config = GetConfig();
   foreach my $module (@$modules) {
     print "  - Processing $module module\n";
 
@@ -1444,7 +1451,7 @@ sub GenerateDockerComposeFile {
       # Remove dependencies as they are managed after.
       delete($services{$service}->{'definition'}->{'depends_on'});
 
-      if ($g_flags->{'no-exposed-volumes'}) {
+      if ($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'}) {
         # Replace all exposed volumes by named volumes instead.
         my @new_service_volumes;
         foreach my $service_volume (@{$services{$service}->{'definition'}->{'volumes'} || []}) {
@@ -1459,6 +1466,8 @@ sub GenerateDockerComposeFile {
           }
 
           if ($service_volume =~ m~^\$\{GENORING_VOLUMES_DIR\}/~) {
+            my $original_path = $service_volume;
+            $original_path =~ s~:.*~~;
             # Replaces GenoRing volume root path by 'genoring-volume-'.
             $service_volume =~ s~^\$\{GENORING_VOLUMES_DIR\}/~genoring-volume-~;
             # Replaces all slashs before ":" by dashes.
@@ -1471,6 +1480,7 @@ sub GenerateDockerComposeFile {
               # of Docker Compose.
               'definition' => {'external' => 'true'},
             };
+            $volume_mapping{$unexposed_volume} = $original_path;
           }
           if ($service_volume) {
             push(@new_service_volumes, $service_volume);
@@ -1581,9 +1591,16 @@ sub GenerateDockerComposeFile {
         'module' => $module,
         'definition' => $yaml->[0],
       };
-      if ($g_flags->{'no-exposed-volumes'}
+      if (($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'})
         && exists($volumes{$volume}->{'definition'}->{'driver'})
       ) {
+        # Keep track of original path mapping.
+        if (('local' eq $volumes{$volume}->{'definition'}->{'driver'})
+            && exists($volumes{$volume}->{'definition'}->{'driver_opts'}->{'device'})
+            && ($volumes{$volume}->{'definition'}->{'driver_opts'}->{'device'} =~ m/^\$\{GENORING_VOLUMES_DIR\}/)
+        ) {
+          $volume_mapping{$volume} = $volumes{$volume}->{'definition'}->{'driver_opts'}->{'device'};
+        }
         # We create (below) and manage non-exposed volumes before the use of
         # Docker Compose.
         $volumes{$volume}->{'definition'} = {'external' => 'true'};
@@ -1703,7 +1720,7 @@ sub GenerateDockerComposeFile {
             "$Genoring::DOCKER_COMMAND volume rm -f $unused_volume_name",
             "Failed to remove GenoRing volume '$unused_volume_name'!",
             0,
-            $g_flags->{'verbose'}
+            $g_debug || $g_flags->{'verbose'}
           );
         }
       }
@@ -1813,18 +1830,27 @@ sub GenerateDockerComposeFile {
     my $volume_name = GetVolumeName($volume);
     $compose->{'volumes'}->{$volume} = $volumes{$volume}->{'definition'};
     $compose->{'volumes'}->{$volume}->{'name'} = $volume_name;
+    if (exists($volumes{$volume}->{'definition'}->{'driver'})
+        && ('local' eq $volumes{$volume}->{'definition'}->{'driver'})
+        && exists($volumes{$volume}->{'definition'}->{'driver_opts'}->{'device'})
+        && ($volumes{$volume}->{'definition'}->{'driver_opts'}->{'device'} =~ m/^\$\{GENORING_VOLUMES_DIR\}/)
+    ) {
+      $volume_mapping{$volume} = $volumes{$volume}->{'definition'}->{'driver_opts'}->{'device'};
+    }
     # Manage non-exposed volumes.
-    if ($g_flags->{'no-exposed-volumes'}) {
+    if ($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'}) {
       Run(
         "$Genoring::DOCKER_COMMAND volume create $volume_name",
         "Failed to create volume '$volume_name'.",
         0,
-        $g_flags->{'verbose'}
+        $g_debug || $g_flags->{'verbose'}
       );
     }
   }
-
   WriteYaml($Genoring::DOCKER_COMPOSE_FILE, $compose, "# GenoRing docker compose file\n# COMPOSE_PROJECT_NAME=$ENV{'COMPOSE_PROJECT_NAME'}\n# WARNING: This file is auto-generated by genoring.sh script. Any direct\n# modification may be lost when genoring.pl will need to regenerate it.\n");
+  # Update config volume lookup.
+  $_g_config->{'volume_mapping'} = \%volume_mapping;
+  SaveConfig();
 }
 
 
@@ -3692,7 +3718,7 @@ sub ApplyLocalHooks {
           "perl $hook_script $args",
           "Failed to process $module module hook $hook_name!",
           1,
-          $g_flags->{'verbose'}
+          $g_debug || $g_flags->{'verbose'}
         );
       };
       if ($@) {
@@ -3861,14 +3887,14 @@ APPLYCONTAINERHOOKS_HOOKS:
               "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
               "Failed to prepare module file copy in $service_name ($module $hook hook)",
               0,
-              $g_flags->{'verbose'}
+              $g_debug || $g_flags->{'verbose'}
             );
             # Copy GenoRing module files as root.
             Run(
               "$Genoring::DOCKER_COMMAND cp $Genoring::MODULES_DIR/ $service_name:/genoring/modules",
               "Failed to copy module files in $service_name ($module $hook hook)",
               0,
-              $g_flags->{'verbose'}
+              $g_debug || $g_flags->{'verbose'}
             );
             $initialized_containers{$service} = 1;
           }
@@ -3884,7 +3910,7 @@ APPLYCONTAINERHOOKS_HOOKS:
             "$Genoring::DOCKER_COMMAND exec " . $env_data . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
             "Failed to run hook of $module in $service_name (hook $hook)",
             0,
-            $g_flags->{'verbose'}
+            $g_debug || $g_flags->{'verbose'}
           );
           if ($?) {
             print "  Failed.\n$output\n";
@@ -4055,13 +4081,13 @@ sub Compile {
       "$Genoring::DOCKER_COMMAND stop $id",
       "Failed to stop container '$service' (image $image)!",
       0,
-      $g_flags->{'verbose'}
+      $g_debug || $g_flags->{'verbose'}
     );
     Run(
       "$Genoring::DOCKER_COMMAND container prune -f",
       "Failed to prune containers!",
       0,
-      $g_flags->{'verbose'}
+      $g_debug || $g_flags->{'verbose'}
     );
   }
 
@@ -4069,7 +4095,7 @@ sub Compile {
     "$Genoring::DOCKER_COMMAND image rm -f $service",
     "Failed to remove previous image (service ${module}[$service])!",
     1,
-    $g_flags->{'verbose'}
+    $g_debug || $g_flags->{'verbose'}
   );
   my $service_src_path = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'src' , $service);
   my $no_cache = '';
@@ -4162,13 +4188,13 @@ sub DeleteAllContainers {
           "$Genoring::DOCKER_COMMAND stop $id",
           "Failed to stop container '$service' (image $image)!",
           0,
-          $g_flags->{'verbose'}
+          $g_debug || $g_flags->{'verbose'}
         );
         Run(
           "$Genoring::DOCKER_COMMAND container prune -f",
           "Failed to prune containers!",
           0,
-          $g_flags->{'verbose'}
+          $g_debug || $g_flags->{'verbose'}
         );
       }
       my $module = $services{$service};
@@ -4176,7 +4202,7 @@ sub DeleteAllContainers {
         "$Genoring::DOCKER_COMMAND image rm -f $service",
         "Failed to remove image (service ${module}[$service])!",
         1,
-        $g_flags->{'verbose'}
+        $g_debug || $g_flags->{'verbose'}
       );
       print "    ...OK.\n";
     }
@@ -4199,7 +4225,7 @@ The GenoRing config.
 =cut
 
 sub GetConfig {
-  if (!$_g_config) {
+  if (!$_g_config || !%$_g_config) {
     # Load config.
     if (-f $Genoring::CONFIG_FILE) {
       my $yaml = ReadYaml($Genoring::CONFIG_FILE);
@@ -4231,6 +4257,7 @@ sub SaveConfig {
     'version' => $Genoring::GENORING_VERSION,
     'no-exposed-volumes' => $g_flags->{'no-exposed-volumes'},
     'modules' => $_g_modules->{'config'},
+    'volume_mapping' => $_g_config->{'volume_mapping'} || {},
   };
   WriteYaml($Genoring::CONFIG_FILE, $config, "# GenoRing config file\n");
 }
@@ -4254,7 +4281,7 @@ sub GetModulesConfig {
   my $module_fh;
   # Get module config.
   if (!$_g_modules->{'config'}) {
-    my $config = GetConfig() // {};
+    my $config = GetConfig();
     $_g_modules->{'config'} = $config->{'modules'} // {};
   }
   return $_g_modules->{'config'};
@@ -5242,6 +5269,8 @@ The YAML data with all array extended.
 
 sub ExpandYamlArrays {
   my ($yaml) = @_;
+  return $yaml if !defined($yaml);
+
   if ('HASH' eq ref($yaml)) {
     keys %$yaml;
     while(my($key, $subyaml) = each %$yaml) {
@@ -5829,6 +5858,81 @@ sub CanUseExposedVolumes {
 
 =pod
 
+=head2 GetVolumeMapping
+
+B<Description>: Returns the current volume mapping.
+
+B<ArgsCount>: 0
+
+B<Return>: (hash ref)
+
+The volume mapping where keys are Docker volume names and values are the
+corresponding local path in the GenoRing volume directory.
+
+=cut
+
+sub GetVolumeMapping {
+  GetConfig();
+  if (exists($_g_config->{'volume_mapping'})
+      && ('HASH' eq ref($_g_config->{'volume_mapping'}))
+  ) {
+    return $_g_config->{'volume_mapping'};
+  }
+  return {};
+}
+
+
+=pod
+
+=head2 GetPathVolume
+
+B<Description>: Returns the volume and sub-path corresponding to the given path.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $path: (string) (R)
+
+The absolute path.
+
+=back
+
+B<Return>: (list)
+
+The volume name (string) followed by the subdirectory or an empty string if
+there is no subdirectory. An empty list if no volume was found.
+
+=cut
+
+sub GetPathVolume {
+  my ($path) = @_;
+  # Replace expanded volume dir by its variable name.
+  my $absolute_volume_dir = abs_path($Genoring::VOLUMES_DIR) || $Genoring::VOLUMES_DIR;
+  $path =~ s~^(?:\Q$Genoring::VOLUMES_DIR\E|\Q$absolute_volume_dir\E)~\${GENORING_VOLUMES_DIR}~;
+  my @volumesub = ();
+
+  my $volume_mapping = GetVolumeMapping();
+  if (%$volume_mapping) {
+    my $match = '';
+    foreach my $volume (keys(%$volume_mapping)) {
+      my $volume_path = $volume_mapping->{$volume};
+      if ($path =~ m/^\Q$volume_path\E(.*)$/) {
+        # Got a match, keep the longuest.
+        if (!@volumesub
+          || (length($volumesub[1]) > length($1))
+        ) {
+          @volumesub = (GetVolumeName($volume), $1);
+        }
+      }
+    }
+  }
+  return @volumesub;
+}
+
+
+=pod
+
 =head2 HandleShellExecutionError
 
 B<Description>: Displays an error message if the last shell command failed. It
@@ -6123,6 +6227,7 @@ sub CopyFiles
   if ($target_base) {
     $target_base = $target_base . '/';
   }
+  my $config = GetConfig();
   if (!ref($files)) {
     # Single file.
     $files =~ s~^\s+|\s+$~~g;
@@ -6141,19 +6246,26 @@ sub CopyFiles
       warn "WARNING: Genoring::CopyFiles(): Missing source file '$source_base$files'.\n";
     }
     elsif ((!-e $target_path) || $replace_existing) {
-      if ($g_flags->{'no-exposed-volumes'} && ($target_path =~ m/^$Genoring::VOLUMES_DIR/)) {
-        # Todo
-        # Identify corresponding volume.
-        # Use docker alpine.
-        # Run(
-        #   "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source/ /volume/\"",
-        #   "Failed to copy directory '$source' into Docker volume '$volume'.",
-        #   0,
-        #   0
-        # );
+      if ($config->{'no-exposed-volumes'}
+         && ($target_path =~ m/^\Q$Genoring::VOLUMES_DIR\E/)
+      ) {
+        # Identify corresponding volume and get absolute path.
+        my ($volume, $subdirectory) = GetPathVolume($target_path);
+        if ($volume && (my $abs_source = abs_path($source_base . $files))) {
+          # Use docker alpine to copy files.
+          Run(
+            "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source /volume$subdirectory\"",
+            "Failed to copy directory '$abs_source' into Docker volume '$volume:$subdirectory'.",
+            0,
+            0
+          );
+        }
+        else {
+          warn "WARNING: Genoring::CopyFiles(): Cannot copy file '$source_base$files' to non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
+        }
       }
       else {
-        copy($source_base .$files, $target_path);
+        copy($source_base . $files, $target_path);
       }
     }
   }
@@ -6176,8 +6288,21 @@ sub CopyFiles
         next;
       }
       elsif ((!-e $target_base . $target) || $replace_existing) {
-        if ($g_flags->{'no-exposed-volumes'}) {
-          # Todo
+        if ($config->{'no-exposed-volumes'}) {
+          # Identify corresponding volume and get absolute path.
+          my ($volume, $subdirectory) = GetPathVolume($target_base . $target);
+          if ($volume && (my $abs_source = abs_path($source_base . $source))) {
+            # Use docker alpine to copy files.
+            Run(
+              "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source /volume$subdirectory\"",
+              "Failed to copy directory '$abs_source' into Docker volume '$volume:$subdirectory'.",
+              0,
+              0
+            );
+          }
+          else {
+            warn "WARNING: Genoring::CopyFiles(): Cannot copy file '$source_base$files' to non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
+          }
         }
         else {
           copy($source_base . $source, $target_base . $target);
@@ -6318,12 +6443,30 @@ sub RemoveVolumeDirectories
 {
   my ($subpaths) = @_;
   return if (!$subpaths);
+  my $config = GetConfig();
   if ('ARRAY' ne ref($subpaths)) {
     $subpaths = [$subpaths];
   }
   foreach my $subpath (@$subpaths) {
+    # Try to remove local directory if it exists.
     if (-d $ENV{'GENORING_VOLUMES_DIR'} . "/$subpath") {
       remove_tree($ENV{'GENORING_VOLUMES_DIR'} . "/$subpath");
+    }
+    # Try to remove file on no exposed volumes.
+    if ($config->{'no-exposed-volumes'}) {
+      my ($volume, $subdirectory) = GetPathVolume("\${GENORING_VOLUMES_DIR}/$subpath");
+      if ($volume) {
+        # Use docker alpine to remove directory.
+        Run(
+          "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume alpine sh -c \"rm -rf /volume$subdirectory\"",
+          "Failed to remove directory '$subpath' into Docker volume '$volume'.",
+          0,
+          0
+        );
+      }
+      else {
+        warn "WARNING: Genoring::RemoveVolumeDirectories(): Cannot remove directory '$subpath' from non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
+      }
     }
   }
 }
@@ -6360,12 +6503,31 @@ sub RemoveVolumeFiles
 {
   my ($file_subpaths) = @_;
   return if (!$file_subpaths);
+  my $config = GetConfig();
   if ('ARRAY' ne ref($file_subpaths)) {
     $file_subpaths = [$file_subpaths];
   }
+
   foreach my $file_subpath (@$file_subpaths) {
+    # Try to remove local file if it exists.
     if (-e $ENV{'GENORING_VOLUMES_DIR'} . "/$file_subpath") {
       unlink $ENV{'GENORING_VOLUMES_DIR'} . "/$file_subpath";
+    }
+    # Try to remove file on no exposed volumes.
+    if ($config->{'no-exposed-volumes'}) {
+      my ($volume, $subdirectory) = GetPathVolume("\${GENORING_VOLUMES_DIR}/$file_subpath");
+      if ($volume) {
+        # Use docker alpine to remove file.
+        Run(
+          "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume alpine sh -c \"rm -f /volume$subdirectory\"",
+          "Failed to remove file '$file_subpath' into Docker volume '$volume'.",
+          0,
+          0
+        );
+      }
+      else {
+        warn "WARNING: Genoring::RemoveVolumeFiles(): Cannot remove file '$file_subpath' from non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
+      }
     }
   }
 }
@@ -6563,5 +6725,8 @@ Date 27/10/2025
 GenoRing documentation.
 
 =cut
+
+# Init config automatically.
+GetConfig();
 
 return 1; # package return

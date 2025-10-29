@@ -41,9 +41,12 @@ if (!$ENV{'GENORING_NO_EXPOSED_VOLUMES'}) {
   CreateVolumeDirectory('backups');
 }
 else {
+  # Files are not (exposed) volumes so we need to keep them copied.
   CreateVolumeDirectory('proxy/nginx');
   CopyModuleFiles(
     'genoring/res/nginx/genoring-fpm.conf',
     'proxy/nginx/genoring-fpm.conf'
   );
+  # We still want a visible backup directory.
+  CreateVolumeDirectory('backups');
 }
