@@ -33,6 +33,7 @@ use utf8;
 # For our uses here, the CPAN YAML parser should be enough.
 use CPAN::Meta::YAML;
 use Cwd qw( abs_path getcwd );
+use Data::Dumper;
 use File::Basename;
 use File::Copy;
 use File::Path qw( make_path remove_tree );
@@ -940,7 +941,7 @@ B<Return>: (nothing)
 
 sub WaitModulesReady {
   my $modules = [@_];
-  if (!scalar(@$modules)) {
+  if (!@$modules) {
     $modules = GetModules(1);
   }
   foreach my $module (@$modules) {
@@ -1291,7 +1292,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
         my $next_envfile = 0;
         while (!$next_envfile) {
           # Now get user input to fill env file.
-          if (scalar(@{$env_vars{$module}->{$env_file}})) {
+          if (@{$env_vars{$module}->{$env_file}}) {
             print "Settings for \"$env_file\"\n";
           }
           foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
@@ -1349,7 +1350,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
               }
             }
           }
-          if (scalar(@{$env_vars{$module}->{$env_file}})) {
+          if (@{$env_vars{$module}->{$env_file}}) {
             print "\nNew settings ($env_file):\n";
             foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
                print "* " . ($envvar->{'name'} || $envvar->{'var'}) . ": " . $envvar->{'current'} . "\n";
@@ -2588,7 +2589,7 @@ sub InstallModule {
 
   # Check module requirements.
   my $errors = ApplyLocalHooks('requirements', $module);
-  if (scalar(values(%$errors))) {
+  if (%$errors) {
     die
       "ERROR: Could not install module '$module': some requirements were not met.\n"
       . $errors->{$module};
@@ -3438,7 +3439,7 @@ sub Backup {
     # Launch backup hooks (modules/*/hooks/backup.pl).
     print "- Backuping modules data...\n";
     $errors = ApplyLocalHooks('backup', $module, $backup_name);
-    if ($errors && !Confirm("WARNING: Some errors occured during the local system backup process. Do you want to continue?")) {
+    if (%$errors && !Confirm("WARNING: Some errors occured during the local system backup process. Do you want to continue?")) {
       warn "ABORTED. Restoring system...\n";
       die "Aborted.\n";
     }
@@ -3453,7 +3454,7 @@ sub Backup {
     # enabled module service (ie. modules/"svc1"/hooks/backup_"svc2".sh).
     print "  - Calling service backup hooks...\n";
     $errors = ApplyContainerHooks('backup', $module, 1, $backup_name);
-    if ($errors && !Confirm("WARNING: Some errors occured during the service backup process. Do you want to continue?")) {
+    if (%$errors && !Confirm("WARNING: Some errors occured during the service backup process. Do you want to continue?")) {
       warn "ABORTED. Restoring system...\n";
       die "Aborted.\n";
     }
@@ -3461,8 +3462,9 @@ sub Backup {
     print "Backup done. Backup created in 'backups/$backup_name/'.\n";
   };
 
-  if ($@) {
-    print "ERROR: Backup failed!\n$@\n";
+  if ($@ && (!$errors || !%$errors)) {
+    # Capture errors not supported by hooks.
+    $errors = "Backup failed!\n$@\n";
   }
 
   # Restart as needed.
@@ -3478,13 +3480,13 @@ sub Backup {
     print "  ...OK.\n";
   }
 
-  if ($errors) {
-    if (ref($errors)) {
-      die "Aborted:\n" . join("\n", values(%$errors));
-    }
-    else {
-      die "Aborted:\n$errors\n";
-    }
+  if ($errors && !ref($errors)) {
+    # Other errors.
+    die "Aborted:\n$errors\n";
+  }
+  elsif (('HASH' eq ref($errors)) && %$errors) {
+    # Errors from hook executions.
+    die "Aborted:\n" . join("\n", values(%$errors));
   }
 }
 
@@ -3730,7 +3732,7 @@ sub ApplyLocalHooks {
       }
     }
   }
-  if (scalar(values(%$errors))) {
+  if (%$errors) {
     warn "ERROR: ApplyLocalHooks:\n" . join("\n", values(%$errors)) . "\n";
   }
   return $errors;
@@ -3925,6 +3927,9 @@ APPLYCONTAINERHOOKS_HOOKS:
     if ($g_debug) {
       print "DEBUG: ...OK.\n";
     }
+  }
+  if (%$errors) {
+    warn "ERROR: ApplyContainerHooks:\n" . join("\n", values(%$errors)) . "\n";
   }
   return $errors;
 }
@@ -4394,7 +4399,7 @@ to.
 =cut
 
 sub GetServices {
-  if (!defined($_g_services) || !scalar(%$_g_services)) {
+  if (!defined($_g_services) || !%$_g_services) {
     my %services;
     my $modules = GetModules(1);
     foreach my $module (@$modules) {
@@ -4669,7 +4674,7 @@ them.
 =cut
 
 sub GetVolumes {
-  if (!defined($_g_volumes) || !scalar(%$_g_volumes)) {
+  if (!defined($_g_volumes) || !%$_g_volumes) {
     my %volumes;
     my $modules = GetModules(1);
     foreach my $module (@$modules) {
