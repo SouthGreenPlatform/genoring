@@ -8,12 +8,12 @@ tools.
 
 ## Table of contents
 
-- Description
-- Installation & requirements
-- Management
-- Support
-- Authors and acknowledgment
-- License
+1. [Description](#description)
+2. [Installation and requirements](#installation-and-requirements)
+3. [Management](#management)
+4. [Support](#support)
+5. [Authors and acknowledgment](#authors-and-acknowledgment)
+6. [License](#license)
 
 
 ## Description
@@ -158,7 +158,7 @@ properly.
   * genoring-mongodb: MongoDB database
 
 
-## Installation & requirements
+## Installation and requirements
 
 GenoRing requires PERL 5.8+ core and Docker v20.10.13+.
 - PERL 5.8+ is installed by default on most Linux distributions and Mac while
@@ -486,14 +486,14 @@ Report issues or support request on GenoRing Git issue queue at:
   It means the docker command is available at the correct version but current
   user running GenoRing is not allowed to manage docker containers.
   You may consider eiter using a different user to run GenoRing or add current
-  user to the "docker" group: "sudo usermod -aG docker $USER" (and restart a
+  user to the "docker" group: `sudo usermod -aG docker $USER` (and restart a
   new session).
 
 * "The provided host name is not valid for this server." error message means you
   did not setup the environment variable "DRUPAL_TRUSTED_HOST" in
   "env/genoring.env" when installing.
   You will have to edit "./volumes/drupal/web/sites/default/settings.php" and
-  update the setting "$settings['trusted_host_patterns']".
+  update the setting `$settings['trusted_host_patterns']`.
 
 * Mails are not sent: the "DRUPAL_SITE_MAIL" environment variable as not been
   set properly.
