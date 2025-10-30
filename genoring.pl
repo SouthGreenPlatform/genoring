@@ -20,7 +20,7 @@ genoring.pl - Manages GenoRing platform.
   | tolocal <SERVICE> <IP> | todocker <SERVICE> [ALTERNATIVE]
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-no-cache]
-  | shell [SERVICE] [-cmd=<COMMAND>] ] [-local]
+  | shell [SERVICE] [-cmd=<COMMAND>] ]
   | exportvol <VOLUME> [ARCHIVE.tar.gz]
   | importvol <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
   | version [MODULE] [-all | -latest]
@@ -465,18 +465,13 @@ or the default 'linux/arm64' architecture).
 
 =head4 Syntax
 
-  perl genoring.pl shell [SERVICE] [-cmd=<COMMAND>] [-local]
+  perl genoring.pl shell [SERVICE] [-cmd=<COMMAND>]
 
 =head4 Description
 
 Launches a bash shell in the main GenoRing container (the CMS container). If
 SERVICE is specified, the corresponding service container will be used instead.
 If COMMAND is specified, that command will be used instead of "bash".
-If "-local" is used, a bash shell (or command) will be started on local (host)
-system with GenoRing environment variables set (to manually run docker compose
-for instance). The environment variable "GENORING_SHELL" is set to one until
-you exit the shell session (which will bring you back to your original shell
-without GenoRing environment variables).
 
 
 =head3 exportvol
