@@ -551,17 +551,42 @@ uninstall_recipe()
   # Remove trailing slashes.
   recipe_path=$(expr "$1" : '\(.*[^/]\)')
   recipe=$(basename "$recipe_path")
+  if [ -d "/genoring/$recipe_path/drupal/content" ]; then
+    # We only remove content entities...
+    find "/genoring/$recipe_path/drupal/content" -type f -name '*.yml' | while read -r file; do
+      content_type=$(basename "$(dirname "$file")")
+      uuid=$(grep -oP 'uuid: \K[0-9a-f-]+' "$file")
+      if [ -n "$content_type" ] && [ -n "$uuid" ]; then
+        drush php:eval "try{reset(\\Drupal::entityTypeManager()->getStorage('$content_type')->loadByProperties(['uuid'=>'$uuid']))->delete();}catch(\\Throwable $e){}"
+      fi
+    done
+  fi
+  if [ -d "/genoring/$recipe_path/drupal/config" ]; then
+    # ...and configs.
+    find "/genoring/$recipe_path/drupal/config" -type f -name '*.yml' | while read -r file; do
+      config_file=$(basename "$file" .yml)
+      drush config:delete "$config_file"
+    done
+  fi
   if [ -d "/genoring/$recipe_path/drupal" ]; then
-    # @todo To implement.
-    # - remove menu items
-    # - remove entities
-    # - uninstall modules
-    # - remove dependencies
-    # - remove configs?
-    # Remove recipe.
-    rm -rf "/opt/drupal/recipes/$recipe"
+    # We cannot uninstall modules because they could be required by other
+    # modules.
+    # Removing the recipe is useless.
     drush cr -y
-    log_error "WARNING: Recipe uninstallation not implemented!"
+    # List modules.
+    modules_list=$(
+      awk '
+      /^install:/ { found_install = 1; next }
+      found_install && /^[[:space:]]*-[[:space:]]/ {
+          sub(/^[[:space:]]*-[[:space:]]/, "");
+          print;
+      }
+      /^[a-zA-Z0-9_]+:/ { found_install = 0 }
+      ' "/genoring/$recipe_path/drupal/recipe.yml"
+    )
+    if [ -n "$modules_list" ]; then
+      log_error "WARNING: Drupal modules installed by the recipe are not uninstalled and you may uninstall them manually if they are not needed anymore:\n$modules_list\n"
+    fi
   fi
 }
 
