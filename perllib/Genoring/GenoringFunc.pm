@@ -2245,6 +2245,8 @@ sub ParseVersion {
   my ($version) = @_;
   $version ||= '';
   my ($maj, $min, $qual, $qualver) = ($version =~ /^(\d+)\.(\d+)(?:-(alpha|beta|dev|RC)(\d+)?)?$/);
+  $maj //= 0;
+  $min //= 0;
   $qual ||= '';
   $qualver ||= 0;
   return ($maj, $min, $qual, $qualver);
@@ -2360,11 +2362,14 @@ sub GetAvailableVersions {
   }
   else {
     # Only stable.
-    @versions = grep {
+    my @stable_versions = grep {
       my ($maj, $min, $qual, $qualver) = ParseVersion($_);
       $maj && !$qual;
-      }
-      @versions;
+    }
+    @versions;
+    if (@stable_versions) {
+      @versions = @stable_versions;
+    }
   }
   @versions = sort { CompareVersions($b, $a) } @versions;
 
