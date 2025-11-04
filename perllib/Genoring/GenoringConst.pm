@@ -182,7 +182,7 @@ our $GENORING_DEFAULT_PORT = 8080;
 our $GENORING_DIR = $ENV{'GENORING_DIR'} || $FindBin::Bin;
 our $GENORING_REPOSITORY = 'https://github.com/SouthGreenPlatform/genoring.git';
 our $GENORING_TAGS_URL = 'https://api.github.com/repos/SouthGreenPlatform/genoring/tags';
-our $GENORING_VERSION = '1.0-alpha7';
+our $GENORING_VERSION = '1.0-alpha8';
 our $IS_MOD_PERL = exists($ENV{'MOD_PERL'});
 our $CONFIG_FILE = 'config.yml';
 our $MODULE_NAME_REGEX = '[a-z][a-z0-9_]*';
@@ -254,7 +254,7 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 13/10/2025
+Date 27/10/2025
 
 =head1 SEE ALSO
 

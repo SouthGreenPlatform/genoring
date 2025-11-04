@@ -33,6 +33,7 @@ RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
 Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
 ToLocalService UninstallModule Update Upgrade WaitModulesReady
+IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping
 
 =head1 DESCRIPTION
 
@@ -71,7 +72,7 @@ our @EXPORT = qw(
   Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
   SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
   ToLocalService UninstallModule Update Upgrade WaitModulesReady
-  IsGitAvailable GetAvailableVersions
+  IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping
 );
 # Init $NULL.
 $Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';
@@ -92,7 +93,7 @@ Valentin GUIGNON (The Alliance Bioversity - CIAT), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 13/10/2025
+Date 27/10/2025
 
 =head1 SEE ALSO
 

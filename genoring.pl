@@ -41,7 +41,7 @@ Multi-instances:
   - Windows:
 
     set COMPOSE_PROJECT_NAME=instance_name
-    ./genoring.pl start -port 8888
+    perl genoring.pl start -port 8888
 
 Use "man" for more details.
 
@@ -118,7 +118,7 @@ $Genoring::MODULES_DIR = File::Spec->catfile($Genoring::GENORING_DIR, 'modules')
 
 =head4 Syntax
 
-  ./genoring.pl help
+  perl genoring.pl help
 
 =head4 Description
 
@@ -129,7 +129,7 @@ Display help and exits.
 
 =head4 Syntax
 
-  ./genoring.pl man
+  perl genoring.pl man
 
 =head4 Description
 
@@ -140,7 +140,7 @@ Prints the manual page and exits.
 
 =head4 Syntax
 
-  ./genoring.pl start
+  perl genoring.pl start
 
 =head4 Description
 
@@ -151,7 +151,7 @@ Starts GenoRing. For the first start, GenoRing is installed and initialized.
 
 =head4 Syntax
 
-  ./genoring.pl stop
+  perl genoring.pl stop
 
 =head4 Description
 
@@ -162,7 +162,7 @@ Stops GenoRing.
 
 =head4 Syntax
 
-  ./genoring.pl online
+  perl genoring.pl online
 
 =head4 Description
 
@@ -173,7 +173,7 @@ Alias for "start". Starts GenoRing in "online" mode.
 
 =head4 Syntax
 
-  ./genoring.pl offline
+  perl genoring.pl offline
 
 =head4 Description
 
@@ -186,7 +186,7 @@ interface is not accessible and no web services are available.
 
 =head4 Syntax
 
-  ./genoring.pl backend
+  perl genoring.pl backend
 
 =head4 Description
 
@@ -199,7 +199,7 @@ still login and access the administration interface.
 
 =head4 Syntax
 
-  ./genoring.pl logs [-f]
+  perl genoring.pl logs [-f]
 
 =head4 Description
 
@@ -211,7 +211,7 @@ mode (updated live until the GenoRing script is stopped).
 
 =head4 Syntax
 
-  ./genoring.pl status
+  perl genoring.pl status
 
 =head4 Description
 
@@ -223,7 +223,7 @@ Display current GenoRing status (ie. "running", "not running", "offline mode",
 
 =head4 Syntax
 
-  ./genoring.pl modules [0|1]
+  perl genoring.pl modules [0|1]
 
 =head4 Description
 
@@ -235,7 +235,7 @@ are listed and if 1 is used, only enabled modules are listed.
 
 =head4 Syntax
 
-  ./genoring.pl services
+  perl genoring.pl services
 
 =head4 Description
 
@@ -247,7 +247,7 @@ modules.
 
 =head4 Syntax
 
-  ./genoring.pl volumes
+  perl genoring.pl volumes
 
 =head4 Description
 
@@ -259,7 +259,7 @@ modules.
 
 =head4 Syntax
 
-  ./genoring.pl alternatives <MODULE>
+  perl genoring.pl alternatives <MODULE>
 
 =head4 Description
 
@@ -270,7 +270,7 @@ Displays the list of service alternatives for a given module.
 
 =head4 Syntax
 
-  ./genoring.pl moduleinfo <MODULE>
+  perl genoring.pl moduleinfo <MODULE>
 
 =head4 Description
 
@@ -281,7 +281,7 @@ Displays information on the given module.
 
 =head4 Syntax
 
-  ./genoring.pl setup [-auto | -minimal] [-reset]
+  perl genoring.pl setup [-auto | -minimal] [-reset]
 
 =head4 Description
 
@@ -296,7 +296,7 @@ regenerated.
 
 =head4 Syntax
 
-  ./genoring.pl reset [-f] [-delete-containers] [-keep-env]
+  perl genoring.pl reset [-f] [-delete-containers] [-keep-env]
 
 =head4 Description
 
@@ -310,7 +310,7 @@ If '-keep-env' is used, current environment files are kept.
 
 =head4 Syntax
 
-  ./genoring.pl enable <MODULE>
+  perl genoring.pl enable <MODULE>
 
 =head4 Description
 
@@ -321,7 +321,7 @@ Installs and enables the given GenoRing module.
 
 =head4 Syntax
 
-  ./genoring.pl disable <MODULE>
+  perl genoring.pl disable <MODULE>
 
 =head4 Description
 
@@ -332,7 +332,7 @@ Disables the given GenoRing module.
 
 =head4 Syntax
 
-  ./genoring.pl uninstall <MODULE> [-keep-env]
+  perl genoring.pl uninstall <MODULE> [-keep-env]
 
 =head4 Description
 
@@ -344,7 +344,7 @@ not removed.
 
 =head4 Syntax
 
-  ./genoring.pl enalt <MODULE> <SERVICE>
+  perl genoring.pl enalt <MODULE> <SERVICE>
 
 =head4 Description
 
@@ -355,7 +355,7 @@ Enables the given GenoRing module service alternative.
 
 =head4 Syntax
 
-  ./genoring.pl disalt <MODULE> <SERVICE>
+  perl genoring.pl disalt <MODULE> <SERVICE>
 
 =head4 Description
 
@@ -367,7 +367,7 @@ service.
 
 =head4 Syntax
 
-  ./genoring.pl tolocal <SERVICE> <IP>
+  perl genoring.pl tolocal <SERVICE> <IP>
 
 =head4 Description
 
@@ -378,7 +378,7 @@ Turns a Docker service SERVICE into a local service provided by the given IP.
 
 =head4 Syntax
 
-  ./genoring.pl todocker <SERVICE> [ALTERNATIVE]
+  perl genoring.pl todocker <SERVICE> [ALTERNATIVE]
 
 =head4 Description
 
@@ -390,7 +390,7 @@ ALTERNATIVE is specified, the given service alternative will be used.
 
 =head4 Syntax
 
-  ./genoring.pl backup [BACKUP_NAME [MODULE]]
+  perl genoring.pl backup [BACKUP_NAME [MODULE]]
 
 =head4 Description
 
@@ -403,7 +403,7 @@ Performs a general backup of the GenoRing system into a backup directory
 
 =head4 Syntax
 
-  ./genoring.pl restore [BACKUP_NAME [MODULE]]
+  perl genoring.pl restore [BACKUP_NAME [MODULE]]
 
 =head4 Description
 
@@ -416,7 +416,7 @@ Restores a general backup of the GenoRing system from the backup directory
 
 =head4 Syntax
 
-  ./genoring.pl update
+  perl genoring.pl update
 
 =head4 Description
 
@@ -432,7 +432,7 @@ may bring new features or a different behavior of the GenoRing platform.
 
 =head4 Syntax
 
-  ./genoring.pl upgrade
+  perl genoring.pl upgrade
 
 =head4 Description
 
@@ -449,7 +449,7 @@ may bring new features or a different behavior of the GenoRing platform.
 
 =head4 Syntax
 
-  ./genoring.pl compile <MODULE> <SERVICE> [-arm[=ARCH]] [-no-cache]
+  perl genoring.pl compile <MODULE> <SERVICE> [-arm[=ARCH]] [-no-cache]
 
 =head4 Description
 
@@ -465,7 +465,7 @@ or the default 'linux/arm64' architecture).
 
 =head4 Syntax
 
-  ./genoring.pl shell [SERVICE] [-cmd=<COMMAND>]
+  perl genoring.pl shell [SERVICE] [-cmd=<COMMAND>]
 
 =head4 Description
 
@@ -478,7 +478,7 @@ If COMMAND is specified, that command will be used instead of "bash".
 
 =head4 Syntax
 
-  ./genoring.pl exportvol <VOLUME> [ARCHIVE.tar.gz]
+  perl genoring.pl exportvol <VOLUME> [ARCHIVE.tar.gz]
 
 =head4 Description
 
@@ -491,7 +491,7 @@ otherwise a new name is generated (using "[volume name]_[date].tar.gz").
 
 =head4 Syntax
 
-  ./genoring.pl importvol <VOLUME> [ARCHIVE.tar.gz | DIRECTORY]
+  perl genoring.pl importvol <VOLUME> [ARCHIVE.tar.gz | DIRECTORY]
 
 =head4 Description
 
@@ -503,7 +503,7 @@ volume.
 
 =head4 Syntax
 
-  ./genoring.pl version [MODULE] [-all | -latest]
+  perl genoring.pl version [MODULE] [-all | -latest]
 
 =head4 Description
 
@@ -1089,7 +1089,7 @@ Valentin GUIGNON (Bioversity), v.guignon@cgiar.org
 
 Version 1.0
 
-Date 13/10/2025
+Date 27/10/2025
 
 =head1 SEE ALSO
 

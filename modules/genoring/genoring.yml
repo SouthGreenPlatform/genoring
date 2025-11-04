@@ -9,7 +9,7 @@ tags:
  - proxy
  - database
  - postgresql
-genoring_script_version: 1.0-alpha1
+genoring_script_version: 1.0-alpha8
 services:
   genoring:
     name: "GenoRing CMS"

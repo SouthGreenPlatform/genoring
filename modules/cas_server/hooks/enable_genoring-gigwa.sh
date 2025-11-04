@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Enables CAS service on Gigwa and add the appropriate certificates to Gigwa
+# host.
+
 CONFIG_FILE="/usr/local/tomcat/config/config.properties"
 
 # Function to update a given Gigwa config file setting.
