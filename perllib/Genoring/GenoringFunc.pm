@@ -172,15 +172,10 @@ sub Run {
 
   if ('dc1' eq $Genoring::COMPATIBILITY) {
     $command =~ s/$Genoring::DOCKER_COMPOSE_COMMAND\s+(.*)--profile\s+"\*"/$Genoring::DOCKER_COMPOSE_COMMAND $1/;
-    $command =~ s/$Genoring::DOCKER_COMMAND\s+ps\s+(.*)--format\s+"[^"]*"/$Genoring::DOCKER_COMMAND ps $1 /) {
+    $command =~ s/$Genoring::DOCKER_COMMAND\s+ps\s+(.*)--format\s+"[^"]*"/$Genoring::DOCKER_COMMAND ps $1/;
     if ($command eq "$Genoring::DOCKER_COMPOSE_COMMAND up -d -y") {
       $command = "$Genoring::DOCKER_COMPOSE_COMMAND up -d";
     }
-    elsif ($command eq $g_exec_prefix$Genoring::DOCKER_COMPOSE_COMMAND ps --all --format "{{.Names}} {{.State}}") {
-      $command = "$g_exec_prefix$Genoring::DOCKER_COMPOSE_COMMAND ps --all";
-    }
-
-
   }
 
   if ($g_debug) {
@@ -784,7 +779,7 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return ();
   }
-  my $ps_all = Run("$Genoring::DOCKER_COMMAND ps --all --filter name=^$container\\\$ --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}" 2>$Genoring::NULL");
+  my $ps_all = Run("$Genoring::DOCKER_COMMAND ps --all --filter name=^$container\\\$ --format \"{{.ID}} {{.State}} {{.Names}} {{.Image}}\" 2>$Genoring::NULL");
   my @ps = split(/\n+/, $ps_all);
   if ('dc1' eq $Genoring::COMPATIBILITY) {
     # Skip headers.
