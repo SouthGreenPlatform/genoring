@@ -37,6 +37,13 @@ use FindBin;
 
 =head1 CONSTANTS
 
+B<$COMPATIBILITY>: (string)
+
+Compatibility mode. If set, executed commands (Run() function) are adapted for
+the given compatibility.
+Set to '' for regular execution.
+Set to 'dc1' for Docker Compose v1 compatibility.
+
 B<$CONSTRAINT_TYPE_REGEX>: (string)
 
 Regular expression used to match a dependency constraint. One of "REQUIRES",
@@ -161,12 +168,13 @@ Regular expression used to match valid volume names.
 
 =cut
 
+our $COMPATIBILITY = 'dc1';
 our $CONSTRAINT_TYPE_REGEX = '(REQUIRES|CONFLICTS|BEFORE|AFTER)';
 our $DEBUG = 0;
 our $DEFAULT_ARCHITECTURE = 'linux/amd64';
 our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';
 our $DOCKER_COMMAND = 'docker';
-our $DOCKER_COMPOSE_COMMAND = $DOCKER_COMMAND . ' compose';
+our $DOCKER_COMPOSE_COMMAND = $DOCKER_COMMAND . '-compose';
 our $DOCKER_BUILD_COMMAND = $DOCKER_COMMAND . ' buildx build';
 our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
 our $EXTRA_HOSTS = 'extra_hosts.yml';

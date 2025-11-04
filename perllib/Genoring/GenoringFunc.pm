@@ -167,6 +167,20 @@ sub Run {
     # Die on logic errors.
     die "ERROR: ${subroutine} Run: No command to run!";
   }
+
+  if ('dc1' eq $Genoring::COMPATIBILITY) {
+    $command =~ s/$Genoring::DOCKER_COMPOSE_COMMAND\s+(.*)--profile\s+"\*"/$Genoring::DOCKER_COMPOSE_COMMAND $1/;
+    $command =~ s/$Genoring::DOCKER_COMMAND\s+ps\s+(.*)--format\s+"[^"]*"/$Genoring::DOCKER_COMMAND ps $1 /) {
+    if ($command eq "$Genoring::DOCKER_COMPOSE_COMMAND up -d -y") {
+      $command = "$Genoring::DOCKER_COMPOSE_COMMAND up -d";
+    }
+    elsif ($command eq $g_exec_prefix$Genoring::DOCKER_COMPOSE_COMMAND ps --all --format "{{.Names}} {{.State}}") {
+      $command = "$g_exec_prefix$Genoring::DOCKER_COMPOSE_COMMAND ps --all";
+    }
+
+
+  }
+
   if ($g_debug) {
     print "COMMAND: $g_exec_prefix $command\n";
   }
@@ -686,6 +700,7 @@ B<Return>: (string)
 =cut
 
 sub GetState {
+  # @todo Revoir pour la compatibilité...
   my ($container) = @_;
   my $state = '';
   if ($container) {
@@ -693,10 +708,12 @@ sub GetState {
     $state ||= '';
   }
   else {
-    my $states = qx($g_exec_prefix$Genoring::DOCKER_COMPOSE_COMMAND ps --all --format "{{.Names}} {{.State}}");
-    $state = $states ? 'running' : '';
+    my $states = Run("$Genoring::DOCKER_COMPOSE_COMMAND ps --all --format \"{{.Names}} {{.State}}\"");
+    if ('dc1' eq $Genoring::COMPATIBILITY) {
+      $state = $states ? 'running' : '';
+    }
     foreach my $line (split(/\n+/, $states)) {
-      if ($line !~ m/\srunning$/) {
+      if ($line !~ m/\s(?:running|Up)\s/) {
         ($state) = ($line =~ m/(\S+)\s*$/);
         last;
       }
@@ -749,13 +766,29 @@ sub IsContainerRunning {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return ();
   }
-  my $ps_all = qx($g_exec_prefix$Genoring::DOCKER_COMMAND ps --all --filter name=$container --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}" 2>$Genoring::NULL);
+  my $ps_all = Run("$Genoring::DOCKER_COMMAND ps --all --filter name=^$container\\\$ --format "{{.ID}} {{.State}} {{.Names}} {{.Image}}" 2>$Genoring::NULL");
   my @ps = split(/\n+/, $ps_all);
-  foreach my $ps (@ps) {
-    my @status = split(/\s+/, $ps);
-    # Name filter does not do an exact match so we do it here.
-    if ($status[2] eq $container) {
-      return (@status);
+  if ('dc1' eq $Genoring::COMPATIBILITY) {
+    # Skip headers.
+    if (@ps && ($ps[0] =~ m/^CONTAINER\s+ID/)) {
+      shift(@ps);
+    }
+    if (@ps) {
+      my @ps_line = split(/\s+/, shift(@ps));
+      my $state = 'running';
+      if ($ps_line[4] !~ /^Up/) {
+        $state = 'dead';
+      }
+      return ($ps_line[0], $state, $ps_line[6], $ps_line[1]);
+    }
+  }
+  else {
+    foreach my $ps (@ps) {
+      my @status = split(/\s+/, $ps);
+      # Name filter does not do an exact match so we do it here.
+      if ($status[2] eq $container) {
+        return (@status);
+      }
     }
   }
   return ();
@@ -1669,7 +1702,7 @@ sub GenerateDockerComposeFile {
       my ($volume_name) = ($volume =~ m/^([\w\-]+):/);
       if ($volume_name && !exists($volumes{$volume_name})) {
         $volumes{$volume_name} = {
-          'name' => GetVolumeName($volume_name),
+          # 'name' => GetVolumeName($volume_name),
         };
       }
     }
@@ -1733,11 +1766,19 @@ sub GenerateDockerComposeFile {
   my $compose = {
     'services' => {},
   };
+  if ('dc1' eq $Genoring::COMPATIBILITY) {
+    $compose->{'version'} = '3.7';
+  }
   # For each enabled service, add the section name, the indented definition,
   # and the 'container_name:' field.
   foreach my $service (sort keys(%services)) {
     my $service_name = GetContainerName($service);
     $compose->{'services'}->{$service} = $services{$service}->{'definition'};
+    if ('dc1' eq $Genoring::COMPATIBILITY) {
+      delete($compose->{'services'}->{$service}->{'profiles'});
+      delete($compose->{'services'}->{$service}->{'pull_policy'});
+      delete($compose->{'services'}->{$service}->{'restart'});
+    }
     $compose->{'services'}->{$service}->{'container_name'} = $service_name;
     # Add dependencies between services.
     if (exists($service_dependencies->{$service})
@@ -1762,29 +1803,41 @@ sub GenerateDockerComposeFile {
           my $dependencies = {'services' => {$service => {}}};
           if (@higher_services) {
             foreach my $higher_service (@higher_services) {
-              $dependencies->{'services'}->{$service}->{'depends_on'} ||= {};
-              $dependencies->{'services'}->{$service}->{'depends_on'}->{$higher_service} = {
-                'condition' => 'service_started',
-              };
+              if ('dc1' eq $Genoring::COMPATIBILITY) {
+                $dependencies->{'services'}->{$service}->{'depends_on'} = $higher_service;
+              }
+              else {
+                $dependencies->{'services'}->{$service}->{'depends_on'} ||= {};
+                $dependencies->{'services'}->{$service}->{'depends_on'}->{$higher_service} = {
+                  'condition' => 'service_started',
+                };
+              }
             }
           }
           WriteYaml("dependencies/$service.$dep_profile.yml", $dependencies);
         }
-        $compose->{'services'}->{$service}->{'extends'} = {
-          'file' => "\${PWD}/dependencies/$service.\${COMPOSE_PROFILES}.yml",
-          'service' => $service,
-        };
+        if ('dc1' ne $Genoring::COMPATIBILITY) {
+          $compose->{'services'}->{$service}->{'extends'} = {
+            'file' => "\${PWD}/dependencies/$service.\${COMPOSE_PROFILES}.yml",
+            'service' => $service,
+          };
+        }
       }
       else {
         # All profiles.
         my %higher_services = map { $_ => 1 } grep {exists($services{$_})} @{$service_dependencies->{$service}->{''}};
         my @higher_services = sort keys(%higher_services);
-        foreach my $higher_service (@higher_services) {
-          $compose->{'services'}->{$service}->{'depends_on'} = {
-            $higher_service => {
-              'condition' => 'service_started',
-            },
-          };
+        if ('dc1' eq $Genoring::COMPATIBILITY) {
+          $compose->{'services'}->{$service}->{'depends_on'} = [@higher_services];
+        }
+        else {
+          foreach my $higher_service (@higher_services) {
+            $compose->{'services'}->{$service}->{'depends_on'} = {
+              $higher_service => {
+                'condition' => 'service_started',
+              },
+            };
+          }
         }
       }
     }
@@ -1801,7 +1854,9 @@ sub GenerateDockerComposeFile {
   foreach my $volume (sort keys(%volumes)) {
     my $volume_name = GetVolumeName($volume);
     $compose->{'volumes'}->{$volume} = $volumes{$volume}->{'definition'};
-    $compose->{'volumes'}->{$volume}->{'name'} = $volume_name;
+    if ('dc1' ne $Genoring::COMPATIBILITY) {
+      $compose->{'volumes'}->{$volume}->{'name'} = $volume_name;
+    }
     # Manage non-exposed volumes.
     if ($g_flags->{'no-exposed-volumes'}) {
       Run(
@@ -6435,9 +6490,9 @@ sub ImportIntoVolume
         );
       }
       else {
-      # Archive file.
+        # Archive file.
         Run(
-          "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume --mount type=bind,source=$abs_source,target=/import/backup.tar.gz alpine sh -c \"tar -xzvf /import/backup.tar.gz -C /volume/\"",
+          "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $abs_source:/import/backup.tar.gz alpine sh -c \"tar -xzvf /import/backup.tar.gz -C /volume/\"",
           "Failed to import archive '$source' into Docker volume '$volume'.",
           0,
           0
