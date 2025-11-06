@@ -34,6 +34,10 @@ setup_log="/opt/drupal/genoring_setup.log"
 # moment. This may change to 'stable", "RC", or "beta" in the future.
 # stability="stable"
 stability="dev"
+ENCODED_PG_PASSWORD=$(perl -e '$_=$ARGV[0];s/([^\w\s\Q.-~\E])/sprintf("%%%X",ord("$1"))/geix;print;' "$POSTGRES_PASSWORD")
+ESCAPED_DRUPAL_PASSWORD=$(perl -e 'print join("",map{/([\&\*\?\[\]\(\)\{\}\$\|\\\!;\'"'"'"])/?"\\$1":$_}split(//,$ARGV[0]))' "$DRUPAL_PASSWORD")
+
+
 
 rm -f "$disable_healthcheck"
 cd /opt/drupal/
@@ -273,12 +277,12 @@ setup_cms()
   printf -- "--------------------------------------------------------------------------------\nDefault site directory:\n-----------------------\n" >>"$setup_log"
   ls -la /opt/drupal/web/sites/default >>"$setup_log"
   printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
-  printf "Drush command: drush -y site:install recipes/genoring_recipe --db-url=\"pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\" --account-mail=\"$DRUPAL_USER_MAIL\" --account-name=\"$DRUPAL_USER\" --account-pass=\"$DRUPAL_PASSWORD\" --site-mail=\"$DRUPAL_SITE_MAIL\" --site-name=\"$DRUPAL_SITE_NAME\"\n\n" >>"$setup_log"
+  printf "Drush command: drush -y site:install recipes/genoring_recipe --db-url=\"pgsql://$POSTGRES_USER:$ENCODED_PG_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\" --account-mail=\"$DRUPAL_USER_MAIL\" --account-name=\"$DRUPAL_USER\" --account-pass=\"$DRUPAL_PASSWORD\" --site-mail=\"$DRUPAL_SITE_MAIL\" --site-name=\"$DRUPAL_SITE_NAME\"\n\n" >>"$setup_log"
   # For Drupal install debugging:
   # printf "DEBUG\n"; while :; do sleep 60; done
   output=$(
     drush -y site:install recipes/genoring_recipe \
-      --db-url="pgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB" \
+      --db-url="pgsql://$POSTGRES_USER:$ENCODED_PG_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB" \
       --account-mail="$DRUPAL_USER_MAIL" \
       --account-name="$DRUPAL_USER" \
       --account-pass="$DRUPAL_PASSWORD" \
@@ -289,7 +293,7 @@ setup_cms()
   printf $output | tee -a "$setup_log"
   if [ $pipestatus -gt 0 ]; then
     log "  ...ERROR!"
-    log_error "ERROR: Failed to initialize Drupal!\npgsql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB"
+    log_error "ERROR: Failed to initialize Drupal!\npgsql://$POSTGRES_USER:$ENCODED_PG_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB"
     exit 1
   fi
   log "  ...OK (Drupal initialized)."
@@ -454,9 +458,8 @@ inittest()
   if [ ! -f "$PHPUNIT_FILE" ]; then
     cp web/core/phpunit.xml.dist "$PHPUNIT_FILE"
     chown genoring:genoring web/core/phpunit.xml
-    ENCODED_PASSWORD=$(printf "$POSTGRES_PASSWORD" | perl -ne 's/([^a-z\d\Q.-_~ \E])/sprintf("&#%d;", ord($1))/geix; print;')
     perl -pi -e 's|<env name="SIMPLETEST_BASE_URL".*?>|<env name="SIMPLETEST_BASE_URL" value="http://genoring-proxy"/>|' "$PHPUNIT_FILE"
-    perl -pi -e "s|<env name=\"SIMPLETEST_DB\".*?>|<env name=\"SIMPLETEST_DB\" value=\"pgsql://$POSTGRES_USER:$ENCODED_PASSWORD\@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DRUPAL_DB\"/>|" "$PHPUNIT_FILE"
+    perl -pi -e "s|<env name=\"SIMPLETEST_DB\".*?>|<env name=\"SIMPLETEST_DB\" value=\"pgsql://$POSTGRES_USER:$ENCODED_PG_PASSWORD\@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DRUPAL_DB\"/>|" "$PHPUNIT_FILE"
     perl -pi -e 's|<env name="BROWSERTEST_OUTPUT_DIRECTORY".*?>||' "$PHPUNIT_FILE"
     perl -pi -e "s|<env name=\"BROWSERTEST_OUTPUT_BASE_URL\".*?>|<env name=\"BROWSERTEST_OUTPUT_BASE_URL\" value=\"http://$GENORING_HOST:$GENORING_PORT\"/>\n    <env name=\"BROWSERTEST_OUTPUT_DIRECTORY\" value=\"/opt/drupal/web/sites/simpletest/browser_output\"/>|" "$PHPUNIT_FILE"
   fi
