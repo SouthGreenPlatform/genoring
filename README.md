@@ -113,7 +113,7 @@ installation "modules" directory as subdirectories (one directory per module).
 GenoRing modules based on Docker containers can be replaced by equivalent local
 services without too much efforts by using generated configuration files (if
 needed) and following the related instructions. It is often as simple as:
-`perl genoring.pl tolocal SERVICE IP` (see Switching to local components
+`perl genoring.pl toexternal SERVICE IP` (see Switching to local components
 dedicated section).
 
 In some cases, GenoRing modules may provide alternative service containers to
@@ -282,7 +282,7 @@ If you still encounter problems, try:
 ```
 To clear all previous trials and get a clean install but keep current config:
 ```
-  # perl genoring.pl reset -keep-env
+  # perl genoring.pl reset -preserve-env
 ```
 
 Generate a backup:
@@ -337,14 +337,14 @@ variable and a second one to run GenoRing. For example:
 For more commands, just run "perl genoring.pl" or "perl genoring.pl man".
 
 
-### Switching to local components
+### Switching to external components
 
 When it is possible, the process to switch from a module container to a
-corresponding local service is explained in the module's README file in a
+corresponding external service is explained in the module's README file in a
 "Switching" section. It is usually as simple as:
 
 ```
-  # perl genoring.pl tolocal SERVICE IP
+  # perl genoring.pl toexternal SERVICE IP
 ```
 
 where "SERVICE" is the name of the service and IP is the IP of the server
@@ -353,7 +353,7 @@ providing that service (both IPv4 and IPv6 are supported).
 It is possible to later switch back to container service using:
 
 ```
-  # perl genoring.pl todocker SERVICE
+  # perl genoring.pl togenoring SERVICE
 ```
 
 ## Support
@@ -372,8 +372,8 @@ It is possible to later switch back to container service using:
   Note: it is also possible to export/import Docker volumes using GenoRing
   commands:
   - to list volumes: `./genoring.pl volumes`
-  - to export: `./genoring.pl exportvol <volume> [ARCHIVE.tar.gz]`
-  - to import: `./genoring.pl importvol <volume> <ARCHIVE.tar.gz | DIRECTORY>`
+  - to export: `./genoring.pl exportvolume <volume> [ARCHIVE.tar.gz]`
+  - to import: `./genoring.pl importvolume <volume> <ARCHIVE.tar.gz | DIRECTORY>`
 - For Mac platform support, exposed GenoRing volumes are disabled. Unlike
   Windows platform, the file system problem comes form user permissions. On Mac,
   Docker Desktop runs itself in a virtual machine that uses a different UID and
@@ -512,6 +512,36 @@ Report issues or support request on GenoRing Git issue queue at:
   COMPOSE_PROJECT_NAME). Then try again to start GenoRing and it should work.
   Note: this works for *exposed volumes*.
 
+* When installing, it fails and the following error message appears:
+  ```
+  Command state:set was not found. Drush was unable to query the database. As
+   a result, many commands are unavailable. Re-run your command with --debug
+  to see relevant log messages.
+  ```
+  It is not related to a drush issue.
+  It means the Drupal setup did not reach the end, and failed to store database
+  credentials in the db_settings.php file. Sometimes it is related to the
+  docker storage but it needs to be investigated. The GenoRing instance needs to
+  be re-installed after a cleaning (ie. `./genoring.pl reset -preserve-env -f`).
+  You should try with more simple passwords (with no special characters) that
+  you may change after the installation process.
+
+* When running GenoRing, you get the message:
+
+  `ERROR: 'docker compose' does not meet minimal version requirement (1.xx.yy < v2)!`
+
+  GenoRing uses new features of Docker Compose 2 to work properly. However, you
+  may bypass this version check using '-skip-checks' command line parameter if
+  you are sure the Docker version you are using will work (version detection
+  issue) or you can enable the Docker Compose v1 compatibility mode (recommended
+  in this case) by editing "perllib/Genoring/GenoringConst.pm" and setting
+  `$COMPATIBILITY` constant to 'dc1'.
+  Be aware, when using Docker Compose v1, that environment files are not
+  interpolated. It means, for instance, that default environment value for
+  'DRUPAL_TRUSTED_HOST' variable of GenoRing will litteraly contain
+  "$GENORING_HOST" instead of its replacement value. Also, variable value
+  quoting is not support. Again, in the case of 'DRUPAL_TRUSTED_HOST', you will
+  have to remove the surrounding double quotes.
 
 ## Authors and acknowledgment
 

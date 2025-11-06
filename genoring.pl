@@ -12,21 +12,22 @@ genoring.pl - Manages GenoRing platform.
 
   perl genoring.pl [help [command | flag] | man
   | start | stop | online | offline | backend | logs [-f] | status
-  | modules | services | volumes | alternatives <MODULE> | moduleinfo <MODULE>
-  | setup [-auto | -minimal] [-reset]
-  | reset [-f] [-delete-containers] [-keep-env]
-  | enable <MODULE> | disable <MODULE> | uninstall <MODULE> [-keep-env]
-  | enalt <MODULE> <SERVICE> | disalt <MODULE> <SERVICE>
-  | tolocal <SERVICE> <IP> | todocker <SERVICE> [ALTERNATIVE]
+  | modules | services | volumes | alternatives <MODULE>
+  | moduledetails <MODULE>
+  | setup [-default | -minimal] [-reset]
+  | reset [-f] [-delete-containers] [-preserve-env]
+  | enable <MODULE> | disable <MODULE> | uninstall <MODULE> [-preserve-env]
+  | enablealt <MODULE> <SERVICE> | disablealt <MODULE> <SERVICE>
+  | toexternal <SERVICE> <IP> | togenoring <SERVICE> [ALTERNATIVE]
   | update [MODULE] | upgrade [MODULE]
-  | backup [BKNAME] | restore [BKNAME] | compile <MODULE> <SERVICE> [-no-cache]
+  | backup [BKNAME] | restore [BKNAME] | build <MODULE> <SERVICE> [-no-cache]
   | shell [SERVICE] [-cmd=<COMMAND>] ]
-  | exportvol <VOLUME> [ARCHIVE.tar.gz]
-  | importvol <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
+  | exportvolume <VOLUME> [ARCHIVE.tar.gz]
+  | importvolume <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
   | version [MODULE] [-all | -latest]
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
-  [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-wait-ready[=DELAYSEC]]
-  [-yes|-no] [-verbose] [-hide-compile] [-bypass]
+  [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-health-timeout[=DELAYSEC]]
+  [-yes|-no] [-verbose] [-quiet-build] [-skip-checks]
 
 =head2 Example
 
@@ -52,7 +53,7 @@ Perl5
 =head1 DESCRIPTION
 
 Manages GenoRing platform. This script can be used to start, update, stop,
-reinstall GenoRing, get informations on current GenoRing instance and compile
+reinstall GenoRing, get informations on current GenoRing instance and build
 GenoRing module containers.
 
 =cut
@@ -166,7 +167,9 @@ Stops GenoRing.
 
 =head4 Description
 
-Alias for "start". Starts GenoRing in "online" mode.
+Alias for "start". Starts GenoRing in "online" mode in opposit to "offline" or
+"backend" modes. "Online" mode is the regular mode in which GenoRing should be
+runned.
 
 
 =head3 offline
@@ -178,8 +181,10 @@ Alias for "start". Starts GenoRing in "online" mode.
 =head4 Description
 
 Starts GenoRing in "offline" mode, meaning that the web site displays a
-maintenance message and returns a 503 HTTP status code. The administration
-interface is not accessible and no web services are available.
+maintenance message and returns a 503 HTTP status code (Service Unavailable).
+The administration interface is *not* accessible and *no* web services are
+available. It is suitable when you want to temporarily disable the site for any
+reasons (technical maintainence, security issues).
 
 
 =head3 backend
@@ -190,9 +195,11 @@ interface is not accessible and no web services are available.
 
 =head4 Description
 
-Starts GenoRing in "backend" mode, meaning that the site is accessible but
-displays a maintenance page and no services are available. The admin users can
-still login and access the administration interface.
+Starts GenoRing in "backend" mode, meaning that the site *is accessible* but
+displays a maintenance page and *no services* are available. The admin users can
+still login and access the administration interface. It is suitable when admins
+need to access the user interface to perform management tasks while regular
+users should not access the site to avoid issues.
 
 
 =head3 logs
@@ -266,11 +273,11 @@ modules.
 Displays the list of service alternatives for a given module.
 
 
-=head3 moduleinfo
+=head3 moduledetails
 
 =head4 Syntax
 
-  perl genoring.pl moduleinfo <MODULE>
+  perl genoring.pl moduledetails <MODULE>
 
 =head4 Description
 
@@ -281,29 +288,29 @@ Displays information on the given module.
 
 =head4 Syntax
 
-  perl genoring.pl setup [-auto | -minimal] [-reset]
+  perl genoring.pl setup [-default | -minimal] [-reset]
 
 =head4 Description
 
 Setups GenoRing environment and regenerates Docker Compose file.
-If '-auto' flag is used, all current or default settings are used. If '-minimal'
-flag is used, only non-optional environment values will be asked. If '-reset'
-flag is used, current environment files are removed and need to be fully
-regenerated.
+If '-default' flag is used, all current or default settings are used. If
+'-minimal' flag is used, only non-optional environment values will be asked. If
+'-reset' flag is used, current environment files are removed and need to be
+fully regenerated.
 
 
 =head3 reset
 
 =head4 Syntax
 
-  perl genoring.pl reset [-f] [-delete-containers] [-keep-env]
+  perl genoring.pl reset [-f] [-delete-containers] [-preserve-env]
 
 =head4 Description
 
 Reinitializes GenoRing system and removes everything (except backups) to restart
 GenoRing from scratch. If the '-f' flag is used, no confirmation is asked. If
-the '-delete-containers' flag is used, compiled containers are also removed.
-If '-keep-env' is used, current environment files are kept.
+the '-delete-containers' flag is used, build containers are also removed.
+If '-preserve-env' is used, current environment files are kept.
 
 
 =head3 enable
@@ -332,30 +339,30 @@ Disables the given GenoRing module.
 
 =head4 Syntax
 
-  perl genoring.pl uninstall <MODULE> [-keep-env]
+  perl genoring.pl uninstall <MODULE> [-preserve-env]
 
 =head4 Description
 
-Uninstalls the given GenoRing module. If -keep-env flag is used, settings are
-not removed.
+Uninstalls the given GenoRing module. If -preserve-env flag is used, settings
+are not removed.
 
 
-=head3 enalt
+=head3 enablealt
 
 =head4 Syntax
 
-  perl genoring.pl enalt <MODULE> <SERVICE>
+  perl genoring.pl enablealt <MODULE> <SERVICE>
 
 =head4 Description
 
 Enables the given GenoRing module service alternative.
 
 
-=head3 disalt
+=head3 disablealt
 
 =head4 Syntax
 
-  perl genoring.pl disalt <MODULE> <SERVICE>
+  perl genoring.pl disablealt <MODULE> <SERVICE>
 
 =head4 Description
 
@@ -363,22 +370,22 @@ Disables the given GenoRing module service alternative and put back the default
 service.
 
 
-=head3 tolocal
+=head3 toexternal
 
 =head4 Syntax
 
-  perl genoring.pl tolocal <SERVICE> <IP>
+  perl genoring.pl toexternal <SERVICE> <IP>
 
 =head4 Description
 
 Turns a Docker service SERVICE into a local service provided by the given IP.
 
 
-=head3 todocker
+=head3 togenoring
 
 =head4 Syntax
 
-  perl genoring.pl todocker <SERVICE> [ALTERNATIVE]
+  perl genoring.pl togenoring <SERVICE> [ALTERNATIVE]
 
 =head4 Description
 
@@ -445,15 +452,15 @@ Drupal modules while upgrading will change the version of GenoRing used which
 may bring new features or a different behavior of the GenoRing platform.
 
 
-=head3 compile
+=head3 build
 
 =head4 Syntax
 
-  perl genoring.pl compile <MODULE> <SERVICE> [-arm[=ARCH]] [-no-cache]
+  perl genoring.pl build <MODULE> <SERVICE> [-arm[=ARCH]] [-no-cache]
 
 =head4 Description
 
-Compiles the Docker container corresponding to the given module service if
+Builds the Docker container corresponding to the given module service if
 sources are available. For ARM systems, you must use the "-arm" flag. It is also
 possible to provide a specific ARM architecture (ARCH). If a source
 "Dockerfile.arm" is provided, it will be used (regardless the specified ARCH
@@ -476,11 +483,11 @@ SERVICE is specified, the corresponding service container will be used instead.
 If COMMAND is specified, that command will be used instead of "bash".
 
 
-=head3 exportvol
+=head3 exportvolume
 
 =head4 Syntax
 
-  perl genoring.pl exportvol <VOLUME> [ARCHIVE.tar.gz]
+  perl genoring.pl exportvolume <VOLUME> [ARCHIVE.tar.gz]
 
 =head4 Description
 
@@ -489,11 +496,11 @@ directory. An optional archive name can be provided by ARCHIVE.tar.gz,
 otherwise a new name is generated (using "[volume name]_[date].tar.gz").
 
 
-=head3 importvol
+=head3 importvolume
 
 =head4 Syntax
 
-  perl genoring.pl importvol <VOLUME> [ARCHIVE.tar.gz | DIRECTORY]
+  perl genoring.pl importvolume <VOLUME> [ARCHIVE.tar.gz | DIRECTORY]
 
 =head4 Description
 
@@ -531,11 +538,11 @@ Default architecture is "linux/arm64". Using this flag excludes the "-platform"
 flag.
 
 
-=head3 -bypass
+=head3 -skip-checks
 
 =head4 Syntax
 
-  ... -bypass ...
+  ... -skip-checks ...
 
 =head4 Description
 
@@ -565,11 +572,11 @@ Forces Docker to use exposed named (shared) volumes. Must be used at
 installation time to be stored in config and used every time.
 
 
-=head3 -hide-compile
+=head3 -quiet-build
 
 =head4 Syntax
 
-  ... -hide-compile ...
+  ... -quiet-build ...
 
 =head4 Description
 
@@ -646,11 +653,11 @@ Specifies the HTTP port to use. Default: 8080.
 Enables verbose mode (more text output with details).
 
 
-=head3 -wait-ready
+=head3 -health-timeout
 
 =head4 Syntax
 
-  ... -wait-ready[=DELAYSEC] ...
+  ... -health-timeout[=DELAYSEC] ...
 
 =head4 Description
 
@@ -723,14 +730,14 @@ while (defined($arg)) {
   if ($arg =~ m/^--?([\w\-]+)(?:=(.*))?$/i) {
     my $flag = $1;
     # Check flag exists.
-    if ($flag !~ m/^(?:all|arm|auto|bypass|cmd|debug|delete-containers|exposed-volumes|f|help|hide-compile|keep-env|latest|local|man|minimal|no|no-backups?|no-cache|no-exposed-volumes|platform|port|reset|verbose|wait-ready|yes)$/) {
+    if ($flag !~ m/^(?:all|arm|skip-checks|cmd|debug|default|delete-containers|exposed-volumes|f|help|quiet-build|latest|local|man|minimal|no|no-backups?|no-cache|no-exposed-volumes|platform|port|preserve-env|reset|verbose|health-timeout|yes)$/) {
       warn "ERROR: Invalid flag '-$flag'.\n\n";
       pod2usage('-verbose' => 0, '-exitval' => 1);
     }
     $g_flags->{$flag} = defined($2) ? $2 : 1;
     # Check flags that require a value.
     if (!defined($2)
-      && ($flag =~ m/arm|cmd|platform|port|wait-ready/i)
+      && ($flag =~ m/arm|cmd|platform|port|health-timeout/i)
     ) {
       # If no value was provided using the "=" syntax, try to use next argument.
       if (scalar(@argv) && ($argv[0] !~ m/^--?[a-z]/i)) {
@@ -784,7 +791,9 @@ if ($g_flags->{'no-backups'}) {
 }
 
 # Check Docker requirements.
-if (!$g_flags->{'bypass'}) {
+if (!$g_flags->{'skip-checks'}
+    && ($Genoring::COMPATIBILITY !~ /\bdc1\b/)
+) {
   # Docker command availability.
   my $output = qx($Genoring::DOCKER_COMMAND 2>&1) || '';
   if ($?) {
@@ -793,11 +802,11 @@ if (!$g_flags->{'bypass'}) {
   # Docker version.
   my $docker_compose_version = qx($Genoring::DOCKER_COMPOSE_COMMAND version 2>&1);
   if ($?) {
-    die "ERROR: '$Genoring::DOCKER_COMMAND compose' command not available!\n";
+    die "ERROR: '$Genoring::DOCKER_COMPOSE_COMMAND' command not available!\n";
   }
-  elsif ($docker_compose_version !~ m/\sv?(?:[2-9]|\d{2,})\./) {
+  elsif ($docker_compose_version !~ m/docker[ \-]compose.*\s+v?(?:[2-9]|\d{2,})\./i) {
     $docker_compose_version =~ m/\sv?([\d\.]+)/;
-    die "ERROR: '$Genoring::DOCKER_COMMAND compose' does not meet minimal version requirement (" . ($1 || 'unknown version') . " < v2)!\n";
+    die "ERROR: '$Genoring::DOCKER_COMPOSE_COMMAND' does not meet minimal version requirement (" . ($1 || 'unknown version') . " < v2)!\n";
   }
   # Docker command permission.
   $output = qx($Genoring::DOCKER_COMMAND ps 2>&1);
@@ -864,7 +873,7 @@ if ($config->{'no-exposed-volumes'}) {
 # With Mac, Docker Desktop runs in a VM and FS permissions are not managed as
 # expected and cause issues.
 # Note: exposed volumes on those platforms can be forced using the flag
-# "-exposed-volumes" and commands "exportvol" and "importvol" can be used to
+# "-exposed-volumes" and commands "exportvolume" and "importvolume" can be used to
 # manage volume contents.
 if (!CanUseExposedVolumes()
     && (!exists($g_flags->{'no-exposed-volumes'}))
@@ -886,8 +895,8 @@ InitGenoringUser();
 CheckGenoringUser();
 
 # Set waiting time.
-if (!$g_flags->{'wait-ready'} || ($g_flags->{'wait-ready'} !~ m/^\d+/)) {
-  $g_flags->{'wait-ready'} = $Genoring::STATE_MAX_TRIES;
+if (!$g_flags->{'health-timeout'} || ($g_flags->{'health-timeout'} !~ m/^\d+/)) {
+  $g_flags->{'health-timeout'} = $Genoring::STATE_MAX_TRIES;
 }
 
 if ($command =~ m/^(?:start|online|offline|backend)$/i) {
@@ -900,9 +909,9 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
     }
   }
 
-  if (!exists($g_flags->{'hide-compile'})) {
-    # Compile missing containers with sources.
-    CompileMissingContainers();
+  if (!exists($g_flags->{'quiet-build'})) {
+    # Build missing containers with sources.
+    BuildMissingContainers();
   }
 
   # Check if setup needs to be run first.
@@ -941,7 +950,7 @@ elsif ($command =~ m/^stop$/i) {
   StopGenoring(@arguments);
   print "...GenoRing stopped.\n";
 }
-elsif ($command =~ m/^logs$/i) {
+elsif ($command =~ m/^logs?$/i) {
   GetLogs(@arguments);
 }
 elsif ($command =~ m/^status$/i) {
@@ -1001,16 +1010,16 @@ elsif ($command =~ m/^backup$/i) {
 elsif ($command =~ m/^restore$/i) {
   Restore(@arguments);
 }
-elsif ($command =~ m/^compile$/i) {
-  Compile(@arguments);
+elsif ($command =~ m/^build$/i) {
+  Build(@arguments);
 }
 elsif ($command =~ m/^modules$/i) {
   print join(', ', @{GetModules(@arguments)}) . "\n";
 }
-elsif ($command =~ m/^moduleinfo$/i) {
+elsif ($command =~ m/^(?:moduledetails|moduleinfo)$/i) {
   my ($module) = @arguments;
   if (!$module) {
-    die "ERROR: ModuleInfo: Missing module name!\n";
+    die "ERROR: ModuleDetails: Missing module name!\n";
   }
   my $module_info = GetModuleInfo($module);
   print "Module: " . ($module_info->{'name'} || '!NAME MISSING!') . "\n";
@@ -1040,17 +1049,17 @@ elsif ($command =~ m/^services$/i) {
 elsif ($command =~ m/^alt(?:ernatives?)?$/i) {
   ListAlternatives(@arguments);
 }
-elsif ($command =~ m/^enalt$/i) {
+elsif ($command =~ m/^enablealt(?:ernative)?$/i) {
   EnableAlternative(@arguments);
 }
-elsif ($command =~ m/^disalt$/i) {
+elsif ($command =~ m/^disablealt(?:ernative)?$/i) {
   DisableAlternative(@arguments);
 }
-elsif ($command =~ m/^tolocal$/i) {
-  ToLocalService(@arguments);
+elsif ($command =~ m/^(?:toexternal|tolocal)$/i) {
+  ToExternalService(@arguments);
 }
-elsif ($command =~ m/^todocker$/i) {
-  ToDockerService(@arguments);
+elsif ($command =~ m/^(?:togenoring|todocker)$/i) {
+  ToGenoringService(@arguments);
 }
 elsif ($command =~ m/^shell$/i) {
   RunShell(@arguments);
@@ -1064,10 +1073,10 @@ elsif ($command =~ m/^localhooks$/i) {
 elsif ($command =~ m/^containerhooks$/i) {
   ApplyContainerHooks(@arguments);
 }
-elsif ($command =~ m/^exportvol$/i) {
-  ExportVolume(@arguments);
+elsif ($command =~ m/^exportvolume$/i) {
+  exportvolumeume(@arguments);
 }
-elsif ($command =~ m/^importvol$/i) {
+elsif ($command =~ m/^importvolume$/i) {
   ImportIntoVolume(@arguments);
 }
 elsif ($command =~ m/^version$/i) {

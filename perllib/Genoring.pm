@@ -17,7 +17,7 @@ Perl5
 $g_debug $g_exec_prefix $g_flags $g_project
 ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
 CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
-CompareVersions Compile CompileMissingContainers Confirm
+CompareVersions Build BuildMissingContainers Confirm
 CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
 CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
 DisableModule EnableAlternative EnableModule EndOperations ExportVolume
@@ -31,8 +31,8 @@ ListAlternatives ParseDependencies ParseVersion PerformContainerOperations
 PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
 RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
 Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
-SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
-ToLocalService UninstallModule Update Upgrade WaitModulesReady
+SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
+ToExternalService UninstallModule Update Upgrade WaitModulesReady
 IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping
 
 =head1 DESCRIPTION
@@ -56,7 +56,7 @@ our @EXPORT = qw(
   $g_debug $g_exec_prefix $g_flags $g_project
   ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
   CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
-  CompareVersions Compile CompileMissingContainers Confirm
+  CompareVersions Build BuildMissingContainers Confirm
   CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
   CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
   DisableModule EnableAlternative EnableModule EndOperations ExportVolume
@@ -70,8 +70,8 @@ our @EXPORT = qw(
   PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
   RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
   Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
-  SetupGenoringEnvironment StartGenoring StopGenoring ToDockerService
-  ToLocalService UninstallModule Update Upgrade WaitModulesReady
+  SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
+  ToExternalService UninstallModule Update Upgrade WaitModulesReady
   IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping
 );
 # Init $NULL.

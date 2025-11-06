@@ -870,7 +870,7 @@ sub GetModuleRealState {
   my $state = '';
   my $state_hook = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', 'state.pl');
   if (-e $state_hook) {
-    my $tries = $g_flags->{'wait-ready'};
+    my $tries = $g_flags->{'health-timeout'};
     $state = Run("perl $state_hook 2>&1", "ERROR: StartGenoring: Failed to get $module module state!", 1);
     print "Checking if $module module is ready (see logs below for errors)...\n\n" if $progress;
     my $logs = '';
@@ -885,7 +885,7 @@ sub GetModuleRealState {
       # For line breaks.
       --$terminal_width;
     }
-    while ((--$tries || (Confirm("The process appears to be longer than expected. Continue?") && ($tries = $g_flags->{'wait-ready'})))
+    while ((--$tries || (Confirm("The process appears to be longer than expected. Continue?") && ($tries = $g_flags->{'health-timeout'})))
       && ($state !~ m/running/i)
     ) {
       if ($progress) {
@@ -1004,7 +1004,7 @@ sub WaitModulesReady {
         }
       }
       die sprintf(
-        "LOGS: %s\n\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min (state $state)!\n", $logs, $g_flags->{'wait-ready'}/60
+        "LOGS: %s\n\nERROR: WaitModulesReady: Failed to get $module module initialized in less than %d min (state $state)!\n", $logs, $g_flags->{'health-timeout'}/60
       );
     }
   }
@@ -1118,7 +1118,7 @@ sub Reinitialize {
   print "  ...OK.\n";
 
   # Clear environment files.
-  if (!$g_flags->{'keep-env'}) {
+  if (!$g_flags->{'preserve-env'}) {
     RemoveEnvFiles();
   }
 
@@ -1151,9 +1151,9 @@ sub SetupGenoring {
       $modules = GetModules(1);
     }
   }
-  if (!exists($g_flags->{'hide-compile'})) {
-    # Compile missing containers with sources.
-    CompileMissingContainers();
+  if (!exists($g_flags->{'quiet-build'})) {
+    # Build missing containers with sources.
+    BuildMissingContainers();
   }
 
   # Process environment variables and ask user for inputs for variables with
@@ -2733,9 +2733,9 @@ sub InstallModule {
     # Setup new environment variables.
     SetupGenoringEnvironment(undef, $module);
 
-    if (!exists($g_flags->{'hide-compile'})) {
-      # Compile missing containers with sources.
-      CompileMissingContainers();
+    if (!exists($g_flags->{'quiet-build'})) {
+      # Build missing containers with sources.
+      BuildMissingContainers();
     }
 
     PerformLocalOperations($context);
@@ -2952,7 +2952,7 @@ sub DisableModule {
     # Perform local hooks if needed.
     PerformLocalOperations($context);
 
-    if ($uninstall && !$g_flags->{'keep-env'}) {
+    if ($uninstall && !$g_flags->{'preserve-env'}) {
       # Remove module environment files.
       RemoveEnvFiles($module);
     }
@@ -3275,7 +3275,7 @@ sub DisableAlternative {
 
 =pod
 
-=head2 ToLocalService
+=head2 ToExternalService
 
 B<Description>: Turns a docker service into a local service.
 
@@ -3297,7 +3297,7 @@ B<Return>: (nothing)
 
 =cut
 
-sub ToLocalService {
+sub ToExternalService {
   my ($service, $ip) = @_;
   if (!$service) {
     die "ERROR: Turn docker service into local service: no service name provided!\n";
@@ -3360,7 +3360,7 @@ sub ToLocalService {
 
 =pod
 
-=head2 ToDockerService
+=head2 ToGenoringService
 
 B<Description>: Turns back a local service into a docker service.
 
@@ -3382,7 +3382,7 @@ B<Return>: (nothing)
 
 =cut
 
-sub ToDockerService {
+sub ToGenoringService {
   my ($service, $alternative_name) = @_;
   if (!$service) {
     die "ERROR: Turn back local service into docker service: no service name provided!\n";
@@ -4015,9 +4015,9 @@ APPLYCONTAINERHOOKS_HOOKS:
 
 =pod
 
-=head2 Compile
+=head2 Build
 
-B<Description>: Compiles a given container. Two arguments are always passed to
+B<Description>: Builds a given container. Two arguments are always passed to
 the builder: GENORING_UID and GENORING_GID that correspond to their respective
 environment variables set by GenoRing.
 
@@ -4039,35 +4039,35 @@ B<Return>: (nothing)
 
 =cut
 
-sub Compile {
+sub Build {
   my ($module, $service) = @_;
 
   if (!$module) {
-    die "ERROR: Compile: Missing module name!";
+    die "ERROR: Build: Missing module name!";
   }
   elsif (!-d "$Genoring::MODULES_DIR/$module") {
-    die "ERROR: Compile: The given module ($module) was not found in the module directory!";
+    die "ERROR: Build: The given module ($module) was not found in the module directory!";
   }
   elsif (!-d "$Genoring::MODULES_DIR/$module/src") {
-    die "ERROR: Compile: The given module ($module) does not have sources!";
+    die "ERROR: Build: The given module ($module) does not have sources!";
   }
 
   if (!$service) {
     # Try to get default service.
     opendir(my $dh, "$Genoring::MODULES_DIR/$module/src")
-      or die "ERROR: Compile: Failed to access '$Genoring::MODULES_DIR/$module/src' directory!";
+      or die "ERROR: Build: Failed to access '$Genoring::MODULES_DIR/$module/src' directory!";
     my @services = (grep { $_ ne '.' && $_ ne '..' && -d "$Genoring::MODULES_DIR/$module/src/$_" } readdir($dh));
     if (1 == scalar(@services)) {
       $service = shift(@services);
     }
     else {
-      die "ERROR: Compile: Missing service name!";
+      die "ERROR: Build: Missing service name!";
     }
   }
 
   # Check if "buildx" is enabled.
   my $disable_buildx = 0;
-  if (!$g_flags->{'bypass'}) {
+  if (!$g_flags->{'skip-checks'}) {
     eval {
       my $output = Run("$Genoring::DOCKER_COMMAND buildx ls 2>&1", '', 1);
       if ($output =~ /\buse\b/) {
@@ -4099,12 +4099,12 @@ sub Compile {
 
   # Get service sub-directory for sources (take into account ARM support).
   if (!-d "$Genoring::MODULES_DIR/$module/src/$service") {
-    die "ERROR: Compile: The given service (${module}[$service]) does not have sources!";
+    die "ERROR: Build: The given service (${module}[$service]) does not have sources!";
   }
   elsif ((!-r "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile")
     && (!-r "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default")
   ) {
-    die "ERROR: Compile: Unable to access the Dockerfile of the given service (${module}[$service])!";
+    die "ERROR: Build: Unable to access the Dockerfile of the given service (${module}[$service])!";
   }
 
   # Other platform support.
@@ -4143,7 +4143,7 @@ sub Compile {
     # Compiling for linux/amd64, make sure we got a 'Dockerfile' in linux/amd64
     # version.
     # Note: only get here if either we got a 'Dockerfile.default' which means a
-    # '-arm' or '--platform' compile flag were used before and may have changed
+    # '-arm' or '--platform' build flag were used before and may have changed
     # the 'Dockerfile' or because we don't have any 'Dockerfile' at all but we
     # got a 'Dockerfile.default'.
     if (-e "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile") {
@@ -4165,7 +4165,7 @@ sub Compile {
   my ($id, $state, $name, $image) = IsContainerRunning($service);
   if ($id) {
     if ($image && ($image ne $service)) {
-      die "ERROR: Compile: A container with the same name ($service) but a different image ($image) is currently running. Please stop it before compiling.";
+      die "ERROR: Build: A container with the same name ($service) but a different image ($image) is currently running. Please stop it before compiling.";
     }
     Run(
       "$Genoring::DOCKER_COMMAND stop $id",
@@ -4194,7 +4194,7 @@ sub Compile {
   }
   Run(
     "$Genoring::DOCKER_BUILD_COMMAND $no_cache --build-arg GENORING_UID=$ENV{GENORING_UID} --build-arg GENORING_GID=$ENV{GENORING_GID} -t $service $service_src_path",
-    "Failed to compile container (service ${module}[$service])",
+    "Failed to build container (service ${module}[$service])",
     1,
     1
   );
@@ -4203,9 +4203,9 @@ sub Compile {
 
 =pod
 
-=head2 CompileMissingContainers
+=head2 BuildMissingContainers
 
-B<Description>: Compiles all missing containers from which sources are
+B<Description>: Builds all missing containers from which sources are
 available.
 
 B<ArgsCount>: 0
@@ -4214,7 +4214,7 @@ B<Return>: (nothing)
 
 =cut
 
-sub CompileMissingContainers {
+sub BuildMissingContainers {
 
   # Get module services.
   my $services = GetServices();
@@ -4226,9 +4226,9 @@ sub CompileMissingContainers {
       # Check if we got sources
       my $module = $services->{$service};
       if (-d "$Genoring::MODULES_DIR/$module/src/$service") {
-        # Got sources, compile.
-        print "Compile missing service $module:$service.\n";
-        Compile($module, $service);
+        # Got sources, build.
+        print "Build missing service $module:$service.\n";
+        Build($module, $service);
       }
     }
   }
@@ -4239,7 +4239,7 @@ sub CompileMissingContainers {
 
 =head2 DeleteAllContainers
 
-B<Description>: Remove all containers to recompile or reload them.
+B<Description>: Remove all containers to rebuild or reload them.
 
 B<ArgsCount>: 0
 
