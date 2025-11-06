@@ -170,21 +170,31 @@ sub Run {
     die "ERROR: ${subroutine} Run: No command to run!";
   }
 
-  if ('dc1' eq $Genoring::COMPATIBILITY) {
+  if ($Genoring::COMPATIBILITY =~ /\bdc1\b/) {
     $command =~ s/$Genoring::DOCKER_COMPOSE_COMMAND\s+(.*)--profile\s+"\*"/$Genoring::DOCKER_COMPOSE_COMMAND $1/;
-    $command =~ s/$Genoring::DOCKER_COMMAND\s+ps\s+(.*)--format\s+"[^"]*"/$Genoring::DOCKER_COMMAND ps $1/;
+    $command =~ s/$Genoring::DOCKER_COMPOSE_COMMAND\s+ps\s+(.*)--format\s+"[^"]*"/$Genoring::DOCKER_COMPOSE_COMMAND ps $1/;
     if ($command eq "$Genoring::DOCKER_COMPOSE_COMMAND up -d -y") {
       $command = "$Genoring::DOCKER_COMPOSE_COMMAND up -d";
     }
-  }
-
-  if ($g_debug) {
-    print "COMMAND: $g_exec_prefix $command\n";
+    elsif ($command =~ m/^\s*$Genoring::DOCKER_COMMAND\s*/) {
+      # For docker commands, adjust parameters:
+      # - volume names must be prefixed by project name.
+      my $project_prefix = GetProjectName() . '_';
+      $command =~ s/\s-v\s+([a-zA-Z0-9_\-]+):/ -v $project_prefix$1:/g;
+    }
   }
 
   # Rewrite environment variables for Windows.
-  if ('Win32' eq GetOs()) {
+  if (($Genoring::COMPATIBILITY =~ /\bdos\b/)
+      || ('Win32' eq GetOs())
+  ) {
+    # @todo Manage parameters quoting: single quotes to double quotes.
+    # Manage environment parameters: $... to %...%.
     $command =~ s/\$\{(\w+)\}/%$1%/g;
+  }
+
+  if ($g_debug) {
+    print "COMMAND: $g_exec_prefix$command\n";
   }
 
   $error_message ||= 'Execution failed!';
@@ -196,9 +206,14 @@ sub Run {
     system($g_exec_prefix . $command);
   }
   else {
-    if ($g_debug) {
-      my $full_command = "$g_exec_prefix $command";
+    if ($g_debug && ($command !~ m/\||\b\d>[^&]/)) {
+      # Only debug commands without pipes and without output redirections to
+      # files.
+      my $full_command = "$g_exec_prefix$command";
+      # Trim.
       $full_command =~ s/^\s+|\s+$//g;
+      # Remove redirections.
+      $full_command =~ s/\b\d>.+$//g;
       my @command_array = ($full_command =~ /(".*?"|\S+)/g);
       @command_array = map { s/^"(.*)"$/$1/g; $_ } @command_array;
       open(my $pipe, '-|', @command_array)
@@ -209,7 +224,7 @@ sub Run {
       }
     }
     else {
-      $output = qx($g_exec_prefix $command);
+      $output = qx($g_exec_prefix$command);
     }
   }
 
@@ -304,7 +319,7 @@ B<Return>: (nothing)
 sub InitGenoringUser {
   # Check if volumes are exposed.
   my $config = GetConfig();
-  if ($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'}) {
+  if ($g_flags->{'no-exposed-volumes'} || $config->{'no_exposed_volumes'}) {
     # Clear user and group to use fallback identifiers as there is nothing to
     # share between host and containers.
     $ENV{'GENORING_UID'} = 0;
@@ -374,7 +389,7 @@ sub StartGenoring {
   # Check that genoring docker is not already running.
   my ($id, $state, $name, $image) = IsContainerRunning($ENV{'COMPOSE_PROJECT_NAME'});
   if ($state && ($state =~ m/running/)) {
-    my $compose_profile = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $ENV{'COMPOSE_PROJECT_NAME'} sh -c 'printf "\$COMPOSE_PROFILES"' 2>$Genoring::NULL);
+    my $compose_profile = Run("$Genoring::DOCKER_COMMAND exec $ENV{'COMPOSE_PROJECT_NAME'} sh -c 'printf \"\$COMPOSE_PROFILES\"' 2>$Genoring::NULL");
     if ($g_debug) {
       print "DEBUG: Currently running with profile '" . $compose_profile . "'.\n";
     }
@@ -397,9 +412,7 @@ sub StartGenoring {
     );
   }
   # Apply container hooks.
-  eval {
-    WaitModulesReady();
-  };
+  eval {WaitModulesReady();};
   if ($@) {
     warn "$@\nWARNING: GenoRing does not seem to have been initialized in allowed time. Applying container hooks may failed...\n";
   }
@@ -608,13 +621,13 @@ sub GetDiagosticLogs {
   # Provides diagnostic log.
   print '' . ('-' x 80) . "\nGenoring command: $0 " . join(' ', @ARGV) . "\n";
   # @todo Add environment variables.
-  print qx($Genoring::DOCKER_COMMAND -v 2>&1);
-  print qx($Genoring::DOCKER_COMPOSE_COMMAND version 2>&1);
-  print qx($Genoring::DOCKER_COMMAND buildx version 2>&1);
+  print Run("$Genoring::DOCKER_COMMAND -v 2>&1");
+  print Run("$Genoring::DOCKER_COMPOSE_COMMAND version 2>&1");
+  print Run("$Genoring::DOCKER_COMMAND buildx version 2>&1");
   print "\n" . ('-' x 80) . "\n";
-  print qx($Genoring::DOCKER_COMMAND ps 2>&1);
+  print Run("$Genoring::DOCKER_COMMAND ps 2>&1");
   print "\n" . ('-' x 80) . "\n";
-  print qx($Genoring::DOCKER_COMMAND volume ls 2>&1);
+  print Run("$Genoring::DOCKER_COMMAND volume ls 2>&1");
   print "\n" . ('-' x 80) . "\nConfig file:\n------------\n";
   if (open(my $fh, '<', 'config.yml')) {
     print do { local $/; <$fh> };
@@ -708,26 +721,56 @@ Container name.
 =back
 
 B<Return>: (string)
+
   The GenoRing or container state.
 
 =cut
 
 sub GetState {
-  # @todo Review compatibility.
   my ($container) = @_;
   my $state = '';
   if ($container) {
     (undef, $state) = IsContainerRunning($container);
-    $state ||= '';
+    $state //= '';
   }
   else {
-    my $states = Run("$Genoring::DOCKER_COMPOSE_COMMAND ps --all --format \"{{.Names}} {{.State}}\"");
-    if ('dc1' eq $Genoring::COMPATIBILITY) {
-      $state = $states ? 'running' : '';
+    my $states = Run("$Genoring::DOCKER_COMPOSE_COMMAND ps --all --format \"{{.Names}} {{.State}}\" 2>&1");
+    my @lines = split(/\n+/, $states);
+    if (@lines && ($lines[0] =~ m/^\s*Name\s+Command\s+State\s+Ports/)) {
+      # Compatibility with unformatted output, re-format.
+      # Skip headers.
+      shift(@lines);
+      shift(@lines);
+      my @new_status;
+      foreach my $line (@lines) {
+        if (my ($name, $command, $container_state, $ports) = ($line =~ /^(\S+)\s{3,}(.+?)\s{3,}(.+?)\s{3,}(.*?)\s*$/)) {
+          $container_state = ($container_state =~ m/Up/ ? 'running' : $container_state);
+          push(@new_status, "$name $container_state");
+        }
+      }
+      @lines = @new_status;
     }
-    foreach my $line (split(/\n+/, $states)) {
-      if ($line !~ m/\s(?:running|Up)\s/) {
-        ($state) = ($line =~ m/(\S+)\s*$/);
+    elsif (@lines && ($lines[0] =~ m/^NAME\s+IMAGE\s+COMMAND\s+SERVICE\s+CREATED\s+STATUS\s+PORTS/)) {
+      # If "--format" is not taken into acount.
+      # Skip header.
+      shift(@lines);
+      my @new_status;
+      foreach my $line (@lines) {
+        if (my ($name, $image, $command, $service, $created, $container_state, $ports) = ($line =~ /^(\S+)\s{3,}(.+?)\s{3,}(.+?)\s{3,}(.+?)\s{3,}(.+?)\s{3,}(.+?)\s{3,}(.*?)\s*$/)) {
+          $container_state = ($container_state =~ m/Up/ ? 'running' : $container_state);
+          push(@new_status, "$name $container_state");
+        }
+      }
+      @lines = @new_status;
+    }
+    # If we got states, assume it is running by default and adjust after by
+    # parsing lines.
+    $state = (@lines && $lines[0]) ? 'running' : '';
+    # Process status lines.
+    foreach my $line (@lines) {
+      if ($line !~ m/\s(?:running)\b/) {
+        # Only keep the first non-running status.
+        ($state) = ($line =~ m/^\S+\s+(\S+)/) // '';
         last;
       }
     }
@@ -774,28 +817,13 @@ The state string should be one of "created", "running", "restarting", "paused",
 
 sub IsContainerRunning {
   my ($container) = @_;
-  # @todo Review compatibility.
   if (!$container) {
     warn "WARNING: IsContainerRunning: Missing container name!";
     return ();
   }
   my $ps_all = Run("$Genoring::DOCKER_COMMAND ps --all --filter name=^$container\\\$ --format \"{{.ID}} {{.State}} {{.Names}} {{.Image}}\" 2>$Genoring::NULL");
   my @ps = split(/\n+/, $ps_all);
-  if ('dc1' eq $Genoring::COMPATIBILITY) {
-    # Skip headers.
-    if (@ps && ($ps[0] =~ m/^CONTAINER\s+ID/)) {
-      shift(@ps);
-    }
-    if (@ps) {
-      my @ps_line = split(/\s+/, shift(@ps));
-      my $state = 'running';
-      if ($ps_line[4] !~ /^Up/) {
-        $state = 'dead';
-      }
-      return ($ps_line[0], $state, $ps_line[6], $ps_line[1]);
-    }
-  }
-  elsif (@ps) {
+  if (@ps) {
     return split(/\s+/, shift(@ps));
   }
   return ();
@@ -843,14 +871,11 @@ sub GetModuleRealState {
   my $state_hook = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', 'state.pl');
   if (-e $state_hook) {
     my $tries = $g_flags->{'wait-ready'};
-    $state = qx($g_exec_prefix perl $state_hook 2>&1);
-    if ($?) {
-      die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
-    }
+    $state = Run("perl $state_hook 2>&1", "ERROR: StartGenoring: Failed to get $module module state!", 1);
     print "Checking if $module module is ready (see logs below for errors)...\n\n" if $progress;
     my $logs = '';
     # Does not work on Windows.
-    my $terminal_width = qx($g_exec_prefix tput cols 2>&1);
+    my $terminal_width = Run("tput cols 2>&1");
     my $fixed_width = 0;
     if ($? || !$terminal_width || ($terminal_width !~ m/^\d+/)) {
       $terminal_width = 0;
@@ -931,10 +956,7 @@ sub GetModuleRealState {
         }
       }
       sleep(1);
-      $state = qx($g_exec_prefix perl $state_hook 2>&1);
-      if ($?) {
-        die "ERROR: StartGenoring: Failed to get $module module state!\n$!\n(error $?)";
-      }
+      $state = Run("$g_exec_prefix perl $state_hook 2>&1", "ERROR: StartGenoring: Failed to get $module module state!", 1);
     }
   }
   else {
@@ -1015,7 +1037,7 @@ sub Reinitialize {
 
   # Stop genoring.
   print "- Stop GenoRing...\n";
-  eval{StopGenoring();};
+  eval {StopGenoring();};
   if ($@) {
     print "  ...Failed.\n$@\n";
   }
@@ -1055,7 +1077,7 @@ sub Reinitialize {
     }
     # Remove internal volumes if not exposed (ie. not cleaned by "volumes" local
     # directory cleaning).
-    if ($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'}) {
+    if ($g_flags->{'no-exposed-volumes'} || $config->{'no_exposed_volumes'}) {
       my $module_info = GetModuleInfo($module);
       my @module_volumes;
       foreach my $module_volume (keys(%{$module_info->{'volumes'}})) {
@@ -1478,7 +1500,7 @@ sub GenerateDockerComposeFile {
       # Remove dependencies as they are managed after.
       delete($services{$service}->{'definition'}->{'depends_on'});
 
-      if ($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'}) {
+      if ($g_flags->{'no-exposed-volumes'} || $config->{'no_exposed_volumes'}) {
         # Replace all exposed volumes by named volumes instead.
         my @new_service_volumes;
         foreach my $service_volume (@{$services{$service}->{'definition'}->{'volumes'} || []}) {
@@ -1618,7 +1640,7 @@ sub GenerateDockerComposeFile {
         'module' => $module,
         'definition' => $yaml->[0],
       };
-      if (($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'})
+      if (($g_flags->{'no-exposed-volumes'} || $config->{'no_exposed_volumes'})
         && exists($volumes{$volume}->{'definition'}->{'driver'})
       ) {
         # Keep track of original path mapping.
@@ -1723,9 +1745,14 @@ sub GenerateDockerComposeFile {
       next if (ref($volume));
       my ($volume_name) = ($volume =~ m/^([\w\-]+):/);
       if ($volume_name && !exists($volumes{$volume_name})) {
-        $volumes{$volume_name} = {
-          # 'name' => GetVolumeName($volume_name),
-        };
+        if ($Genoring::COMPATIBILITY =~ /\bdc1\b/) {
+          $volumes{$volume_name} = {};
+        }
+        else {
+          $volumes{$volume_name} = {
+            'name' => GetVolumeName($volume_name),
+          };
+        }
       }
     }
   }
@@ -1788,7 +1815,7 @@ sub GenerateDockerComposeFile {
   my $compose = {
     'services' => {},
   };
-  if ('dc1' eq $Genoring::COMPATIBILITY) {
+  if ($Genoring::COMPATIBILITY =~ /\bdc1\b/) {
     $compose->{'version'} = '3.7';
   }
   # For each enabled service, add the section name, the indented definition,
@@ -1796,7 +1823,7 @@ sub GenerateDockerComposeFile {
   foreach my $service (sort keys(%services)) {
     my $service_name = GetContainerName($service);
     $compose->{'services'}->{$service} = $services{$service}->{'definition'};
-    if ('dc1' eq $Genoring::COMPATIBILITY) {
+    if ($Genoring::COMPATIBILITY =~ /\bdc1\b/) {
       delete($compose->{'services'}->{$service}->{'profiles'});
       delete($compose->{'services'}->{$service}->{'pull_policy'});
       delete($compose->{'services'}->{$service}->{'restart'});
@@ -1825,7 +1852,7 @@ sub GenerateDockerComposeFile {
           my $dependencies = {'services' => {$service => {}}};
           if (@higher_services) {
             foreach my $higher_service (@higher_services) {
-              if ('dc1' eq $Genoring::COMPATIBILITY) {
+              if ($Genoring::COMPATIBILITY =~ /\bdc1\b/) {
                 $dependencies->{'services'}->{$service}->{'depends_on'} = $higher_service;
               }
               else {
@@ -1838,7 +1865,7 @@ sub GenerateDockerComposeFile {
           }
           WriteYaml("dependencies/$service.$dep_profile.yml", $dependencies);
         }
-        if ('dc1' ne $Genoring::COMPATIBILITY) {
+        if ($Genoring::COMPATIBILITY !~ /\bdc1\b/) {
           $compose->{'services'}->{$service}->{'extends'} = {
             'file' => "\${PWD}/dependencies/$service.\${COMPOSE_PROFILES}.yml",
             'service' => $service,
@@ -1849,7 +1876,7 @@ sub GenerateDockerComposeFile {
         # All profiles.
         my %higher_services = map { $_ => 1 } grep {exists($services{$_})} @{$service_dependencies->{$service}->{''}};
         my @higher_services = sort keys(%higher_services);
-        if ('dc1' eq $Genoring::COMPATIBILITY) {
+        if ($Genoring::COMPATIBILITY =~ /\bdc1\b/) {
           $compose->{'services'}->{$service}->{'depends_on'} = [@higher_services];
         }
         else {
@@ -1876,7 +1903,7 @@ sub GenerateDockerComposeFile {
   foreach my $volume (sort keys(%volumes)) {
     my $volume_name = GetVolumeName($volume);
     $compose->{'volumes'}->{$volume} = $volumes{$volume}->{'definition'};
-    if ('dc1' ne $Genoring::COMPATIBILITY) {
+    if ($Genoring::COMPATIBILITY !~ /\bdc1\b/) {
       $compose->{'volumes'}->{$volume}->{'name'} = $volume_name;
     }
     if (exists($volumes{$volume}->{'definition'}->{'driver'})
@@ -1887,7 +1914,7 @@ sub GenerateDockerComposeFile {
       $volume_mapping{$volume} = $volumes{$volume}->{'definition'}->{'driver_opts'}->{'device'};
     }
     # Manage non-exposed volumes.
-    if ($g_flags->{'no-exposed-volumes'} || $config->{'no-exposed-volumes'}) {
+    if ($g_flags->{'no-exposed-volumes'} || $config->{'no_exposed_volumes'}) {
       Run(
         "$Genoring::DOCKER_COMMAND volume create $volume_name",
         "Failed to create volume '$volume_name'.",
@@ -2367,24 +2394,22 @@ sub GetAvailableVersions {
     # Update tags.
     my $original_dir = getcwd();
     chdir($Genoring::GENORING_DIR);
-    qx(git fetch --tags);
-    my $tag_output = qx(git tag -l);
-    if ($?) {
-      # Clear on error.
-      $tag_output ='';
-    }
+    Run("git fetch --tags");
+    my $tag_output = Run("git tag -l");
     chdir($original_dir);
-    @versions = split(/\n/, $tag_output);
+    if ($tag_output) {
+      @versions = split(/\n/, $tag_output);
+    }
   }
 
   if (!@versions) {
-    my $json = qx(curl -s $Genoring::GENORING_TAGS_URL);
-    if (0 == $?) {
+    eval {
+      my $json = Run("curl -s $Genoring::GENORING_TAGS_URL", '', 1);
       my $version_set = decode_json($json);
       foreach my $version (@$version_set) {
         push(@versions, $version->{'name'});
       }
-    }
+    };
   }
 
   # Filter versions.
@@ -2534,12 +2559,12 @@ sub Upgrade {
       my $context = PrepareOperations();
       if (IsGitAvailable()) {
         # Use git.
-        qx(git checkout --dry-run $new_version);
-        if (!$?) {
-          qx(git checkout $new_version);
+        eval {
+          Run("git checkout --dry-run $new_version", '', 1);
+          Run("git checkout $new_version", '', 1);
           # @todo Check for issues (conflicts, checkout failure, etc.).
-        }
-        else {
+        };
+        if ($@) {
            # In case of failure, set $version_comparison to 0 to avoid upgrades.
           $version_comparison = 0;
           warn "WARNING: Failed to upgrade to $new_version.\n";
@@ -2551,12 +2576,12 @@ sub Upgrade {
         my $download_url = "$Genoring::GENORING_REPOSITORY";
         $download_url =~ s~\.git$~/archive/refs/tags/$new_version.tar.gz~;
         my $tar_file = basename($download_url);
-        qx(curl -L -o $tar_file $download_url);
+        Run("curl -L -o $tar_file $download_url");
         # @todo Make sure we got the file right. We should include a file
         # signature verification system.
         # Extract new files.
         # "--strip-components=1" removes "genoring-$version" directory level.
-        qx(tar -xzf $tar_file -C $Genoring::GENORING_DIR --strip-components=1);
+        Run("tar -xzf $tar_file -C $Genoring::GENORING_DIR --strip-components=1");
         # @todo Make sure all went well.
         unlink $tar_file;
         # @todo In case of failure, restore backups and set $version_comparison to 0.
@@ -4043,22 +4068,29 @@ sub Compile {
   # Check if "buildx" is enabled.
   my $disable_buildx = 0;
   if (!$g_flags->{'bypass'}) {
-    my $output = qx($Genoring::DOCKER_COMMAND buildx ls 2>&1);
-    if ($?) {
-      warn "WARNING: '$Genoring::DOCKER_COMMAND buildx' command not available! It is recommended to install Docker buildx (multi-platform build, see https://docs.docker.com/build/building/multi-platform/). GenoRing will try building the container image without buildx.\n";
-      $disable_buildx = 1;
-    }
-    elsif ($? == 0 && $output =~ /\buse\b/) {
-      if (Confirm("WARNING: Docker buildx (BuildKit plugin) is not enabled. It may be a problem if running ARM architectures. Do you want to enable it?")) {
-        $output = qx($Genoring::DOCKER_COMMAND buildx create --use 2>&1);
-        if ($?) {
-          warn "WARNING: Failed to enable Docker buildx:\n$output\nGenoRing will try building the container image without buildx.\n";
+    eval {
+      my $output = Run("$Genoring::DOCKER_COMMAND buildx ls 2>&1", '', 1);
+      if ($output =~ /\buse\b/) {
+        if (Confirm("WARNING: Docker buildx (BuildKit plugin) is not enabled. It may be a problem if running ARM architectures. Do you want to enable it?")) {
+          eval {
+            $output = Run("$Genoring::DOCKER_COMMAND buildx create --use 2>&1", '', 1);
+          };
+          if ($@) {
+            warn "WARNING: Failed to enable Docker buildx:\n$@\nGenoRing will try building the container image without buildx.\n";
+            $disable_buildx = 1;
+          }
+        }
+        else {
           $disable_buildx = 1;
         }
       }
-      else {
-        $disable_buildx = 1;
+    };
+    if ($@) {
+      warn "WARNING: '$Genoring::DOCKER_COMMAND buildx' command not available! It is recommended to install Docker buildx (multi-platform build, see https://docs.docker.com/build/building/multi-platform/). GenoRing will try building the container image without buildx.\n";
+      if ($g_debug) {
+        warn $@;
       }
+      $disable_buildx = 1;
     }
     if ($disable_buildx) {
       $Genoring::DOCKER_BUILD_COMMAND =~ s/ buildx//;
@@ -4189,7 +4221,7 @@ sub CompileMissingContainers {
 
   # Check missing containers.
   foreach my $service (keys(%$services)) {
-    my $image_id = qx($g_exec_prefix $Genoring::DOCKER_COMMAND images -q $service:latest 2>&1);
+    my $image_id = Run("$g_exec_prefix $Genoring::DOCKER_COMMAND images -q $service:latest 2>&1");
     if (!$image_id) {
       # Check if we got sources
       my $module = $services->{$service};
@@ -4229,7 +4261,7 @@ sub DeleteAllContainers {
 
   # Check missing containers.
   foreach my $service (keys(%services)) {
-    my $image_id = qx($g_exec_prefix $Genoring::DOCKER_COMMAND images -q $service:latest 2>&1);
+    my $image_id = Run("$g_exec_prefix $Genoring::DOCKER_COMMAND images -q $service:latest 2>&1");
     if ($image_id) {
       print "  - Removing container '$service'...\n";
       # Check if container is running and stop it unless it is not running the
@@ -4313,7 +4345,7 @@ sub SaveConfig {
   my $config = {
     'project' => GetProjectName(),
     'version' => $Genoring::GENORING_VERSION,
-    'no-exposed-volumes' => $g_flags->{'no-exposed-volumes'},
+    'no_exposed_volumes' => $g_flags->{'no-exposed-volumes'},
     'modules' => $_g_modules->{'config'},
     'volume_mapping' => $_g_config->{'volume_mapping'} || {},
   };
@@ -6304,7 +6336,7 @@ sub CopyFiles
       warn "WARNING: Genoring::CopyFiles(): Missing source file '$source_base$files'.\n";
     }
     elsif ((!-e $target_path) || $replace_existing) {
-      if ($config->{'no-exposed-volumes'}
+      if ($config->{'no_exposed_volumes'}
          && ($target_path =~ m/^\Q$Genoring::VOLUMES_DIR\E/)
       ) {
         # Identify corresponding volume and get absolute path.
@@ -6346,7 +6378,7 @@ sub CopyFiles
         next;
       }
       elsif ((!-e $target_base . $target) || $replace_existing) {
-        if ($config->{'no-exposed-volumes'}) {
+        if ($config->{'no_exposed_volumes'}) {
           # Identify corresponding volume and get absolute path.
           my ($volume, $subdirectory) = GetPathVolume($target_base . $target);
           if ($volume && (my $abs_source = abs_path($source_base . $source))) {
@@ -6511,7 +6543,7 @@ sub RemoveVolumeDirectories
       remove_tree($ENV{'GENORING_VOLUMES_DIR'} . "/$subpath");
     }
     # Try to remove file on no exposed volumes.
-    if ($config->{'no-exposed-volumes'}) {
+    if ($config->{'no_exposed_volumes'}) {
       my ($volume, $subdirectory) = GetPathVolume("\${GENORING_VOLUMES_DIR}/$subpath");
       if ($volume) {
         # Use docker alpine to remove directory.
@@ -6572,7 +6604,7 @@ sub RemoveVolumeFiles
       unlink $ENV{'GENORING_VOLUMES_DIR'} . "/$file_subpath";
     }
     # Try to remove file on no exposed volumes.
-    if ($config->{'no-exposed-volumes'}) {
+    if ($config->{'no_exposed_volumes'}) {
       my ($volume, $subdirectory) = GetPathVolume("\${GENORING_VOLUMES_DIR}/$file_subpath");
       if ($volume) {
         # Use docker alpine to remove file.
@@ -6728,11 +6760,11 @@ sub CheckFreeSpace
   my $df_output = '';
   my $os = GetOs();
   if ('Unix' eq $os) {
-    $df_output = qx(df --output=avail,pcent -BM . 2>/dev/null);
+    $df_output = Run("df --output=avail,pcent -BM . 2>/dev/null");
   }
   elsif ('Mac' eq $os) {
     # Try Mac fallback.
-    $df_output = qx(df -m 2>/dev/null | awk 'NR==1; NR>1 {print \$4, \$5}');
+    $df_output = Run("df -m 2>/dev/null | awk 'NR==1; NR>1 {print \$4, \$5}'");
   }
   elsif ('Win32' eq $os) {
     my $drive = `cd`;
