@@ -26,7 +26,7 @@ genoring.pl - Manages GenoRing platform.
   | version [MODULE] [-all | -latest]
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-wait-ready[=DELAYSEC]]
-  [-yes|-no] [-verbose] [-hide-compile]
+  [-yes|-no] [-verbose] [-hide-compile] [-bypass]
 
 =head2 Example
 
@@ -459,6 +459,8 @@ possible to provide a specific ARM architecture (ARCH). If a source
 "Dockerfile.arm" is provided, it will be used (regardless the specified ARCH
 parameter) and if not, it will be generated (either using the ARCH architecture
 or the default 'linux/arm64' architecture).
+If "-no-cache" flag is set, Docker cache is not used to build image and a
+complete (re)build is done instead.
 
 
 =head3 shell
@@ -515,17 +517,6 @@ version. If "-all" flag is used, displays all avaiable versions.
 
 =head2 GLOBAL FLAGS
 
-=head3 -port
-
-=head4 Syntax
-
-  ... -port=<HTTP_PORT> ...
-
-=head4 Description
-
-Specifies the HTTP port to use. Default: 8080.
-
-
 =head3 -arm
 
 =head4 Syntax
@@ -540,6 +531,87 @@ Default architecture is "linux/arm64". Using this flag excludes the "-platform"
 flag.
 
 
+=head3 -bypass
+
+=head4 Syntax
+
+  ... -bypass ...
+
+=head4 Description
+
+Bypasses Docker version checks.
+
+
+=head3 -debug
+
+=head4 Syntax
+
+  ... -debug ...
+
+=head4 Description
+
+Enables debug mode (displays debug information).
+
+
+=head3 -exposed-volumes
+
+=head4 Syntax
+
+  ... -exposed-volumes ...
+
+=head4 Description
+
+Forces Docker to use exposed named (shared) volumes. Must be used at
+installation time to be stored in config and used every time.
+
+
+=head3 -hide-compile
+
+=head4 Syntax
+
+  ... -hide-compile ...
+
+=head4 Description
+
+Use this flag to hide missing container compilation details.
+
+
+=head3 -no
+
+=head4 Syntax
+
+  ... -no ...
+
+=head4 Description
+
+Automatically answers confirmations with 'no'. '-no' and '-yes' are mutually
+exclusive flags.
+
+
+=head3 -no-backup
+
+=head4 Syntax
+
+  ... -no-backup ...
+
+=head4 Description
+
+Disables the use of automatic backups when performing site operations such as
+modifying modules.
+
+
+=head3 -no-exposed-volumes
+
+=head4 Syntax
+
+  ... -no-exposed-volumes ...
+
+=head4 Description
+
+Disables Docker exposed named (shared) volumes. Must be used at installation
+time to be stored in config and used every time.
+
+
 =head3 -platform
 
 =head4 Syntax
@@ -550,6 +622,28 @@ flag.
 
 Use the given architecture for Docker compilation and execution. This flag can
 not be used in conjunction with the "-arm" flag.
+
+
+=head3 -port
+
+=head4 Syntax
+
+  ... -port=<HTTP_PORT> ...
+
+=head4 Description
+
+Specifies the HTTP port to use. Default: 8080.
+
+
+=head3 -verbose
+
+=head4 Syntax
+
+  ... -verbose ...
+
+=head4 Description
+
+Enables verbose mode (more text output with details).
 
 
 =head3 -wait-ready
@@ -571,54 +665,6 @@ given delay ensure GenoRing ends gracefully and gives back the hand to the admin
 in such cases in reasonable time.
 
 
-=head3 -no-exposed-volumes
-
-=head4 Syntax
-
-  ... -no-exposed-volumes ...
-
-=head4 Description
-
-Disables Docker exposed named (shared) volumes. Must be used at installation
-time to be stored in config and used every time.
-
-
-=head3 -exposed-volumes
-
-=head4 Syntax
-
-  ... -exposed-volumes ...
-
-=head4 Description
-
-Forces Docker to use exposed named (shared) volumes. Must be used at
-installation time to be stored in config and used every time.
-
-
-=head3 -no-backup
-
-=head4 Syntax
-
-  ... -no-backup ...
-
-=head4 Description
-
-Disables the use of automatic backups when performing site operations such as
-modifying modules.
-
-
-=head3 -no
-
-=head4 Syntax
-
-  ... -no ...
-
-=head4 Description
-
-Automatically answers confirmations with 'no'. '-no' and '-yes' are mutually
-exclusive flags.
-
-
 =head3 -yes
 
 =head4 Syntax
@@ -629,28 +675,6 @@ exclusive flags.
 
 Automatically answers confirmations with 'yes'. '-no' and '-yes' are mutually
 exclusive flags.
-
-
-=head3 -hide-compile
-
-=head4 Syntax
-
-  ... -hide-compile ...
-
-=head4 Description
-
-Use this flag to hide missing container compilation details.
-
-
-=head3 -debug
-
-=head4 Syntax
-
-  ... -debug ...
-
-=head4 Description
-
-Enables debug mode.
 
 =cut
 
@@ -698,15 +722,22 @@ my $arg = shift(@argv);
 while (defined($arg)) {
   if ($arg =~ m/^--?([\w\-]+)(?:=(.*))?$/i) {
     my $flag = $1;
+    # Check flag exists.
+    if ($flag !~ m/^(?:all|arm|auto|bypass|cmd|debug|delete-containers|exposed-volumes|f|help|hide-compile|keep-env|latest|local|man|minimal|no|no-backups?|no-cache|no-exposed-volumes|platform|port|reset|verbose|wait-ready|yes)$/) {
+      warn "ERROR: Invalid flag '-$flag'.\n\n";
+      pod2usage('-verbose' => 0, '-exitval' => 1);
+    }
     $g_flags->{$flag} = defined($2) ? $2 : 1;
+    # Check flags that require a value.
     if (!defined($2)
       && ($flag =~ m/arm|cmd|platform|port|wait-ready/i)
     ) {
+      # If no value was provided using the "=" syntax, try to use next argument.
       if (scalar(@argv) && ($argv[0] !~ m/^--?[a-z]/i)) {
         $g_flags->{$flag} = shift(@argv);
       }
       elsif ($flag =~ m/cmd|platform|port/i) {
-        warn "ERROR: Invalid flag syntax for flag '$flag'.\n\n";
+        warn "ERROR: Invalid flag syntax for flag '-$flag'.\n\n";
         pod2usage('-verbose' => 0, '-exitval' => 1);
       }
     }
