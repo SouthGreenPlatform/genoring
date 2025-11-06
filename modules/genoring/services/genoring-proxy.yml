@@ -2,6 +2,7 @@ image: nginx
 profiles: ["prod","staging","dev","backend","offline"]
 env_file:
   - ${PWD}/env/genoring_nginx.env
+  - ${PWD}/env/genoring_genoring.env
 ports:
   - ${GENORING_PORT}:80
 volumes:
