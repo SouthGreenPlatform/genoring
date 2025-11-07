@@ -7,19 +7,44 @@
 # Note: volumes usage can be set here while their definitions will be set in
 # other files provided in the module "volumes" directory.
 image: <docker image name>
+# Specify the profiles for which the service should be started.
 profiles: ["prod","staging","dev"]
 env_file:
-  # Note: env files are automatically copied for the module "env" directory to
-  # the main GenoRing "env" directory when the module is installed.
-  - ${PWD}/env/example.env
+  # Note: env files are automatically copied from the module "env" directory to
+  # the main GenoRing "env" directory when the module is installed. Values will
+  # be set according to user prompts. However, the module env files will be
+  # prefixed by the module name to avoid name conflict between modules (ie. 2
+  # modules can use a "db.env" environment file but they will be renamed, for
+  # instance, "firstmodule_db.env" dand "secondmodule_db.env").
+  # Therefore, it is better to use the prefixed name here rather than the real
+  # name of the environment file provided in the module's env directory but if
+  # you don't prefix, it should be automatically prefixed as needed.
+  - ${PWD}/env/TEMPLATE_example.env
 ports:
+  # These ports will be exposed to the host. For internal ports used between
+  # containers, you don't need to specify them here.
   - 8080:80
 volumes:
-  - ${GENORING_VOLUMES_DIR}/some_local_file:/opt/some_file_in_container
+  # For volumes, keep in mind that some systems require non-exposed volumes.
+  # GenoRing detects exposed volumes that begin with "${GENORING_VOLUMES_DIR}"
+  # and will replace them by Docker named volumes instead on such systems.
+  # However, files can not be turned into volumes. Therefore, exposed files will
+  # remain exposed and need to be defined using the long volume syntax and not
+  # the short one line syntax one.
+  # So, always use the long syntax for file binding and the short syntax for
+  # directory (unless you want to force those directory to be exposed).
+  #
+  # Use short syntax for directories:
   - ${GENORING_VOLUMES_DIR}/some_local_volume:/opt/some_docker_directory
+  # Use long syntax for files:
+  - type: bind
+    source: ${GENORING_VOLUMES_DIR}/some_local_file
+    target: /opt/some_file_in_container
+  # Use whatever you need for other volumes:
   - genoring-data-volume:/data
   - genoring-backups-volume:/backups
 restart: always
-# Depencies will be added automatically for the proxy.
+# Depencies will be added automatically given the module YAML dependencies
+# section. No need to add them here.
 # depends_on:
 #   - genoring

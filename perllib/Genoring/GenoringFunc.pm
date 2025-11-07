@@ -1689,6 +1689,27 @@ sub GenerateDockerComposeFile {
     }
   }
 
+  # Manage environment file renaming.
+  my $module_prefix_re = '(?:' . join('|', @$modules) . ')_';
+  foreach my $service (keys(%services)) {
+    if (exists($services{$service}->{'definition'}->{'env_file'})
+      && ('ARRAY' eq ref($services{$service}->{'definition'}->{'env_file'}))
+    ) {
+      my $module_prefix = $services{$service}->{'module'} . '_';
+      my $env_files = [];
+      foreach my $env_file (@{$services{$service}->{'definition'}->{'env_file'}}) {
+        if (($env_file =~ m~^\$\{PWD\}/env/~)
+          && ($env_file !~ m~^\$\{PWD\}/env/$module_prefix_re~)
+        ) {
+          # Prefix file.
+          $env_file =~ s~^\$\{PWD\}/env/~\${PWD}/env/$module_prefix~;
+        }
+        push(@$env_files, $env_file);
+      }
+      $services{$service}->{'definition'}->{'env_file'} = $env_files;
+    }
+  }
+
   # Check volume dependencies.
   foreach my $module (keys(%$volume_dependencies)) {
     my $volume_ok = 0;
