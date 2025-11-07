@@ -6345,7 +6345,7 @@ sub CopyFiles
           # Use docker alpine to copy files.
           Run(
             "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source /volume$subdirectory\"",
-            "Failed to copy directory '$abs_source' into Docker volume '$volume:$subdirectory'.",
+            "Failed to copy file '$abs_source' into Docker volume '$volume:$subdirectory'.",
             0,
             0
           );
@@ -6386,7 +6386,7 @@ sub CopyFiles
             # Use docker alpine to copy files.
             Run(
               "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source /volume$subdirectory\"",
-              "Failed to copy directory '$abs_source' into Docker volume '$volume:$subdirectory'.",
+              "Failed to copy file '$abs_source' into Docker volume '$volume:$subdirectory'.",
               0,
               0
             );
@@ -6550,7 +6550,7 @@ sub RemoveVolumeDirectories
         # Use docker alpine to remove directory.
         Run(
           "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume alpine sh -c \"rm -rf /volume$subdirectory\"",
-          "Failed to remove directory '$subpath' into Docker volume '$volume'.",
+          "Failed to remove directory '$subpath' from Docker volume '$volume'.",
           0,
           0
         );
@@ -6611,7 +6611,7 @@ sub RemoveVolumeFiles
         # Use docker alpine to remove file.
         Run(
           "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume alpine sh -c \"rm -f /volume$subdirectory\"",
-          "Failed to remove file '$file_subpath' into Docker volume '$volume'.",
+          "Failed to remove file '$file_subpath' from Docker volume '$volume'.",
           0,
           0
         );
