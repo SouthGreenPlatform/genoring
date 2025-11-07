@@ -875,7 +875,7 @@ sub GetModuleRealState {
     print "Checking if $module module is ready (see logs below for errors)...\n\n" if $progress;
     my $logs = '';
     # Does not work on Windows.
-    my $terminal_width = Run("tput cols 2>&1");
+    my $terminal_width = qx(tput cols 2>&1);
     my $fixed_width = 0;
     if ($? || !$terminal_width || ($terminal_width !~ m/^\d+/)) {
       $terminal_width = 0;
@@ -1504,12 +1504,9 @@ sub GenerateDockerComposeFile {
         # Replace all exposed volumes by named volumes instead.
         my @new_service_volumes;
         foreach my $service_volume (@{$services{$service}->{'definition'}->{'volumes'} || []}) {
-          # For explicit binds, we keep them as they are. Indeed, in case of
-          # direct file binding, we can not use named volumes.
-          if (('HASH' eq ref($service_volume))
-              && exists($service_volume->{'type'})
-              && ($service_volume->{'type'} eq 'bind')
-          ) {
+          # For explicit definition, we keep them as they are. Indeed, in case
+          # of direct file binding, we can not use named volumes.
+          if ('HASH' eq ref($service_volume)) {
             push(@new_service_volumes, $service_volume);
             next;
           }
@@ -1520,9 +1517,9 @@ sub GenerateDockerComposeFile {
             # Replaces GenoRing volume root path by 'genoring-volume-'.
             $service_volume =~ s~^\$\{GENORING_VOLUMES_DIR\}/~genoring-volume-~;
             # Replaces all slashs before ":" by dashes.
-            $service_volume =~ s~/(?=.*:)~-~g;
+            $service_volume =~ s~(?<!:.{,254})/~-~g;
             # Extract new volume name (until ":").
-            my ($unexposed_volume) = $service_volume =~ m~^(\S+)\s*:~;
+            my ($unexposed_volume) = $service_volume =~ m~^(\S+?)\s*:~;
             $volumes{$unexposed_volume} = {
               'module' => $module,
               # We create (below) and manage non-exposed volumes before the use
@@ -5503,7 +5500,10 @@ sub WriteYaml {
     $yaml_text = $yaml_object->write_string()
       or die "ERROR: failed to generate YAML data for file '$yaml_file'!\n"
       . CPAN::Meta::YAML->errstr;
+    # Remove optional dash header.
     $yaml_text =~ s/^---\n//;
+    # Put first element of lists on the first list line.
+    $yaml_text =~ s/^(\s*)-\s*\n\1  (?=\S)/$1- /gm;
   };
   if ($@) {
     die "ERROR: failed to generate YAML data for file '$yaml_file'!\n$@";
@@ -6007,7 +6007,7 @@ sub GetPathVolume {
     my $match = '';
     foreach my $volume (keys(%$volume_mapping)) {
       my $volume_path = $volume_mapping->{$volume};
-      if ($path =~ m/^\Q$volume_path\E(.*)$/) {
+      if ($path =~ m~^\Q$volume_path\E(|/.*)$~) {
         # Got a match, keep the longuest.
         if (!@volumesub
           || (length($volumesub[1]) > length($1))
@@ -6351,7 +6351,8 @@ sub CopyFiles
           );
         }
         else {
-          warn "WARNING: Genoring::CopyFiles(): Cannot copy file '$source_base$files' to non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
+          # No corresponding volume: copy to host.
+          copy($source_base . $files, $target_path);
         }
       }
       else {
