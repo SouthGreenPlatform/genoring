@@ -396,6 +396,27 @@ The commands supported by the main "genoring" container script "genoring" are:
 This section documents non "public usage" commands that may help in the
 development process.
 
+### Custom host names
+If you use custom host names that are not resolved by public DNS but are set in
+your local `/etc/hosts file`, Docker containers will not be able to resolve
+those hosts as well. To have them resolved in GenoRing, you should add them to
+an `extra_hosts.yml` file in the root of GenoRing (where `config.yml` is).
+Each entry must be on one line in the format (yaml hash):
+
+```
+<hostname>: <IP address>
+```
+
+Ex.:
+
+```
+myhost: 10.10.0.8
+tartempion: 192.168.0.42
+```
+
+Note: no spaces at the begining of the line and the space after ":" is
+important. Comment lines starting with '#' are supported.
+
 ### Shell with GenoRing environment variables
 If you try to run directly "docker compose up -d -y" from the shell, it will
 fail because GenoRing sets a couple of environment variables that are
