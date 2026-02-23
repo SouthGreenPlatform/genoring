@@ -1218,6 +1218,7 @@ sub SetupGenoringEnvironment {
 
   # Create environment directory.
   mkdir('env') unless (-d 'env');
+  chmod 0700, "env" or warn "WARNING: Unable to restrict 'env' directory: $!";
 
   # @todo Only display if there are new environment files to setup.
   print <<"___SETUPGENORINGENVIRONMENT_INSTALL_TEXT___";
@@ -1433,6 +1434,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
             }
             $next_envfile = 1;
           }
+          chmod 0600, "env/${module}_$env_file";
         }
       }
       else {
