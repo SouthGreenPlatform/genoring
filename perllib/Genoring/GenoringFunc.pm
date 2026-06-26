@@ -1519,7 +1519,9 @@ sub GenerateDockerComposeFile {
             # Replaces GenoRing volume root path by 'genoring-volume-'.
             $service_volume =~ s~^\$\{GENORING_VOLUMES_DIR\}/~genoring-volume-~;
             # Replaces all slashs before ":" by dashes.
-            $service_volume =~ s~(?<!:.{,254})/~-~g;
+            my ($before_colon, $after_colon) = split /:/, $service_volume, 2;
+            $before_colon =~ s~/~-~g;
+            $service_volume = $before_colon . (defined $after_colon ? ':' . $after_colon : '');
             # Extract new volume name (until ":").
             my ($unexposed_volume) = $service_volume =~ m~^(\S+?)\s*:~;
             $volumes{$unexposed_volume} = {
