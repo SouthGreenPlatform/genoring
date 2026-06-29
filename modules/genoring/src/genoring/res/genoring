@@ -98,7 +98,13 @@ setup_database()
   # Create a new PostgreSQL database.
   psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" --command="CREATE DATABASE $DRUPAL_DB WITH OWNER $DRUPAL_DB_USER;" 2>&1 | tee -a "$setup_log"
   # Install default extensions.
+  # - Required by Drupal.
   psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION pg_trgm;" 2>&1 | tee -a "$setup_log"
+  # - Required by GenoRing.
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION postgis;" 2>&1 | tee -a "$setup_log"
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION pgcrypto;" 2>&1 | tee -a "$setup_log"
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION fuzzystrmatch;" 2>&1 | tee -a "$setup_log"
+  psql -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" "$DRUPAL_DB" --command="CREATE EXTENSION unaccent;" 2>&1 | tee -a "$setup_log"
   log "...OK (database created)."
 }
 
@@ -162,10 +168,8 @@ install_cms()
   printf -- "--------------------------------------------------------------------------------\ncomposer.json:\n--------------\n" >>"$setup_log"
   cat composer.json >>"$setup_log"
   printf -- "--------------------------------------------------------------------------------\nInstall:\n--------\n" >>"$setup_log"
-  output=$(composer install --no-interaction --ignore-platform-reqs 2>&1)
-  pipestatus=$?
-  printf $output | tee -a "$setup_log"
-  if [ $pipestatus -gt 0 ]; then
+  stdbuf -oL -eL composer install --no-interaction --ignore-platform-reqs 2>&1 >>"$setup_log"
+  if [ $? -gt 0 ]; then
     log "...ERROR!"
     log_error "ERROR: Failed to download Drupal!"
     exit 1
@@ -280,7 +284,8 @@ setup_cms()
   printf "Drush command: drush -y site:install recipes/genoring_recipe --db-url=\"pgsql://$POSTGRES_USER:$ENCODED_PG_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\" --account-mail=\"$DRUPAL_USER_MAIL\" --account-name=\"$DRUPAL_USER\" --account-pass=\"$DRUPAL_PASSWORD\" --site-mail=\"$DRUPAL_SITE_MAIL\" --site-name=\"$DRUPAL_SITE_NAME\"\n\n" >>"$setup_log"
   # For Drupal install debugging:
   # printf "DEBUG\n"; while :; do sleep 60; done
-  output=$(
+  {
+    stdbuf -oL -eL \
     drush -y site:install recipes/genoring_recipe \
       --db-url="pgsql://$POSTGRES_USER:$ENCODED_PG_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB" \
       --account-mail="$DRUPAL_USER_MAIL" \
@@ -288,10 +293,8 @@ setup_cms()
       --account-pass="$DRUPAL_PASSWORD" \
       --site-mail="$DRUPAL_SITE_MAIL" \
       --site-name="$DRUPAL_SITE_NAME" 2>&1
-  )
-  pipestatus=$?
-  printf $output | tee -a "$setup_log"
-  if [ $pipestatus -gt 0 ]; then
+  } >>"$setup_log"
+  if [ $? -gt 0 ]; then
     log "  ...ERROR!"
     log_error "ERROR: Failed to initialize Drupal!\npgsql://$POSTGRES_USER:$ENCODED_PG_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB"
     exit 1
