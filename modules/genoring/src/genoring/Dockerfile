@@ -258,7 +258,8 @@ RUN chmod -R uog+rX,og-w /opt/genoring \
     && ln -sf /opt/drupal/web /var/www/html
 
 # Prevent root from using Drupal commands such as composer or drush by mistake.
-RUN printf "\nalias composer=\"Do not run composer as root. Use genoring account (su - genoring).\"\nalias drush=\"Do not run drush as root. Use genoring account (su - genoring).\"\n" >>/root/.bashrc
+RUN printf "\nalias composer='echo \"Do not run composer as root. Use genoring account (su - genoring).\"'\nalias drush='echo \"Do not run drush as root. Use genoring account (su - genoring).\"'\n" >>/root/.bashrc
+RUN printf "\nif [ \"\$(id -u)\" = \"0\" ]; then\n  alias composer='echo \"Do not run composer as root. Use genoring account (su - genoring).\"'\n  alias drush='echo \"Do not run drush as root. Use genoring account (su - genoring).\"'\nfi\n" >>/home/genoring/.bash_aliases
 
 USER genoring:genoring
 WORKDIR /opt/drupal
