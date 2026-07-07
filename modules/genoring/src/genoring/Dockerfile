@@ -69,7 +69,7 @@ RUN set -eux \
     libonig-dev \
   && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp --with-avif --with-xpm \
   && docker-php-ext-configure imap --with-kerberos --with-imap-ssl \
-  && docker-php-ext-install -j$(nproc) gd zip pdo pdo_mysql pdo_pgsql opcache mbstring exif imap \
+  && docker-php-ext-install -j$(nproc) gd zip pdo pdo_mysql pgsql mysqli pdo_pgsql opcache mbstring exif imap \
   # reset apt-mark's "manual" list so that "purge --auto-remove" will remove all build dependencies.
   && apt-mark auto '.*' > /dev/null \
   && apt-mark manual $savedAptMark \
@@ -256,6 +256,9 @@ RUN chmod -R uog+rX,og-w /opt/genoring \
     && chown genoring:genoring /opt/drupal \
     && rm -rf /var/www/html \
     && ln -sf /opt/drupal/web /var/www/html
+
+# Prevent root from using Drupal commands such as composer or drush by mistake.
+RUN printf "\nalias composer=\"Do not run composer as root. Use genoring account (su - genoring).\"\nalias drush=\"Do not run drush as root. Use genoring account (su - genoring).\"\n" >>/root/.bashrc
 
 USER genoring:genoring
 WORKDIR /opt/drupal
