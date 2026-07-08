@@ -3355,6 +3355,10 @@ sub ToExternalService {
     die "ERROR: Turn docker service into local service: the given service does not exist or is not enabled!\n";
   }
   my $module = $services->{$service};
+  # @todo Refactoring: we should NOT rename the service into ".dis" as it
+  # prevents multiple instances to work properly (initialisation).
+  # Instead, the service should be marked as external into config.yml and not
+  # be used in docker-compose.yml file generation.
   # Disable the service.
   if (-e "$Genoring::MODULES_DIR/$module/services/alt/$service.yml.dis") {
     # Using an alternative, remove it.
@@ -3425,7 +3429,7 @@ sub ToGenoringService {
   }
 
   # @todo Implement...
-  # Rename service to its original name or copy alt service.
+  # Mark the service as enabled again.
   # Remove service from extra_hosts.
   # GenerateDockerComposeFile();
 }
