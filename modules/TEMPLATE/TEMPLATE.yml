@@ -28,7 +28,8 @@ services:
   genoring-service1:
     name: "Service 1 name"
     description: "Optional service 1 description."
-    # The service version
+    # The service version (optional). May be removed in the future as it is not
+    # sure it is useful and it does not overcomplicate things.
     version: 1.0
   genoring-service2:
     name: "Service 2 name"
