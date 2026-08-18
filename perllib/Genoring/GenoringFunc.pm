@@ -1113,6 +1113,7 @@ sub Reinitialize {
   print "- Clearing config...\n";
   unlink $Genoring::CONFIG_FILE;
   unlink $Genoring::DOCKER_COMPOSE_FILE;
+  unlink $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE;
   unlink $Genoring::EXTRA_HOSTS;
   RemoveDependencyFiles();
   print "  ...OK.\n";

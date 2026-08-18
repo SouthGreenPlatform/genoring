@@ -1,4 +1,5 @@
 /docker-compose.yml
+/docker-compose.override.yml
 /config.yml
 /extra_hosts.yml
 /env

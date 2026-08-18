@@ -101,6 +101,10 @@ B<$DOCKER_COMPOSE_FILE>: (string)
 
 Name of the Docker Compose file.
 
+B<$DOCKER_COMPOSE_OVERRIDE_FILE>: (string)
+
+Name of the override file for Docker Compose.
+
 B<$EXTRA_HOSTS>: (string)
 
 Name of the extra hosts config file that contains service names replaced by
@@ -191,6 +195,7 @@ our $DOCKER_COMMAND = 'docker';
 our $DOCKER_COMPOSE_COMMAND = $DOCKER_COMMAND . ' compose';
 our $DOCKER_BUILD_COMMAND = $DOCKER_COMMAND . ' buildx build';
 our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
+our $DOCKER_COMPOSE_OVERRIDE_FILE = 'docker-compose.override.yml';
 our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $GENORING_DEFAULT_PORT = 8080;
 our $GENORING_DIR = $ENV{'GENORING_DIR'} || $FindBin::Bin;

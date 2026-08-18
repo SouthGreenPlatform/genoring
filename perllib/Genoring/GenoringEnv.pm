@@ -88,6 +88,14 @@ if (!defined($ENV{'PWD'})) {
 }
 $ENV{'PWD'} ||= '.';
 
+# Initializes docker compose files to use.
+if (-e $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE) {
+  $ENV{'COMPOSE_FILE'} = "$Genoring::DOCKER_COMPOSE_FILE:$Genoring::DOCKER_COMPOSE_OVERRIDE_FILE";
+}
+else {
+  $ENV{'COMPOSE_FILE'} = $Genoring::DOCKER_COMPOSE_FILE;
+}
+
 # Initializes current project name (ie. instance name).
 if (!exists($ENV{'COMPOSE_PROJECT_NAME'})
     || ($ENV{'COMPOSE_PROJECT_NAME'} !~ m/\w/)
