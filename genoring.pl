@@ -79,32 +79,6 @@ use Genoring;
 
 
 
-# Script global constants
-##########################
-
-=pod
-
-=head1 CONSTANTS
-
-B<$Genoring::GENORING_DIR>: (string)
-
-Installation directory of GenoRing. This "constant" from the GenoRing package is
-ajusted to reflect current script path.
-
-B<$Genoring::MODULES_DIR>: (string)
-
-Name of the module directory. This "constant" from the GenoRing package is
-ajusted to reflect current script path.
-
-=cut
-
-$Genoring::GENORING_DIR = dirname(__FILE__);
-$Genoring::GENORING_DIR = Cwd::cwd() if ('.' eq $Genoring::GENORING_DIR);
-$Genoring::MODULES_DIR = File::Spec->catfile($Genoring::GENORING_DIR, 'modules');
-
-
-
-
 # Script options
 #################
 
@@ -915,7 +889,7 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
   }
 
   # Check if setup needs to be run first.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     # Needs first-time initialization.
     print "GenoRing needs to be setup...\n";
     SetupGenoring();
@@ -942,7 +916,7 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
 }
 elsif ($command =~ m/^stop$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -961,7 +935,7 @@ elsif ($command =~ m/^reset|reinit(?:ialize)?$/i) {
 }
 elsif ($command =~ m/^update$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -969,7 +943,7 @@ elsif ($command =~ m/^update$/i) {
 }
 elsif ($command =~ m/^upgrade$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -982,7 +956,7 @@ elsif ($command =~ m/^setup$/i) {
 }
 elsif ($command =~ m/^enable$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -990,7 +964,7 @@ elsif ($command =~ m/^enable$/i) {
 }
 elsif ($command =~ m/^disable$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -998,7 +972,7 @@ elsif ($command =~ m/^disable$/i) {
 }
 elsif ($command =~ m/^uninstall$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }

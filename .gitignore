@@ -5,4 +5,5 @@
 /env
 /agreed.txt
 /dependencies
+/tests/temptests
 !.gitignore

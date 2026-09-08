@@ -8,8 +8,17 @@
 # its latest version, to perform the required changes in the related services.
 # All the 'upgrade' hooks of the module will be called on the corresponding
 # services.
+# Parameters are: current version string, new version string, and upgraded
+# module (if empty, GenoRing framework is upgraded).
 
 # Automatically exit on error.
 set -e
 
 # Some upgrade tasks to perform...
+if [ -z "$3" ] {
+  # Framework upgrade...
+}
+elif [ "$3" == "TEMPLATE" ] {
+  # Upgrading this module (TEMPLATE).
+  # Perform the module's upgrade tasks on the local file system.
+}

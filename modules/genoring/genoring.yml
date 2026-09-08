@@ -1,6 +1,6 @@
 name: "GenoRing Core"
 description: "Provides GenoRing content management system and includes a proxy server and a database server."
-version: 1.0
+version: 1.1
 tags:
  - core
  - drupal
@@ -18,7 +18,7 @@ services:
   genoring-db:
     name: "GenoRing Database"
     description: "GenoRing main PostgreSQL database service"
-    version: 1.0
+    version: 1.1
   genoring-proxy:
     name: "GenoRing proxy service"
     description: "GenoRing proxy service using NGINX HTTP server"

@@ -17,7 +17,7 @@ if [ "$(id -u)" -eq 0 ]; then
   # If root, re-run as genoring.
   args=""
   for arg in "$@"; do
-    escaped_arg=$(printf "$arg" | sed "s/\"/\"'\"'\"/g")
+    escaped_arg=$(printf '%s' "$arg" | sed "s/\"/\"'\"'\"/g")
     args="$args \"$escaped_arg\""
   done
   exec su genoring -c "exec $0 $args"
@@ -34,10 +34,11 @@ setup_log="/opt/drupal/genoring_setup.log"
 # moment. This may change to 'stable", "RC", or "beta" in the future.
 # stability="stable"
 stability="dev"
-forbidden_password_chars='#$%"\/:?@'
-if echo "$POSTGRES_PASSWORD" | grep -q "[$forbidden_password_chars]"; then
-  printf "WARNING: invalid characters ($forbidden_password_chars) found in the PostgreSQL password environment variable POSTGRES_PASSWORD! Installation will FAIL!\n" >&2
-  printf "WARNING: invalid characters found in the PostgreSQL password environment variable POSTGRES_PASSWORD\nPOSTGRES_PASSWORD: $POSTGRES_PASSWORD\nInvalid characters: $forbidden_password_chars\n" >>"$setup_log"
+forbidden_password_chars='#$%"\/?:@'
+forbidden_password_pattern='[#$%"\\/:?@]'
+if printf '%s\n' "$POSTGRES_PASSWORD" | grep -q "$forbidden_password_pattern"; then
+  printf '%s\n' "WARNING: invalid characters ($forbidden_password_chars) found in the PostgreSQL password environment variable POSTGRES_PASSWORD ($POSTGRES_PASSWORD)! Installation will FAIL!" >&2
+  printf '%s\n' "WARNING: invalid characters found in the PostgreSQL password environment variable POSTGRES_PASSWORD" "POSTGRES_PASSWORD: $POSTGRES_PASSWORD" "Invalid characters: $forbidden_password_chars" >>"$setup_log"
 fi
 
 # Escape password for use in shell/URI (escape backslashes, double quotes and dollar signs).
@@ -142,7 +143,7 @@ install_cms()
     fi
 
     # Create temporary setup directory and prepare Drupal download settings.
-    printf "\nGenoring template: $genoring_template $genoring_template_version\n" >>"$setup_log"
+    printf '\nGenoring template: %s %s\n' "$genoring_template" "$genoring_template_version" >>"$setup_log"
     # For Composer debugging:
     # printf "DEBUG\n"; while :; do sleep 60; done
     if (cd "$setup_dir" && composer create-project --no-interaction --no-install $genoring_template . $genoring_template_version 2>&1 | tee -a "$setup_log"); then
@@ -288,7 +289,9 @@ setup_cms()
   printf -- "--------------------------------------------------------------------------------\nDefault site directory:\n-----------------------\n" >>"$setup_log"
   ls -la /opt/drupal/web/sites/default >>"$setup_log"
   printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
-  printf "Drush command: drush -y site:install recipes/genoring_recipe --db-url=\"pgsql://$POSTGRES_USER:$ESCAPED_PG_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$DRUPAL_DB\" --account-mail=\"$DRUPAL_USER_MAIL\" --account-name=\"$DRUPAL_USER\" --account-pass=\"$DRUPAL_PASSWORD\" --site-mail=\"$DRUPAL_SITE_MAIL\" --site-name=\"$DRUPAL_SITE_NAME\"\n\n" >>"$setup_log"
+  printf 'Drush command: drush -y site:install recipes/genoring_recipe --db-url="pgsql://%s:%s@%s:%s/%s" --account-mail="%s" --account-name="%s" --account-pass="%s" --site-mail="%s" --site-name="%s"\n\n' \
+    "$POSTGRES_USER" "$ESCAPED_PG_PASSWORD" "$POSTGRES_HOST" "$POSTGRES_PORT" "$DRUPAL_DB" \
+    "$DRUPAL_USER_MAIL" "$DRUPAL_USER" "$DRUPAL_PASSWORD" "$DRUPAL_SITE_MAIL" "$DRUPAL_SITE_NAME" >>"$setup_log"
   # For Drupal install debugging:
   # printf "DEBUG\n"; while :; do sleep 60; done
   {
@@ -714,13 +717,13 @@ Available commands:
 ################################################################################
 
 # PostgeSQL access setup.
-printf "$POSTGRES_HOST:$POSTGRES_PORT:*:$POSTGRES_USER:$ESCAPED_PG_PASSWORD\n" >~/.pgpass
+printf '%s:%s:*:%s:%s\n' "$POSTGRES_HOST" "$POSTGRES_PORT" "$POSTGRES_USER" "$ESCAPED_PG_PASSWORD" >~/.pgpass
 chmod go-rwx ~/.pgpass
 
 # Process commands.
 cmd="$1"
 shift  2>/dev/null
-printf "COMMAND: $cmd\n" >>"$setup_log"
+printf 'COMMAND: %s\n' "$cmd" >>"$setup_log"
 case "$cmd" in
   start)
     start_genoring "$@"

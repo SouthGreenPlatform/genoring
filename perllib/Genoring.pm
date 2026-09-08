@@ -33,7 +33,7 @@ RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
 Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
 ToExternalService UninstallModule Update Upgrade WaitModulesReady
-IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping
+IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping IsInstalled
 
 =head1 DESCRIPTION
 
@@ -72,7 +72,7 @@ our @EXPORT = qw(
   Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
   SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
   ToExternalService UninstallModule Update Upgrade WaitModulesReady
-  IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping
+  IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping IsInstalled
 );
 # Init $NULL.
 $Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';

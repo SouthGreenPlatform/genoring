@@ -22,8 +22,8 @@ require 5.8.0;
 use strict;
 use warnings;
 use utf8;
-use Cwd qw();
-use File::Basename;
+use Cwd qw(abs_path cwd);
+use File::Basename qw(basename dirname);
 use File::Spec;
 use FindBin;
 
@@ -198,7 +198,7 @@ our $DOCKER_COMPOSE_FILE = 'docker-compose.yml';
 our $DOCKER_COMPOSE_OVERRIDE_FILE = 'docker-compose.override.yml';
 our $EXTRA_HOSTS = 'extra_hosts.yml';
 our $GENORING_DEFAULT_PORT = 8080;
-our $GENORING_DIR = $ENV{'GENORING_DIR'} || $FindBin::Bin;
+our $GENORING_DIR = $ENV{'GENORING_DIR'} || abs_path(File::Spec->catdir(dirname(__FILE__), '..', '..'));
 our $GENORING_REPOSITORY = 'https://github.com/SouthGreenPlatform/genoring.git';
 our $GENORING_TAGS_URL = 'https://api.github.com/repos/SouthGreenPlatform/genoring/tags';
 our $GENORING_VERSION = '1.0-alpha8';
@@ -253,7 +253,7 @@ our $PROFILE_CONSTRAINT_REGEX = '(?:((?:dev|staging|prod|backend|offline)(?:\s*,
 our $SERVICE_CONSTRAINT_REGEX = '(?:([a-z0-9\-\_]+)\s)?';
 our $SERVICE_NAME_REGEX = '[a-z][a-z0-9\-]*';
 our $STATE_MAX_TRIES = 300;
-our $VOLUMES_DIR = $ENV{'GENORING_VOLUMES_DIR'} || File::Spec->catfile(Cwd::cwd(), 'volumes');
+our $VOLUMES_DIR = $ENV{'GENORING_VOLUMES_DIR'} || File::Spec->catfile(cwd(), 'volumes');
 our $VOLUME_NAME_REGEX = '[a-z][a-z0-9\-]*';
 # Constants that depends on others.
 our $DEPENDENCY_REGEX = "($MODULE_NAME_REGEX)(?:\\s+(?:([<>]?=?)\\s*)(\\d+)(?:\\.(\\d+))?(alpha|beta|dev)?)?(?:\\s+($SERVICE_NAME_REGEX|$VOLUME_NAME_REGEX))?";

@@ -441,7 +441,7 @@ B<Return>: (nothing)
 =cut
 
 sub StopGenoring {
-  if (-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (IsInstalled()) {
     Run(
       "$Genoring::DOCKER_COMPOSE_COMMAND --profile \"*\" down --remove-orphans",
       "Failed to stop GenoRing!",
@@ -517,7 +517,7 @@ sub RunShell {
     if ($env_data) {
       $env_data = ' --env-file ' . $env_data;
     }
-    $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
+    $env_data .= ' -e COMPOSE_PROJECT_NAME=' . $ENV{'COMPOSE_PROJECT_NAME'} . ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
     # Get image and add volumes if docker compose file is available (volumes
     # created).
     my $volumes_parameter = '';
@@ -646,7 +646,7 @@ sub GetDiagosticLogs {
   }
   print "\n" . ('-' x 80) . "\nSetup logs:\n-----------\n";
   print Run(
-    "$Genoring::DOCKER_COMMAND run -v " . GetVolumeName('genoring-drupal-volume') . ":/opt/drupal " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it --rm genoring /usr/bin/cat /opt/drupal/genoring_setup.log",
+    "$Genoring::DOCKER_COMMAND run -v " . GetVolumeName('genoring-drupal-volume') . ":/opt/drupal " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 --rm genoring /usr/bin/cat /opt/drupal/genoring_setup.log",
     "Failed to get diagnostic log!",
     0,
     0
@@ -787,6 +787,25 @@ sub GetState {
   }
 
   return $state;
+}
+
+
+=pod
+
+=head2 IsInstalled
+
+B<Description>: Tells if a GenoRoing instance is installed.
+
+B<ArgsCount>: 0
+
+B<Return>: (boolean)
+
+A true value if installed, a false value otherwise.
+
+=cut
+
+sub IsInstalled {
+  return -e $Genoring::DOCKER_COMPOSE_FILE;
 }
 
 
@@ -2523,7 +2542,8 @@ sub Update {
 
 =head2 Upgrade
 
-B<Description>: Upgrades the GenoRing system or the specified module.
+B<Description>: Asks and upgrades the GenoRing framework or the specified
+module.
 
 B<ArgsCount>: 0-1
 
@@ -2545,7 +2565,8 @@ sub Upgrade {
 
   my ($element) = @_;
   my $new_version = '';
-  my $module = 'genoring';
+  my $current_version = $Genoring::GENORING_VERSION;
+  my $module = '';
   # @todo Complete implementation. Add error checks and feedback.
   #   Implement module upgrades.
   warn "WARNING: Experimental! This procedure has not been tested yet! Use at your own risks.\n";
@@ -2553,93 +2574,196 @@ sub Upgrade {
     my ($majver, $minver, $qual, $qualver_a) = ParseVersion($element);
     if ($majver) {
       $new_version = $element;
-      print "Upgrading GenoRing framework to version $new_version...\n";
     }
     else {
       ($module, $new_version) = split(/:/, $element);
-      if ($new_version) {
-        print "Upgrading module '$module' to version $new_version...\n";
-      }
-      else {
-        print "Upgrading module '$module'...\n";
-      }
-      die "EROR: Not implemented yet!\n";
     }
   }
 
-  print "Upgrading GenoRing framework...\n";
-  if (!$new_version) {
-    # Get last available stable version.
-    ($new_version) = GetAvailableVersions();
-  }
-  if ($new_version) {
-    # Check if it is an upgrade and Ask for upgrade confirmation.
-    my $version_comparison = CompareVersions($new_version, $Genoring::GENORING_VERSION);
-    if (((0 < $version_comparison) && Confirm("Upgrade to version $new_version?"))
-      || ((0 > $version_comparison) && Confirm("Are you sure you want to *DOWNGRADE* your current version ($Genoring::GENORING_VERSION) to version $new_version?"))
+  if ($module) {
+    my $module_config = GetModuleConf($module);
+    my $module_info = GetModuleInfo($module);
+    $current_version = $module_config->{'version'} || 'unknown';
+    $new_version ||= $current_version;
+    if ($new_version ne $module_info->{'version'}) {
+      # @todo Implement a way to fetch a version from the web.
+      die "ERROR: Unable to upgrade module '$module' to requested version '$new_version' as the only new version available is " . $module_info->{'version'} . ".\n";
+    }
+    my $version_comparison = CompareVersions($new_version, $current_version);
+    if (((0 < $version_comparison) && Confirm("Upgrade '$module' module from version $current_version to $new_version?"))
+      || ((0 > $version_comparison) && Confirm("Are you sure you want to *DOWNGRADE* '$module' module from version $current_version to $new_version?"))
     ) {
-      # @todo Add support for "dev" qualifier (not tagged).
-      my $context = PrepareOperations();
-      if (IsGitAvailable()) {
-        # Use git.
-        eval {
-          Run("git checkout --dry-run $new_version", '', 1);
-          Run("git checkout $new_version", '', 1);
-          # @todo Check for issues (conflicts, checkout failure, etc.).
-        };
-        if ($@) {
-           # In case of failure, set $version_comparison to 0 to avoid upgrades.
-          $version_comparison = 0;
-          warn "WARNING: Failed to upgrade to $new_version.\n";
-        }
-      }
-      else {
-        # @todo Perform a backup of GenoRing files.
-        # Without git, try download service.
-        my $download_url = "$Genoring::GENORING_REPOSITORY";
-        $download_url =~ s~\.git$~/archive/refs/tags/$new_version.tar.gz~;
-        my $tar_file = basename($download_url);
-        Run("curl -L -o $tar_file $download_url");
-        # @todo Make sure we got the file right. We should include a file
-        # signature verification system.
-        # Extract new files.
-        # "--strip-components=1" removes "genoring-$version" directory level.
-        Run("tar -xzf $tar_file -C $Genoring::GENORING_DIR --strip-components=1");
-        # @todo Make sure all went well.
-        unlink $tar_file;
-        # @todo In case of failure, restore backups and set $version_comparison to 0.
-      }
-      if (0 < $version_comparison) {
-        # Perform upgrade hooks only if it is an effective upgrade.
-        $context->{'module'} = $module;
-        $context->{'local_hooks'} = {
-          'upgrade' => {
-            'args' => "$Genoring::GENORING_VERSION $new_version",
-          },
-        };
-        $context->{'container_hooks'} = {
-          'upgrade' => {
-            'args' => "$Genoring::GENORING_VERSION $new_version",
-          },
-        };
-        PerformLocalOperations($context);
-        PerformContainerOperations($context);
-      }
-      CleanupOperations($context);
-      EndOperations($context);
+      UpgradeModule($current_version, $new_version, $module);
+    }
+    elsif (0 == $version_comparison) {
+      print "Module '$module' is already up-to-date.\n";
     }
     else {
-      if (0 == $version_comparison) {
+      print "Upgrade aborted.\n";
+    }
+
+  }
+  else {
+    if (!$new_version) {
+      # Get last available stable version.
+      ($new_version) = GetAvailableVersions();
+    }
+    print "Upgrading GenoRing framework...\n";
+    # If there is something to upgrade, ask for upgrade and upgrade.
+    if ($new_version) {
+      # Check if it is an upgrade and ask for upgrade confirmation.
+      my $version_comparison = CompareVersions($new_version, $current_version);
+      if (((0 < $version_comparison) && Confirm("Upgrade GenoRing framework to version $new_version?"))
+        || ((0 > $version_comparison) && Confirm("Are you sure you want to *DOWNGRADE* your current version ($current_version) of GenoRing framework to version $new_version?"))
+      ) {
+        UpgradeFramework($current_version, $new_version);
+      }
+      elsif (0 == $version_comparison) {
         print "GenoRing is already up-to-date.\n";
       }
       else {
         print "Upgrade aborted.\n";
       }
     }
+    else {
+      warn "WARNING: Unable to fetch version information. Upgrade failed.\n";
+    }
+  }
+}
+
+
+=pod
+
+=head2 UpgradeModule
+
+B<Description>: Upgrades a given module.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $new_version: (string) (R)
+
+A version string of the module to use.
+
+=item $current_version: (string) (R)
+
+A version string of the current module in use.
+
+=item $module: (string) (R)
+
+The name of the module to upgrade.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub UpgradeModule {
+  my ($current_version, $new_version, $module) = @_;
+  print "Upgrading '$module' module from version $current_version to $new_version...\n";
+  # Perform a backup of GenoRing files.
+  my $context = PrepareOperations();
+  $context->{'local_hooks'} = {
+    'upgrade' => {
+      'args' => "$current_version $new_version $module",
+    },
+  };
+  $context->{'container_hooks'} = {
+    'upgrade' => {
+      'args' => "$current_version $new_version $module",
+    },
+  };
+  PerformLocalOperations($context);
+  PerformContainerOperations($context);
+  CleanupOperations($context);
+  EndOperations($context);
+  # If all went well, update module version in config.
+  if (!$context->{'failed'}) {
+    my $module_config = GetModuleConf($module);
+    $module_config->{'version'} = $new_version;
+    SaveConfig();
+  }
+}
+
+
+=pod
+
+=head2 UpgradeFramework
+
+B<Description>: Upgrades the GenoRing framework.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $current_version: (string) (R)
+
+=item $new_version: (string) (R)
+
+A version string of the new framework to use.
+
+A version string of the current framework in use.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub UpgradeFramework {
+
+  my ($current_version, $new_version) = @_;
+  my $run_hooks = 1;
+  # @todo Add support for Git "dev" qualifier (not tagged).
+  # Perform a backup of GenoRing files.
+  my $context = PrepareOperations();
+  if (IsGitAvailable()) {
+    # Use git.
+    eval {
+      Run("git checkout --dry-run $new_version", '', 1);
+      Run("git checkout $new_version", '', 1);
+      # @todo Check for issues (conflicts, checkout failure, etc.).
+    };
+    if ($@) {
+        # In case of failure, avoid upgrade hooks.
+      $run_hooks = 0;
+      warn "WARNING: Failed to upgrade to $new_version.\n";
+    }
   }
   else {
-    warn "WARNING: Unable to fetch version information. Upgrade failed.\n";
+    # Without git, try download service.
+    my $download_url = "$Genoring::GENORING_REPOSITORY";
+    $download_url =~ s~\.git$~/archive/refs/tags/$new_version.tar.gz~;
+    my $tar_file = basename($download_url);
+    Run("curl -L -o $tar_file $download_url");
+    # @todo Make sure we got the file right. We should include a file
+    # signature verification system.
+    # Extract new files.
+    # "--strip-components=1" removes "genoring-$version" directory level.
+    Run("tar -xzf $tar_file -C $Genoring::GENORING_DIR --strip-components=1");
+    # @todo Make sure all went well.
+    unlink $tar_file;
+    # @todo In case of failure, restore backups and set $version_comparison to 0.
   }
+  if ($run_hooks) {
+    # Perform upgrade hooks only if it is an effective upgrade.
+    $context->{'local_hooks'} = {
+      'upgrade' => {
+        'args' => "$current_version $new_version",
+      },
+    };
+    $context->{'container_hooks'} = {
+      'upgrade' => {
+        'args' => "$current_version $new_version",
+      },
+    };
+    PerformLocalOperations($context);
+    PerformContainerOperations($context);
+  }
+  CleanupOperations($context);
+  EndOperations($context);
 }
 
 
@@ -3375,6 +3499,7 @@ sub ToExternalService {
   # Append replacing host to "extra_hosts".
   my $extra_fh;
   if (open($extra_fh, '>>:utf8', $Genoring::EXTRA_HOSTS)) {
+    # @todo "$service" should use the COMPOSE_PROJECT_NAME.
     print {$extra_fh} "$service: \"$ip\"\n";
     close($extra_fh);
   }
@@ -3498,14 +3623,20 @@ sub Backup {
   print "Backuping GenoRing...\n";
   # Backup GenoRing config.
   if (!$module) {
+    # @todo Check if git is available and if there are modifications to backup.
     print "- Backuping GenoRing config...\n";
     if (!-d "$backupdir/config" && !mkdir "$backupdir/config") {
       warn "WARNING: Backup: Failed to create config backup directory '$backupdir/config'.\n";
     }
-    if (-e $Genoring::DOCKER_COMPOSE_FILE
+    if (IsInstalled()
       && !copy($Genoring::DOCKER_COMPOSE_FILE, "$backupdir/config/$Genoring::DOCKER_COMPOSE_FILE")
     ) {
       warn "WARNING: Failed to backup $Genoring::DOCKER_COMPOSE_FILE.\n$!";
+    }
+    if (-e $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE
+      && !copy($Genoring::DOCKER_COMPOSE_OVERRIDE_FILE, "$backupdir/config/$Genoring::DOCKER_COMPOSE_OVERRIDE_FILE")
+    ) {
+      warn "WARNING: Failed to backup $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE.\n$!";
     }
     if (-e $Genoring::CONFIG_FILE
       && !copy($Genoring::CONFIG_FILE, "$backupdir/config/$Genoring::CONFIG_FILE")
@@ -3794,7 +3925,15 @@ sub ApplyLocalHooks {
       my $hook_script = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', "$hook_name.pl");
       # Get module environment variables.
       my @env_files = GetEnvironmentFiles($module);
-      my %module_env = ();
+      my %module_env = (
+        'COMPOSE_PROJECT_NAME' => $ENV{COMPOSE_PROJECT_NAME},
+        'COMPOSE_PROFILES' => $ENV{COMPOSE_PROFILES},
+        'GENORING_HOST' => $ENV{GENORING_HOST},
+        'GENORING_PORT' => $ENV{GENORING_PORT},
+        'GENORING_DIR' => $ENV{GENORING_DIR},
+        'GENORING_VOLUMES_DIR' => $ENV{GENORING_VOLUMES_DIR},
+        'GENORING_NO_EXPOSED_VOLUMES' => $ENV{GENORING_NO_EXPOSED_VOLUMES},
+      );
       foreach my $env_file (@env_files) {
         if (open(my $fh, '<', $env_file)) {
           while (my $line = <$fh>) {
@@ -3804,7 +3943,10 @@ sub ApplyLocalHooks {
             my ($key, $value) = split /=/, $line, 2;
             $key =~ s/^\s+|\s+$//g;
             if (($key =~ m/^\w+$/) && defined($value)) {
+              # Trim.
               $value =~ s/^\s+|\s+$//g;
+              # Substitute environment variables.
+              $value =~ s/\$\{(\w+)\}/$ENV{$1}/g;
               $module_env{$key} = $value;
             }
           }
@@ -3817,11 +3959,12 @@ sub ApplyLocalHooks {
 
       eval {
         # Temporarily add environment variables.
-        local @ENV{ keys(%module_env) } = values(%module_env);
+        local %ENV;
+        %ENV = %module_env;
+        if ($g_debug) {
+          print "DEBUG: Using environment variables:\n" . Dumper([\%ENV]);
+        }
         Run(
-          # "export \$(cat env/*.env | grep '^\w'| xargs -d '\\n') && perl $hook_script $args",
-          # cat env/*.env | grep '^\w' | while IFS='=' read -r name value; do export "$name=$value"; done
-          # Issue: the above don't work with values containing spaces or with ending comments.
           "perl $hook_script $args",
           "Failed to process $module module hook $hook_name!",
           1,
@@ -3991,7 +4134,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           if (!exists($initialized_containers{$service})) {
             # Remove previous copy of GenoRing module files.
             Run(
-              "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
+              "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
               "Failed to prepare module file copy in $service_name ($module $hook hook)",
               0,
               $g_debug || $g_flags->{'verbose'}
@@ -4012,9 +4155,9 @@ APPLYCONTAINERHOOKS_HOOKS:
           if ($env_data) {
             $env_data = ' --env-file ' . $env_data;
           }
-          $env_data .= ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
+          $env_data .= ' -e COMPOSE_PROJECT_NAME=' . $ENV{'COMPOSE_PROJECT_NAME'} . ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
           my $output = Run(
-            "$Genoring::DOCKER_COMMAND exec " . $env_data . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 -it $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
+            "$Genoring::DOCKER_COMMAND exec " . $env_data . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
             "Failed to run hook of $module in $service_name (hook $hook)",
             0,
             $g_debug || $g_flags->{'verbose'}
@@ -5468,6 +5611,7 @@ sub ReadYaml {
       close($env_fh);
     }
     # Remove special environment variables.
+    delete($environment_variables{'COMPOSE_PROJECT_NAME'});
     delete($environment_variables{'GENORING_HOST'});
     delete($environment_variables{'GENORING_PORT'});
     # Remplacer les variables d'environnement dans $yaml_text
