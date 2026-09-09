@@ -26,7 +26,9 @@ fi
 
 disable_healthcheck="/tmp/disable-healthcheck"
 genoring_template="drupal/recommended-project"
-genoring_template_version="^11"
+# Limited to Drupal 11.3.x for now as we are using a recipe that is not yet
+# compatible with Drupal version above.
+genoring_template_version="11.3.16"
 setup_dir="_temp_composer_setup"
 setup_log="/opt/drupal/genoring_setup.log"
 [ -f "$setup_log" ] && setup_log="/dev/null"
