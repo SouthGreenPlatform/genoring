@@ -2065,8 +2065,12 @@ sub PerformLocalOperations {
       keys(%$local_hooks);
     foreach my $local_hook (@local_hooks) {
       my $args = $context->{'local_hooks'}->{$local_hook}->{'args'};
-      ApplyLocalHooks($local_hook, $module, $args);
+      my $errors = ApplyLocalHooks($local_hook, $module, $args);
       $context->{'local_hooks'}->{$local_hook}->{'ok'} = 1;
+      if (%$errors) {
+        $context->{'failed'} = join("\n", map { $_ . ': ' . $errors->{$_} } sort keys(%$errors));
+        last;
+      }
     }
     print "  ...OK.\n";
   };
@@ -2130,8 +2134,12 @@ sub PerformContainerOperations {
     foreach my $container_hook (@container_hooks) {
       my $related = $context->{'container_hooks'}->{$container_hook}->{'related'};
       my $args = $context->{'container_hooks'}->{$container_hook}->{'args'};
-      ApplyContainerHooks($container_hook, $module, $related, $args);
+      my $errors = ApplyContainerHooks($container_hook, $module, $related, $args);
       $context->{'container_hooks'}->{$container_hook}->{'ok'} = 1;
+      if (%$errors) {
+        $context->{'failed'} = join("\n", map { $_ . ': ' . $errors->{$_} } sort keys(%$errors));
+        last;
+      }
     }
     print "  ...OK.\n";
   };
