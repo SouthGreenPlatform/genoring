@@ -22,6 +22,12 @@ GenoRing test instances are generated into the "temptests" subdirectory. Each
 instance has its own sub-directory starting with "test" followed by a random
 string.
 
+Note: To run accurate tests, you may need to rebuild Docker images used by
+GenoRing before running the tests. This can be done by using the GenoRing
+"build" command with the "-no-cache" option:
+
+    perl genoring.pl build -no-cache <module> <service>
+
 =cut
 
 use strict;
