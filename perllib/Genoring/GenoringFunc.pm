@@ -244,7 +244,7 @@ sub Run {
     }
 
     if ($fatal_error) {
-      die($error_message);
+      die($error_message . "\nOutput:\n--------------------------------------------------------------------------------\n$output\n--------------------------------------------------------------------------------\n");
     }
     else {
       warn($error_message);
@@ -1504,16 +1504,18 @@ sub GenerateDockerComposeFile {
     opendir(my $dh, "$Genoring::MODULES_DIR/$module/services")
       or die "ERROR: GenerateDockerComposeFile: Failed to access '$Genoring::MODULES_DIR/$module/services' directory!\n$!";
     my @service_files = readdir($dh);
-    my @services = (grep { $_ =~ m/^[^\.]*\.yml$/ && -f "$Genoring::MODULES_DIR/$module/services/$_" } @service_files);
     my @service_override_files = (grep { $_ =~ m/^[^\.]*\.override\.yml$/ && -f "$Genoring::MODULES_DIR/$module/services/$_" } @service_files);
     my @service_merge_files = (grep { $_ =~ m/^[^\.]*\.merge\.yml$/ && -f "$Genoring::MODULES_DIR/$module/services/$_" } @service_files);
     closedir($dh);
     # Get environment files if some.
     my @env_files = GetEnvironmentFiles($module);
-    foreach my $service_yml (@services) {
-      my $yaml = ReadYaml("$Genoring::MODULES_DIR/$module/services/$service_yml", \@env_files);
-      # Trim extension.
-      my $service = substr($service_yml, 0, -4);
+    my @services = @{GetModuleServices($module)};
+    foreach my $service (@services) {
+      my $service_path = "$Genoring::MODULES_DIR/$module/services/$service.yml";
+      if (!-f $service_path) {
+        $service_path = "$Genoring::MODULES_DIR/$module/services/alt/$service.yml";
+      }
+      my $yaml = ReadYaml($service_path, \@env_files);
       $services{$service} = {
         'version' => $module_info->{'version'} || '',
         'module' => $module,
@@ -2720,10 +2722,110 @@ B<Return>: (nothing)
 
 =cut
 
+sub UpgradeFrameworkAlpha8 {
+  my $modules = GetModules();
+  foreach my $module (@$modules) {
+    my $module_config = GetModuleConf($module);
+    $module_config->{'services'} ||= {};
+
+    my $services_dir = File::Spec->catdir($Genoring::MODULES_DIR, $module, 'services');
+    if (-d $services_dir) {
+      opendir(my $dh, $services_dir)
+        or die "ERROR: UpgradeFrameworkAlpha8: Failed to list '$services_dir' directory!\n$!";
+      foreach my $entry (readdir($dh)) {
+        next if $entry =~ /^\./;
+        if ($entry =~ /^(.*)\.yml\.dis$/) {
+          my $service = $1;
+          my $old_path = File::Spec->catfile($services_dir, $entry);
+          my $new_path = File::Spec->catfile($services_dir, "$service.yml");
+          if (-e $new_path) {
+            unlink($old_path) || die "ERROR: UpgradeFrameworkAlpha8: Failed to remove legacy disabled service '$old_path'!\n$!";
+          }
+          else {
+            rename($old_path, $new_path)
+              or die "ERROR: UpgradeFrameworkAlpha8: Failed to restore legacy disabled service '$old_path'!\n$!";
+          }
+          $module_config->{'services'}->{$service} ||= {};
+          $module_config->{'services'}->{$service}->{'status'} = 'disabled';
+        }
+        elsif ($entry =~ /^(.*)\.yml$/) {
+          my $service = $1;
+          $module_config->{'services'}->{$service} ||= {};
+          $module_config->{'services'}->{$service}->{'status'} ||= 'enabled';
+        }
+      }
+      closedir($dh);
+    }
+
+    my $alt_dir = File::Spec->catdir($services_dir, 'alt');
+    if (-d $alt_dir) {
+      opendir(my $dh, $alt_dir)
+        or die "ERROR: UpgradeFrameworkAlpha8: Failed to list '$alt_dir' directory!\n$!";
+      foreach my $entry (readdir($dh)) {
+        next if $entry =~ /^\./;
+        if ($entry =~ /^(.*)\.yml\.alt$/) {
+          my $service = $1;
+          my $old_path = File::Spec->catfile($alt_dir, $entry);
+          my $new_path = File::Spec->catfile($alt_dir, "$service.yml");
+          if (-e $new_path) {
+            unlink($old_path) || die "ERROR: UpgradeFrameworkAlpha8: Failed to remove legacy alternative service '$old_path'!\n$!";
+          }
+          else {
+            rename($old_path, $new_path)
+              or die "ERROR: UpgradeFrameworkAlpha8: Failed to restore legacy alternative service '$old_path'!\n$!";
+          }
+          $module_config->{'services'}->{$service} ||= {};
+          $module_config->{'services'}->{$service}->{'status'} ||= 'enabled';
+        }
+      }
+      closedir($dh);
+    }
+
+    if ($module_config->{'services'}) {
+      foreach my $service (keys(%{$module_config->{'services'}})) {
+        $module_config->{'services'}->{$service}->{'status'} ||= 'enabled';
+      }
+    }
+
+    SetModuleConf($module, $module_config);
+  }
+
+  ClearCache('modules');
+  ClearCache('services');
+}
+
+
+=pod
+
+=head2 UpgradeFramework
+
+B<Description>: Upgrades the GenoRing framework.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $current_version: (string) (R)
+
+=item $new_version: (string) (R)
+
+A version string of the new framework to use.
+
+A version string of the current framework in use.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub UpgradeFramework {
 
   my ($current_version, $new_version) = @_;
   my $run_hooks = 1;
+  if (CompareVersions($current_version || $Genoring::GENORING_VERSION, '1.0-alpha8') <= 0) {
+    UpgradeFrameworkAlpha8();
+  }
   # @todo Add support for Git "dev" qualifier (not tagged).
   # Perform a backup of GenoRing files.
   my $context = PrepareOperations();
@@ -3271,69 +3373,25 @@ sub EnableAlternative {
       die "ERROR: Cannot enable an alternative on an already installed module ($module). You must uninstall the module first.\n";
     }
 
-    # Ensure directory permissions.
-    if (!-w "$Genoring::MODULES_DIR/$module/services") {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': the service directory ($Genoring::MODULES_DIR/$module/services) is write-protected.\n";
-    }
-
-    # Make sure services have not been already altered.
     my $alternative = $alternatives->{$alternative_name};
-    my (@missing_services, @disabled_services);
+    my @missing_services;
     foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-      if (-e "$Genoring::MODULES_DIR/$module/services/$old_service.yml.dis") {
-        push(@disabled_services, $old_service);
-      }
       if (!-e "$Genoring::MODULES_DIR/$module/services/alt/$old_service.yml") {
         push(@missing_services, $old_service);
       }
     }
-    if (@disabled_services) {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some impacted services have already been changed by another alteration (services: " . join(', ', @disabled_services) . ").\n";
-    }
-    my @added_services;
-    foreach my $new_service (keys(%{$alternative->{'add'} || {}})) {
-      if (-e "$Genoring::MODULES_DIR/$module/services/$new_service.yml") {
-        push(@added_services, $new_service);
-      }
+    foreach my $new_service (keys(%{$alternative->{'add'} || {}}), keys(%{$alternative->{'substitue'} || {}})) {
       if (!-e "$Genoring::MODULES_DIR/$module/services/alt/$new_service.yml") {
         push(@missing_services, $new_service);
       }
     }
-    if (@added_services) {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some new services have already been added by another alteration (services: " . join(', ', @added_services) . ").\n";
-    }
     if (@missing_services) {
-      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some new service definitions are missing (services: " . join(', ', @missing_services) . ").\n";
+      die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': some service definitions are missing (services: " . join(', ', @missing_services) . ").\n";
     }
 
-    # Change service files and keep track of change made.
-    my (@renamed, @copied);
-    eval {
-      foreach my $to_rename (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-        if (!rename("$Genoring::MODULES_DIR/$module/services/$to_rename.yml", "$Genoring::MODULES_DIR/$module/services/$to_rename.yml.dis")) {
-          die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': service '$to_rename' could not be replaced/removed.\n$!";
-        }
-        push(@renamed, $to_rename);
-      }
-      foreach my $to_add (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'add'} || {}})) {
-        if (!copy("$Genoring::MODULES_DIR/$module/services/alt/$to_add.yml", "$Genoring::MODULES_DIR/$module/services/$to_add.yml")) {
-          die "ERROR: Cannot enable alternative '$alternative_name' on module '$module': service '$to_add' could not be added/replaced.\n$!";
-        }
-        push(@copied, $to_add);
-      }
-    };
-    if ($@) {
-      # Undo changes.
-      foreach my $to_remove (@copied) {
-        # Remove added files.
-        unlink("$Genoring::MODULES_DIR/$module/services/$to_remove.yml");
-      }
-      foreach my $to_restore (@renamed) {
-        # Revert renaming.
-        rename("$Genoring::MODULES_DIR/$module/services/$to_restore.yml.dis", "$Genoring::MODULES_DIR/$module/services/$to_restore.yml");
-      }
-      die $@;
-    }
+    my $module_config = GetModuleConf($module);
+    $module_config->{'alternative'} = $alternative_name;
+    SetModuleConf($module, $module_config);
   }
   else {
     die "ERROR: alternative '$alternative_name' not found for module '$module'.\n";
@@ -3379,47 +3437,10 @@ sub DisableAlternative {
       die "ERROR: Cannot disable an alternative on an already installed module ($module). You must uninstall the module first.\n";
     }
 
-    # Ensure directory permissions.
-    if (!-w "$Genoring::MODULES_DIR/$module/services") {
-      die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': the service directory ($Genoring::MODULES_DIR/$module/services) is write-protected.\n";
-    }
-
-    # Make sure services have already been altered.
-    my $alternative = $alternatives->{$alternative_name};
-    my @missing_services;
-    foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-      if (!-e "$Genoring::MODULES_DIR/$module/services/alt/$old_service.yml.dis") {
-        push(@missing_services, $old_service);
-      }
-    }
-    if (@missing_services) {
-      die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': some previous service definitions are missing (services: " . join(', ', @missing_services) . ").\n";
-    }
-
-    # Change service files and keep track of change made.
-    my (@renamed);
-    eval {
-      foreach my $to_remove (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'add'} || {}})) {
-        if (-e "$Genoring::MODULES_DIR/$module/services/$to_remove.yml"
-          && !unlink("$Genoring::MODULES_DIR/$module/services/$to_remove.yml")
-        ) {
-          die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': altered service '$to_remove' could not be removed.\n$!";
-        }
-      }
-      foreach my $to_rename (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
-        if (!rename("$Genoring::MODULES_DIR/$module/services/$to_rename.yml.dis", "$Genoring::MODULES_DIR/$module/services/$to_rename.yml")) {
-          die "ERROR: Cannot disable alternative '$alternative_name' on module '$module': service '$to_rename' could not be put back.\n$!";
-        }
-        push(@renamed, $to_rename);
-      }
-    };
-    if ($@) {
-      # Undo changes.
-      foreach my $to_restore (@renamed) {
-        # Revert renaming.
-        rename("$Genoring::MODULES_DIR/$module/services/$to_restore.yml", "$Genoring::MODULES_DIR/$module/services/$to_restore.yml.dis");
-      }
-      die $@;
+    my $module_config = GetModuleConf($module);
+    if ($module_config->{'alternative'} && ($module_config->{'alternative'} eq $alternative_name)) {
+      delete($module_config->{'alternative'});
+      SetModuleConf($module, $module_config);
     }
   }
   else {
@@ -3488,22 +3509,12 @@ sub ToExternalService {
     die "ERROR: Turn docker service into local service: the given service does not exist or is not enabled!\n";
   }
   my $module = $services->{$service};
-  # @todo Refactoring: we should NOT rename the service into ".dis" as it
-  # prevents multiple instances to work properly (initialisation).
-  # Instead, the service should be marked as external into config.yml and not
-  # be used in docker-compose.yml file generation.
-  # Disable the service.
-  if (-e "$Genoring::MODULES_DIR/$module/services/alt/$service.yml.dis") {
-    # Using an alternative, remove it.
-    if (!unlink("$Genoring::MODULES_DIR/$module/services/$service.yml")) {
-      die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
-    }
-  }
-  else {
-    if (!rename("$Genoring::MODULES_DIR/$module/services/$service.yml", "$Genoring::MODULES_DIR/$module/services/$service.yml.dis")) {
-      die "ERROR: Cannot disable module '$module' service '$service'.\n$!";
-    }
-  }
+
+  my $module_config = GetModuleConf($module);
+  $module_config->{'external_services'} ||= {};
+  $module_config->{'external_services'}->{$service} = $ip;
+  SetModuleConf($module, $module_config);
+
   # Append replacing host to "extra_hosts".
   my $extra_fh;
   if (open($extra_fh, '>>:utf8', $Genoring::EXTRA_HOSTS)) {
@@ -3547,25 +3558,64 @@ sub ToGenoringService {
   if (!$service) {
     die "ERROR: Turn back local service into docker service: no service name provided!\n";
   }
-  my $services = GetServices();
-  if ($services->{$service}) {
-    die "ERROR: Turn local service into docker service: the given service already exist as a docker service!\n";
+
+  my $module;
+  foreach my $candidate (@{GetModules(1)}) {
+    my $module_conf = GetModuleConf($candidate);
+    if (exists($module_conf->{'external_services'}->{$service})) {
+      $module = $candidate;
+      last;
+    }
+  }
+  if (!$module) {
+    die "ERROR: Turn back local service into docker service: the given service is not marked as external in the instance config!\n";
   }
 
-  my $module = $services->{$service};
+  my $module_config = GetModuleConf($module);
+  delete($module_config->{'external_services'}->{$service});
+  if (!keys(%{$module_config->{'external_services'} || {}})) {
+    delete($module_config->{'external_services'});
+  }
+  SetModuleConf($module, $module_config);
 
-  die "ERROR: Turn back local service into docker service: not implemented yet!\n";
-  # @todo Check if an alternative service should be used.
+  if (-f $Genoring::EXTRA_HOSTS) {
+    my $yaml = ReadYaml($Genoring::EXTRA_HOSTS);
+    my @extra_hosts;
+    if ($yaml && ('ARRAY' eq ref($yaml)) && @$yaml) {
+      foreach my $extra_host (@$yaml) {
+        if ('HASH' eq ref($extra_host)) {
+          my %filtered = %$extra_host;
+          delete($filtered{$service});
+          if (%filtered) {
+            push(@extra_hosts, \%filtered);
+          }
+        }
+        elsif ('ARRAY' eq ref($extra_host)) {
+          my @filtered = grep { !ref($_) || !($_ =~ m/^\Q$service\E:/) } @$extra_host;
+          if (@filtered) {
+            push(@extra_hosts, \@filtered);
+          }
+        }
+        else {
+          if ($extra_host !~ m/^\Q$service\E:/) {
+            push(@extra_hosts, $extra_host);
+          }
+        }
+      }
+    }
+    if (@extra_hosts) {
+      WriteYaml($Genoring::EXTRA_HOSTS, \@extra_hosts, "");
+    }
+    else {
+      unlink($Genoring::EXTRA_HOSTS);
+    }
+  }
 
   if ($alternative_name) {
-    my $alternatives = GetModuleAlternatives($module);
-
+    EnableAlternative($module, $alternative_name);
   }
 
-  # @todo Implement...
-  # Mark the service as enabled again.
-  # Remove service from extra_hosts.
-  # GenerateDockerComposeFile();
+  GenerateDockerComposeFile();
 }
 
 
@@ -3934,6 +3984,7 @@ sub ApplyLocalHooks {
       # Get module environment variables.
       my @env_files = GetEnvironmentFiles($module);
       my %module_env = (
+        'COMPOSE_FILE' => $ENV{COMPOSE_FILE},
         'COMPOSE_PROJECT_NAME' => $ENV{COMPOSE_PROJECT_NAME},
         'COMPOSE_PROFILES' => $ENV{COMPOSE_PROFILES},
         'GENORING_HOST' => $ENV{GENORING_HOST},
@@ -3965,6 +4016,7 @@ sub ApplyLocalHooks {
         }
       }
 
+      my $output = '';
       eval {
         # Temporarily add environment variables.
         local %ENV;
@@ -3972,7 +4024,7 @@ sub ApplyLocalHooks {
         if ($g_debug) {
           print "DEBUG: Using environment variables:\n" . Dumper([\%ENV]);
         }
-        Run(
+        $output = Run(
           "perl $hook_script $args",
           "Failed to process $module module hook $hook_name!",
           1,
@@ -3981,10 +4033,13 @@ sub ApplyLocalHooks {
       };
       if ($@) {
         $errors->{$module} = $@;
-        print "  Failed.\n";
+        print "  Failed.\n$@\n";
       }
       else {
         print "  OK.\n";
+        if ($g_debug || $g_flags->{'verbose'}) {
+          print "  $module module hook $hook_name output:\n--------------------------------------------------------------------------------\n$output\n--------------------------------------------------------------------------------\n";
+        }
       }
     }
   }
@@ -4782,30 +4837,90 @@ sub GetModuleServices {
     die "ERROR: GetModuleServices: No module name provided!";
   }
 
-  # Get all available services.
-  my @services;
-  if (-d "$Genoring::MODULES_DIR/$module/services") {
-    if (opendir(my $dh, "$Genoring::MODULES_DIR/$module/services")) {
-      if (!$include || ('enabled' eq $include) || ('all' eq $include)) {
-        push(@services, map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/services/$_" } readdir($dh)));
-      }
-      if ($include) {
-         if (('disabled' eq $include) || ('all' eq $include)) {
-          push(@services, map { s/\.yml\.dis$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml\.dis$/ && -r "$Genoring::MODULES_DIR/$module/services/$_" } readdir($dh)));
+  my $module_config = GetModuleConf($module);
+  my $external_services = $module_config->{'external_services'} || {};
+  my $active_alternative = $module_config->{'alternative'};
+  my $service_statuses = $module_config->{'services'} || {};
+  my $services_dir = File::Spec->catdir($Genoring::MODULES_DIR, $module, 'services');
+  my $alt_dir = File::Spec->catdir($services_dir, 'alt');
+  my %services;
+  my @services_list;
+
+  my $is_service_disabled = sub {
+    my ($service_name) = @_;
+    my $status = $service_statuses->{$service_name}->{'status'} || 'enabled';
+    return ('disabled' eq $status);
+  };
+
+  if (-d $services_dir) {
+    if (opendir(my $dh, $services_dir)) {
+      my @service_files = grep { $_ =~ m/^[^\.].*\.yml$/ && -r File::Spec->catfile($services_dir, $_) } readdir($dh);
+      foreach my $service_yml (@service_files) {
+        my $service = substr($service_yml, 0, -4);
+        if (($service_statuses->{$service} && ('disabled' eq ($service_statuses->{$service}->{'status'} || 'enabled')))
+          || $is_service_disabled->($service)
+        ) {
+          next;
         }
-        if (('alt' eq $include) || ('all' eq $include)) {
-          push(@services,  map { s/\.yml$//; $_ } (grep { $_ =~ m/^[^\.].*\.yml$/ && -r "$Genoring::MODULES_DIR/$module/services/alt/$_" } readdir($dh)));
-        }
+        $services{$service} = $service;
       }
-      my %seen = map {$_ => $_} @services;
-      @services = sort values(%seen);
+      closedir($dh);
     }
     else {
-      warn "WARNING: GetModuleServices: Failed to list '$Genoring::MODULES_DIR/$module/services' directory!\n$!";
+      warn "WARNING: GetModuleServices: Failed to list '$services_dir' directory!\n$!";
     }
   }
 
-  return \@services;
+  if ($active_alternative) {
+    my $alternatives = GetModuleAlternatives($module);
+    my $alternative = $alternatives->{$active_alternative};
+    if ($alternative) {
+      foreach my $old_service (keys(%{$alternative->{'substitue'} || {}}), keys(%{$alternative->{'remove'} || {}})) {
+        delete($services{$old_service});
+      }
+      foreach my $new_service (values(%{$alternative->{'substitue'} || {}}), @{$alternative->{'add'} || []}) {
+        if (-r File::Spec->catfile($alt_dir, "$new_service.yml")) {
+          $services{$new_service} = $new_service;
+        }
+      }
+    }
+  }
+
+  foreach my $external_service (keys(%$external_services)) {
+    delete($services{$external_service});
+  }
+
+  if (!$include || ('enabled' eq $include) || ('all' eq $include)) {
+    @services_list = sort keys(%services);
+  }
+
+  if ($include) {
+    if (('disabled' eq $include) || ('all' eq $include)) {
+      foreach my $service (sort keys(%$service_statuses)) {
+        if ('disabled' eq ($service_statuses->{$service}->{'status'} || 'enabled')) {
+          push(@services_list, $service);
+        }
+      }
+      foreach my $external_service (keys(%$external_services)) {
+        push(@services_list, $external_service);
+      }
+    }
+    if (('alt' eq $include) || ('all' eq $include)) {
+      if (-d $alt_dir) {
+        opendir(my $dh, $alt_dir) || die "ERROR: GetModuleServices: Failed to list '$alt_dir' directory!\n$!";
+        foreach my $alt_yml (grep { $_ =~ m/^[^\.].*\.yml$/ && -r File::Spec->catfile($alt_dir, $_) } readdir($dh)) {
+          my $service = substr($alt_yml, 0, -4);
+          push(@services_list, $service);
+        }
+        closedir($dh);
+      }
+    }
+  }
+
+  my %seen = map { $_ => $_ } @services_list;
+  @services_list = sort values(%seen);
+
+  return \@services_list;
 }
 
 
@@ -6383,11 +6498,11 @@ B<ArgsCount>: 2
 
 =over 4
 
-=item $source: (string) (R)
+=item $source_dir: (string) (R)
 
 The source directory path.
 
-=item $target: (string) (R)
+=item $target_dir: (string) (R)
 
 The target directory path.
 
@@ -6397,43 +6512,43 @@ B<Return>: (nothing)
 
 B<Example>:
 
-    CopyDirectory($source, $target);
+    CopyDirectory($source_dir, $target_dir);
 
 =cut
 
 sub CopyDirectory {
-  my ($source, $target) = @_;
-  if (opendir(my $dh, $source)) {
-    if (!-d $target) {
-      if (!mkdir $target) {
-        die "ERROR: Failed to create target directory '$target'!\n$!\n";
+  my ($source_dir, $target_dir) = @_;
+  if (opendir(my $dh, $source_dir)) {
+    if (!-d $target_dir) {
+      if (!mkdir $target_dir) {
+        die "ERROR: Failed to create target directory '$target_dir'!\n$!\n";
       }
     }
     foreach my $item (readdir($dh)) {
       # Skip "." and "..".
-      if ($item =~ m/^\.\.?$/) {
-        next;
-      }
-      if (-d "$source/$item") {
+      next if $item eq '.' || $item eq '..';
+      my $source_file = File::Spec->catfile($source_dir, $item);
+      my $target_file = File::Spec->catfile($target_dir, $item);
+      if (-d $source_file) {
         # Sub-directory.
-        if (!-e "$target/$item") {
-          if (!mkdir "$target/$item") {
-            warn "WARNING: Failed to create directory '$target/$item'!\n$!\n";
+        if (!-e $target_file) {
+          if (!mkdir $target_file) {
+            warn "WARNING: Failed to create directory '$target_dir/$item'!\n$!\n";
           }
         }
-        CopyDirectory("$source/$item", "$target/$item");
+        CopyDirectory($source_file, $target_file);
       }
       else {
         # File.
-        if (!copy("$source/$item", "$target/$item")) {
-          warn "WARNING: Failed to copy '$source/$item'.\n$!\n";
+        if (!copy($source_file, $target_file)) {
+          warn "WARNING: Failed to copy '$source_dir/$item'.\n$!\n";
         }
       }
     }
     closedir($dh);
   }
   else {
-    warn "WARNING: Failed to access '$source' directory!\n$!";
+    warn "WARNING: Failed to access '$source_dir' directory!\n$!";
   }
 }
 
@@ -6442,7 +6557,7 @@ sub CopyDirectory {
 
 =head2 CopyFiles
 
-B<Description>: Copy a file from the between directories.
+B<Description>: Copy files between directories.
 
 B<ArgsCount>: 2-5
 
@@ -6998,8 +7113,5 @@ Date 27/10/2025
 GenoRing documentation.
 
 =cut
-
-# Init config automatically.
-GetConfig();
 
 return 1; # package return

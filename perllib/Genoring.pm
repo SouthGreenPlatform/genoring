@@ -32,8 +32,9 @@ PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
 RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
 Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
-ToExternalService UninstallModule Update Upgrade WaitModulesReady
-IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping IsInstalled
+ToExternalService UninstallModule Update Upgrade UpgradeFrameworkAlpha8
+WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
+GetVolumeMapping IsInstalled
 
 =head1 DESCRIPTION
 
@@ -47,9 +48,9 @@ require 5.8.0;
 use strict;
 use warnings;
 use utf8;
+use Genoring::GenoringFunc;
 use Genoring::GenoringConst;
 use Genoring::GenoringEnv;
-use Genoring::GenoringFunc;
 
 use base qw(Exporter);
 our @EXPORT = qw(
@@ -71,11 +72,16 @@ our @EXPORT = qw(
   RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
   Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
   SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
-  ToExternalService UninstallModule Update Upgrade WaitModulesReady
-  IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping IsInstalled
+  ToExternalService UninstallModule Update Upgrade UpgradeFrameworkAlpha8
+  WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
+  GetVolumeMapping IsInstalled
 );
 # Init $NULL.
 $Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';
+
+# Init config automatically.
+GetConfig();
+
 
 
 

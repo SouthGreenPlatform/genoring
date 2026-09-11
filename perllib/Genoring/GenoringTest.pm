@@ -37,6 +37,8 @@ use IO::Socket::INET;
 use IPC::Open3 qw(open3);
 use POSIX qw(strftime WNOHANG);
 use Time::HiRes qw(sleep time);
+use lib "..";
+use Genoring;
 
 use base qw(Exporter);
 our @EXPORT = qw(
@@ -168,6 +170,8 @@ sub InitializeInstance {
   my $instance_dir = File::Spec->catdir($TEMP_TEST_DIR, $instance_name);
   my $default_env_dir = File::Spec->catdir($TEST_DIR, 'data', 'default_env');
   my $instance_env_dir = File::Spec->catdir($instance_dir, 'env');
+  make_path($instance_env_dir)
+    unless -d $instance_env_dir;
   CopyDirectory($default_env_dir, $instance_env_dir);
 
   SetAvailablePort($instance_env_dir);
@@ -178,53 +182,6 @@ sub InitializeInstance {
   };
 
   return RunGenoring($instance_name, ['start'], $io);
-}
-
-
-=pod
-
-=head2 CopyDirectory
-
-B<Description>: Copies the content of a source directory into a target
-directory.
-
-B<ArgsCount>: 2
-
-=over 4
-
-=item $source_dir: (string) (R)
-
-Source directory.
-
-=item $destination_dir: (strint) (R)
-
-Target directory.
-
-=back
-
-B<Return>: (nothing)
-
-=cut
-
-sub CopyDirectory {
-  my ($source_dir, $destination_dir) = @_;
-  opendir(my $handle, $source_dir)
-    or die "ERROR: Unable to read directory '$source_dir': $!\n";
-  make_path($destination_dir)
-    unless -d $destination_dir;
-  while (my $element = readdir($handle)) {
-    next if $element eq '.' || $element eq '..';
-    my $source = File::Spec->catfile($source_dir, $element);
-    my $destination = File::Spec->catfile($destination_dir, $element);
-    if (-d $source) {
-      CopyDirectory($source, $destination);
-    }
-    elsif (-f $source) {
-      copy($source, $destination)
-        or die "ERROR: Unable to copy '$source' to '$destination': $!\n";
-    }
-  }
-  closedir($handle);
 }
 
 
@@ -531,10 +488,17 @@ sub RunGenoring {
 
   my $instance_dir = abs_path(File::Spec->catfile($TEMP_TEST_DIR, $instance_name));
   my $genoring_script = File::Spec->catfile($GENORING_DIR, 'genoring.pl');
-  local $ENV{'COMPOSE_PROJECT_NAME'} = $instance_name;
-  local $ENV{'PWD'} = $instance_dir;
   # Run into instance directory.
   chdir($instance_dir) or die "ERROR: Unable to enter instance directory: $!";
+  # Prepare environment variables for the instance.
+  local $ENV{'PWD'} = $instance_dir;
+  local $ENV{'COMPOSE_FILE'} = undef;
+  local $ENV{'COMPOSE_PROJECT_NAME'} = $instance_name;
+  local $ENV{'COMPOSE_PROFILES'} = undef;
+  local $ENV{'GENORING_HOST'} = undef;
+  local $ENV{'GENORING_PORT'} = undef;
+  local $ENV{'GENORING_VOLUMES_DIR'} = undef;
+  local $ENV{'GENORING_NO_EXPOSED_VOLUMES'} = undef;
 
   my @command = ($^X, $genoring_script, @$args);
   my ($stdout, $stderr) = ('', '');
