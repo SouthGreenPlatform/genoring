@@ -19,7 +19,7 @@ ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
 CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
 CompareVersions Build BuildMissingContainers Confirm
 CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
-CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
+CreateVolumeDirectory DeleteAllContainers DisableAlternative
 DisableModule EnableAlternative EnableModule EndOperations ExportVolume
 GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
 GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
@@ -59,7 +59,7 @@ our @EXPORT = qw(
   CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
   CompareVersions Build BuildMissingContainers Confirm
   CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
-  CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
+  CreateVolumeDirectory DeleteAllContainers DisableAlternative
   DisableModule EnableAlternative EnableModule EndOperations ExportVolume
   GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
   GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives

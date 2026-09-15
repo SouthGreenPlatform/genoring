@@ -34,7 +34,7 @@ if (!$ENV{'GENORING_NO_EXPOSED_VOLUMES'}) {
   if (!-d $Genoring::VOLUMES_DIR . '/www') {
     my $www_src_path = File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'www');
     my $www_vol_path = File::Spec->catfile($Genoring::VOLUMES_DIR, 'www');
-    DirCopy($www_src_path, $www_vol_path);
+    CopyDirectory($www_src_path, $www_vol_path);
   }
 
   CreateVolumeDirectory('data');

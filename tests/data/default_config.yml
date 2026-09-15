@@ -4,7 +4,7 @@ modules:
     status: enabled
     version: '1.1'
 no_exposed_volumes: ''
-project: testrr3msf2r
+project: testxxxxxxxx
 version: 1.0-alpha8
 volume_mapping:
   genoring-backups-volume: ${GENORING_VOLUMES_DIR}/backups

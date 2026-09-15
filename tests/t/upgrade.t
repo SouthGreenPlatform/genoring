@@ -86,6 +86,42 @@ $Genoring::MODULES_DIR = $previous_modules_dir;
 $Genoring::GENORING_DIR = $previous_genoring_dir;
 remove_tree($upgrade_tmp_dir) if -d $upgrade_tmp_dir;
 
+# Migration regression: legacy .yml.dis/.yml.alt service files should become config-based service states.
+my $legacy_upgrade_dir = File::Spec->catdir($Genoring::GenoringTest::TEST_DIR, $Genoring::GenoringTest::TEMP_TEST_DIR, 'upgrade-alpha8');
+remove_tree($legacy_upgrade_dir) if -d $legacy_upgrade_dir;
+my $legacy_module_dir = File::Spec->catdir($legacy_upgrade_dir, 'modules', 'testmodule', 'services');
+make_path($legacy_module_dir);
+open(my $svc_fh, '>', File::Spec->catfile($legacy_module_dir, 'legacy-service.yml')) or die "Unable to create legacy service: $!";
+print {$svc_fh} "services: {}\n";
+close($svc_fh);
+open(my $disabled_fh, '>', File::Spec->catfile($legacy_module_dir, 'legacy-disabled.yml.dis')) or die "Unable to create legacy disabled service: $!";
+print {$disabled_fh} "services: {}\n";
+close($disabled_fh);
+open(my $alt_fh, '>', File::Spec->catfile($legacy_module_dir, 'legacy-alt.yml.alt')) or die "Unable to create legacy alt service: $!";
+print {$alt_fh} "services: {}\n";
+close($alt_fh);
+my $legacy_config_file = File::Spec->catfile($legacy_upgrade_dir, 'config.yml');
+open(my $config_fh, '>', $legacy_config_file) or die "Unable to create config for alpha8 migration: $!";
+print {$config_fh} "modules:\n  testmodule:\n    status: enabled\n    version: '1.0'\n";
+close($config_fh);
+my $previous_dir = getcwd();
+chdir($legacy_upgrade_dir) or die "Unable to chdir to $legacy_upgrade_dir: $!";
+my $previous_modules_dir2 = $Genoring::MODULES_DIR;
+my $previous_config_file = $Genoring::CONFIG_FILE;
+$Genoring::MODULES_DIR = File::Spec->catdir($legacy_upgrade_dir, 'modules');
+$Genoring::CONFIG_FILE = 'config.yml';
+UpgradeFrameworkAlpha8();
+ok(-f File::Spec->catfile($legacy_module_dir, 'legacy-disabled.yml'), 'Legacy disabled service file restored');
+ok(!-e File::Spec->catfile($legacy_module_dir, 'legacy-disabled.yml.dis'), 'Legacy disabled suffix removed');
+ok(!-e File::Spec->catfile($legacy_module_dir, 'legacy-alt.yml.alt'), 'Legacy alternative suffix removed');
+my $legacy_module_conf = GetModuleConf('testmodule');
+ok($legacy_module_conf->{'services'}->{'legacy-disabled'}->{'status'} eq 'disabled', 'Disabled service state stored in config');
+ok($legacy_module_conf->{'services'}->{'legacy-alt'}->{'status'} eq 'enabled', 'Alternative service state stored in config');
+$Genoring::MODULES_DIR = $previous_modules_dir2;
+$Genoring::CONFIG_FILE = $previous_config_file;
+chdir($previous_dir) or die "Unable to restore cwd: $!";
+remove_tree($legacy_upgrade_dir) if -d $legacy_upgrade_dir;
+
 # Cleanups test instance.
 SKIP: {
   skip 'Test instance cleaning disabled', 1 if $ENV{'GENORING_TEST_KEEP_INSTANCES'};

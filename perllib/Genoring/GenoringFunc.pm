@@ -68,10 +68,6 @@ B<$g_flags>: (hash ref)
 
 Contains flags set on command line with their values if set or "1" otherwise.
 
-B<$g_project>: (string)
-
-Contains the global project (instance) name.
-
 B<$_g_config>: (hash ref)
 
 Cache variable for global config. Should not be used directly.
@@ -104,7 +100,6 @@ used, insted use IsGitAvailable().
 our $g_debug = $Genoring::DEBUG;
 our $g_exec_prefix = '';
 our $g_flags = {};
-our $g_project;
 our $_g_config = undef;
 our $_g_modules = {};
 our $_g_services = {};
@@ -3707,7 +3702,7 @@ sub Backup {
       warn "WARNING: Failed to backup $Genoring::EXTRA_HOSTS.\n$!";
     }
     if (-d './env'
-      && !DirCopy('env', "$backupdir/config/env")
+      && !CopyDirectory('env', "$backupdir/config/env")
     ) {
       warn "WARNING: Failed to backup 'env' directory.\n$!";
     }
@@ -3836,7 +3831,7 @@ sub Restore {
       warn "WARNING: Failed to restore $Genoring::EXTRA_HOSTS.\n$!";
     }
     if (-d "$backupdir/config/env"
-      && !DirCopy("$backupdir/config/env", 'env')
+      && !CopyDirectory("$backupdir/config/env", 'env')
     ) {
       warn "WARNING: Failed to restore 'env' directory.\n$!";
     }
@@ -4548,7 +4543,11 @@ The GenoRing config.
 =cut
 
 sub GetConfig {
-  if (!$_g_config || !%$_g_config) {
+  # Load config if not set or if just the project name is set.
+  if (!$_g_config
+      || !%$_g_config
+      || ((1 == %$_g_config) && exists($_g_config->{'project'}))
+  ) {
     # Load config.
     if (-f $Genoring::CONFIG_FILE) {
       my $yaml = ReadYaml($Genoring::CONFIG_FILE);
@@ -4575,12 +4574,20 @@ B<Return>: (nothing)
 =cut
 
 sub SaveConfig {
+  if (!$_g_modules || !$_g_modules->{'config'}) {
+    # Initialize module cache.
+    GetModulesConfig();
+  }
+  if (!$_g_config) {
+    # Initialize config cache.
+    GetConfig();
+  }
   my $config = {
     'project' => GetProjectName(),
     'version' => $Genoring::GENORING_VERSION,
-    'no_exposed_volumes' => $g_flags->{'no-exposed-volumes'},
+    'no_exposed_volumes' => $g_flags->{'no-exposed-volumes'} || '',
     'modules' => $_g_modules->{'config'},
-    'volume_mapping' => $_g_config->{'volume_mapping'} || {},
+    'volume_mapping' => $_g_config->{'volume_mapping'} // {},
   };
   WriteYaml($Genoring::CONFIG_FILE, $config, "# GenoRing config file\n");
 }
@@ -5148,7 +5155,7 @@ sub GetModuleVolumes {
       }
     }
   }
-  return \@volumes;
+  return [sort @volumes];
 }
 
 
@@ -5463,23 +5470,18 @@ The project name.
 =cut
 
 sub GetProjectName {
-  if (!$g_project) {
-    # Initialize with default project name.
-    $g_project = 'genoring';
-
-    # Try to get project name from config first,
+  if (!$_g_config || !$_g_config->{'project'}) {
+    $_g_config ||= {};
+    # Try to get project name from config first.
     my $config = GetConfig();
-    if (exists($config->{'project'}) && $config->{'project'}) {
-      $g_project = $config->{'project'};
-    }
-    else {
+    if (!exists($config->{'project'}) || !$config->{'project'}) {
       # If not in config, try from docker compose file.
       my $dc_fh;
       if (open($dc_fh, '<:utf8', $Genoring::DOCKER_COMPOSE_FILE)) {
         # Get project name from docker compose file if available.
         while (my $line = <$dc_fh>) {
           if ($line =~ /#\s*COMPOSE_PROJECT_NAME=(\S+)/) {
-            $g_project = $1;
+            $_g_config->{'project'} = $1;
             last;
           }
         }
@@ -5488,11 +5490,11 @@ sub GetProjectName {
           && ($ENV{'COMPOSE_PROJECT_NAME'} =~ m/\w/)
       ) {
         # Otherwise, try to get it form environment variable.
-        $g_project = $ENV{'COMPOSE_PROJECT_NAME'};
+        $_g_config->{'project'} = $ENV{'COMPOSE_PROJECT_NAME'};
       }
     }
   }
-  return $g_project;
+  return $_g_config->{'project'};
 }
 
 
@@ -5780,7 +5782,8 @@ YAML data structure.
 
 An optional header to add at the begining of the YAML file.
 By default, the initial "---\n" is removed. If it is needed, set the $header
-to "---\n". The $header can also be used to add comments.
+to "---\n". The $header can also be used to add comments. Don't forget to add
+new lines at the end of comments.
 
 =back
 
@@ -6259,11 +6262,11 @@ corresponding local path in the GenoRing volume directory.
 =cut
 
 sub GetVolumeMapping {
-  GetConfig();
-  if (exists($_g_config->{'volume_mapping'})
-      && ('HASH' eq ref($_g_config->{'volume_mapping'}))
+  my $config = GetConfig();
+  if (exists($config->{'volume_mapping'})
+      && ('HASH' eq ref($config->{'volume_mapping'}))
   ) {
-    return $_g_config->{'volume_mapping'};
+    return $config->{'volume_mapping'};
   }
   return {};
 }
@@ -6359,80 +6362,6 @@ sub HandleShellExecutionError
 
 =pod
 
-=head2 Dircopy
-
-B<Description>: Copy a directory content into another recursively.
-
-B<ArgsCount>: 2
-
-=over 4
-
-=item $source: (string) (R)
-
-The source directory.
-
-=item $target: (string) (R)
-
-The target directory.
-
-=back
-
-B<Return>: (bool)
-
-1 if all was copied without errors.
-
-=cut
-
-sub DirCopy {
-  my ($source, $target) = @_;
-  my $success = 1;
-  if (opendir(my $dh, $source)) {
-    if (!-e $target) {
-      if (!mkdir $target) {
-        warn "WARNING: Failed to create '$target' directory!\n$!";
-        $success = 0;
-      }
-    }
-    elsif (!-d $target) {
-      warn "WARNING: Target '$target' is not a directory!\n$!";
-      $success = 0;
-    }
-    foreach my $item (readdir($dh)) {
-      # Skip "." and "..".
-      if ($item =~ m/^\.\.?$/) {
-        next;
-      }
-      if (-d "$source/$item") {
-        # Sub-directory.
-        if (!-e "$target/$item") {
-          if (!mkdir "$target/$item") {
-            warn "WARNING: Failed to create '$target/$item' directory!\n$!";
-            $success = 0;
-          }
-        }
-        if (!DirCopy("$source/$item", "$target/$item")) {
-          $success = 0;
-        }
-      }
-      else {
-        # File.
-        if (!copy("$source/$item", "$target/$item")) {
-          $success = 0;
-        }
-      }
-    }
-    closedir($dh);
-  }
-  else {
-    warn "WARNING: Failed to access '$source' directory!\n$!";
-    $success = 0;
-  }
-  return $success;
-}
-
-
-=pod
-
 =head2 CreateVolumeDirectory
 
 B<Description>: Recursive function to create directories in Genoring "volumes".
@@ -6508,7 +6437,9 @@ The target directory path.
 
 =back
 
-B<Return>: (nothing)
+B<Return>: (bool)
+
+1 if all was copied without errors.
 
 B<Example>:
 
@@ -6518,11 +6449,17 @@ B<Example>:
 
 sub CopyDirectory {
   my ($source_dir, $target_dir) = @_;
+  my $success = 1;
   if (opendir(my $dh, $source_dir)) {
-    if (!-d $target_dir) {
+    if (!-e $target_dir) {
       if (!mkdir $target_dir) {
-        die "ERROR: Failed to create target directory '$target_dir'!\n$!\n";
+        warn "WARNING: Failed to create target directory '$target_dir'!\n$!\n";
+        $success = 0;
       }
+    }
+    elsif (!-d $target_dir) {
+      warn "WARNING: Target '$target_dir' is not a directory!\n$!\n";
+      $success = 0;
     }
     foreach my $item (readdir($dh)) {
       # Skip "." and "..".
@@ -6534,14 +6471,18 @@ sub CopyDirectory {
         if (!-e $target_file) {
           if (!mkdir $target_file) {
             warn "WARNING: Failed to create directory '$target_dir/$item'!\n$!\n";
+            $success = 0;
           }
         }
-        CopyDirectory($source_file, $target_file);
+        if (!CopyDirectory($source_file, $target_file)) {
+          $success = 0;
+        }
       }
       else {
         # File.
         if (!copy($source_file, $target_file)) {
           warn "WARNING: Failed to copy '$source_dir/$item'.\n$!\n";
+          $success = 0;
         }
       }
     }
@@ -6549,7 +6490,9 @@ sub CopyDirectory {
   }
   else {
     warn "WARNING: Failed to access '$source_dir' directory!\n$!";
+    $success = 0;
   }
+  return $success;
 }
 
 
@@ -6818,7 +6761,9 @@ directory can be passed as a string.
 
 =back
 
-B<Return>: (nothing)
+B<Return>: (boolean)
+
+1 (true) if an error occurred, 0 (false) otherwise.
 
 B<Example>:
 
@@ -6857,6 +6802,7 @@ sub RemoveVolumeDirectories
       }
     }
   }
+  return 0;
 }
 
 
