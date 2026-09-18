@@ -27,7 +27,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 52;
+use Test::More tests => 53;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -291,6 +291,7 @@ $config->{'project'} = 'xyz';
 ClearCache();
 $config = GetConfig();
 is($config->{'project'}, $instance, 'Config saved');
+$expected_config->{'project'} = $instance;
 
 # @todo Test:
 # SetupGenoringEnvironment
@@ -457,11 +458,11 @@ is_deeply(
       'genoring-gigwa' => {
         'description' => 'The Gigwa web application part.',
         'name' => 'Gigwa Tomcat',
-        'version' => '1.0'
+        'version' => '1.0',
       },
     },
   },
-  'Gigwa module info matches expected module info'
+  'Gigwa module info matches expected module info',
 );
 
 # GetVolumes()
@@ -582,10 +583,10 @@ is_deeply(
 # RemoveDependencyFiles
 # RemoveEnvFiles
 
-# GetProjectName
+# GetProjectName()
 is(GetProjectName(), $instance, 'Got project name');
 
-# GetProfile
+# GetProfile()
 is(GetProfile(), 'dev', 'Got profile');
 
 # GetModuleConf
@@ -601,6 +602,42 @@ is(GetProfile(), 'dev', 'Got profile');
 # CreateVolumeDirectory
 # ExportVolume
 # ImportIntoVolume
+
+# InstallModule()
+my $test_output = '';
+{
+  # Mock complicated functions to not test here.
+  local *Genoring::ApplyLocalHooks = sub { return {}; };
+  local *Genoring::PrepareOperations = sub { return {}; };
+  local *Genoring::BuildMissingContainers = sub {};
+  local *Genoring::PerformLocalOperations = sub {};
+  local *Genoring::PerformContainerOperations = sub {};
+  local *Genoring::CleanupOperations = sub {};
+  local *Genoring::EndOperations = sub {};
+
+  # Mock user inputs.
+  my $test_input = "d\nd\nd\ny\n";
+  open(my $fake_stdin, '<', \$test_input) or die "ERROR: Unable to create test input stream: $!";
+  local *STDIN = *$fake_stdin;
+  # Hide STDOUT.
+  open(my $fake_stdout, '>', \$test_output) or die "ERROR: Unable to create test output stream: $!";
+  local *STDOUT = *$fake_stdout;
+  # Note: if user input queries change, disable STDIN and STDOUT redirections
+  # and run the test again to get the new queries.
+
+  $expected_config->{'modules'}->{'mongodb42'} = {
+    'version' => '1.0',
+    'status' => 'enabled',
+  };
+  # Test InstallModule().
+  InstallModule('mongodb42');
+  $config = GetConfig();
+  is_deeply(
+    $config,
+    $expected_config,
+    'MongoDB 4.2 module enabled'
+  );
+};
 
 # Cleanups test instance.
 chdir($Genoring::GenoringTest::TEST_DIR);
