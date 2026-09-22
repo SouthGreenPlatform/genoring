@@ -552,6 +552,22 @@ Report issues or support request on GenoRing Git issue queue at:
   quoting is not support. Again, in the case of 'DRUPAL_TRUSTED_HOST', you will
   have to remove the surrounding double quotes.
 
+* When trying to backup, the genoring module may fail if you added symlinks or
+  altered permissions in Drupal directories:
+  ```
+  In ArchiveDumpCommands.php line 178:
+    Iterator RecursiveIteratorIterator returned a path "/some/path" that is not in the base directory "/..."
+  ```
+  or
+  ```
+  In ArchiveDumpCommands.php line 282:
+    RecursiveDirectoryIterator::__construct(/some/path): Failed to open directory: Permission denied
+  ```
+  You may set environment variable (genoring_genoring.env)
+  DRUSH_EXCLUDE_CODE_PATHS to exclude problematic paths if you don't need to
+  backup them.
+
+
 ## Authors and acknowledgment
 
 * Valentin GUIGNON, The Alliance Bioveristy - CIAT (CGIAR), v.guignon@cgiar.org

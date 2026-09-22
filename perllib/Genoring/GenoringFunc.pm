@@ -2570,7 +2570,8 @@ sub Upgrade {
 
   my ($element) = @_;
   my $new_version = '';
-  my $current_version = $Genoring::GENORING_VERSION;
+  my $config = GetConfig();
+  my $current_version = $config->{'version'}|| $Genoring::GENORING_VERSION;
   my $module = '';
   # @todo Complete implementation. Add error checks and feedback.
   #   Implement module upgrades.
