@@ -26,7 +26,7 @@ services:
 alternatives:
   httpd:
     description: "Replaces NGINX server with Apache 2 HTTPd."
-    substitue:
+    substitute:
       genoring-proxy: genoring-proxy-httpd
 volumes:
   genoring-data-volume:

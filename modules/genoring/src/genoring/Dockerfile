@@ -83,12 +83,17 @@ RUN set -eux \
   && apt-get purge -y libc-client-dev libkrb5-dev --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
   && rm -rf /var/lib/apt/lists/*
 
-# Add PostgreSQL 16.
+# Add PostgreSQL 18.
 RUN set -eux \
   && /bin/sh -c 'printf "deb https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main\n" > /etc/apt/sources.list.d/pgdg.list' \
   && /bin/sh -c 'wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -' \
   && apt-get update && apt-get install -y --no-install-recommends postgresql-18 \
   && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# Add MariaDB client.
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends default-mysql-client \
   && rm -rf /var/lib/apt/lists/*
 
 # Add genoring user and group. Makes sure GENORING_GID and GENORING_UID are not

@@ -46,10 +46,10 @@ alternatives:
   genoring-alternative1:
     name: "Alternative 1 name"
     description: "Replaces NGINX server with Apache 2 HTTPd."
-    # substitue: Optional. The list of substitued services with their
+    # substitute: Optional. The list of substituted services with their
     # substitution service machine name. Those substitution names must
     # correspond to a YAML file in the module "services/alt/" directory.
-    substitue:
+    substitute:
       genoring-service1: genoring-alt-service1
     # add: Optional. The list of new services that are added. Those names must
     # correspond to a YAML file in the module "services/alt/" directory.

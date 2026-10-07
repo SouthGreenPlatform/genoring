@@ -20,7 +20,7 @@ genoring.pl - Manages GenoRing platform.
   | enablealt <MODULE> <SERVICE> | disablealt <MODULE> <SERVICE>
   | toexternal <SERVICE> <IP> | togenoring <SERVICE> [ALTERNATIVE]
   | update [MODULE] | upgrade [MODULE]
-  | backup [BKNAME] | restore [BKNAME] | build <MODULE> <SERVICE> [-no-cache]
+  | backup [BKNAME] | restore [BKNAME] | clearcache | build <MODULE> <SERVICE> [-no-cache]
   | shell [SERVICE] [-cmd=<COMMAND>] ]
   | exportvolume <VOLUME> [ARCHIVE.tar.gz]
   | importvolume <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
@@ -371,26 +371,38 @@ ALTERNATIVE is specified, the given service alternative will be used.
 
 =head4 Syntax
 
-  perl genoring.pl backup [BACKUP_NAME [MODULE]]
+  perl genoring.pl backup [BACKUP_NAME [MODULE[,MODULE...]]]
 
 =head4 Description
 
 Performs a general backup of the GenoRing system into a backup directory
-(volumes/backups/[BACKUP_NAME]/) or a backup of the given module data and config
-(in volumes/backups/[BACKUP_NAME]/[MODULE]/).
+(volumes/backups/[BACKUP_NAME]/), or backs up the Docker volumes and environment
+files of one or more modules into the same archive.
 
 
 =head3 restore
 
 =head4 Syntax
 
-  perl genoring.pl restore [BACKUP_NAME [MODULE]]
+  perl genoring.pl restore [BACKUP_NAME [MODULE[,MODULE...]]]
 
 =head4 Description
 
-Restores a general backup of the GenoRing system from the backup directory
-(volumes/backups/[BACKUP_NAME]/) or from a backup of the given module
-(in volumes/backups/[BACKUP_NAME]/[MODULE]/).
+Restores a general GenoRing backup from the backup directory
+(volumes/backups/[BACKUP_NAME]/), or restores the Docker volumes and environment
+files of one or more modules from that archive.
+
+
+=head3 clearcache
+
+=head4 Syntax
+
+  perl genoring.pl clearcache
+
+=head4 Description
+
+Clears caches managed by enabled modules by running their local and container
+clearcache hooks. Container hooks are run only in running services.
 
 
 =head3 update
@@ -983,6 +995,14 @@ elsif ($command =~ m/^backup$/i) {
 }
 elsif ($command =~ m/^restore$/i) {
   Restore(@arguments);
+}
+elsif ($command =~ m/^clearcache$/i) {
+  # Check if installed.
+  if (!IsInstalled()) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
+  ClearModuleCaches();
 }
 elsif ($command =~ m/^build$/i) {
   Build(@arguments);

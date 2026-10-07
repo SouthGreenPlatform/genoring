@@ -16,7 +16,7 @@ Perl5
 
 $g_debug $g_exec_prefix $g_flags $g_project
 ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
-CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
+CheckFreeSpace CheckGenoringUser CleanupOperations ClearInternalCache ClearModuleCaches
 CompareVersions Build BuildMissingContainers Confirm
 CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
 CreateVolumeDirectory DeleteAllContainers DisableAlternative
@@ -56,7 +56,7 @@ use base qw(Exporter);
 our @EXPORT = qw(
   $g_debug $g_exec_prefix $g_flags $g_project
   ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
-  CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
+  CheckFreeSpace CheckGenoringUser CleanupOperations ClearInternalCache ClearModuleCaches
   CompareVersions Build BuildMissingContainers Confirm
   CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
   CreateVolumeDirectory DeleteAllContainers DisableAlternative
@@ -74,7 +74,8 @@ our @EXPORT = qw(
   SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
   ToExternalService UninstallModule Update Upgrade UpgradeFrameworkAlpha8
   WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
-  GetVolumeMapping IsInstalled
+GetVolumeMapping IsInstalled WriteBackupManifest ReadBackupManifest
+ValidateBackupManifest
 );
 # Init $NULL.
 $Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';

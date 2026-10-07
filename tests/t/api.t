@@ -27,7 +27,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 53;
+use Test::More tests => 71;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -284,25 +284,222 @@ is_deeply(
   'Default config matches expected config'
 );
 
-# SaveConfig() && ClearCache()
+# SaveConfig() && ClearInternalCache()
 $config->{'project'} = $instance;
 SaveConfig();
 $config->{'project'} = 'xyz';
-ClearCache();
+ClearInternalCache();
 $config = GetConfig();
 is($config->{'project'}, $instance, 'Config saved');
 $expected_config->{'project'} = $instance;
 
-# @todo Test:
-# SetupGenoringEnvironment
-# GenerateDockerComposeFile
-# ParseVersion
-# CompareVersions
-# GetAvailableVersions
-# EnableAlternative
-# DisableAlternative
-# ToExternalService
-# ToGenoringService
+# ClearModuleCaches() uses the shared operation lifecycle without a backup.
+my @cache_operation_calls;
+{
+  local *Genoring::PrepareOperations = sub {
+    my ($skip_backup) = @_;
+    push(@cache_operation_calls, ['prepare', $skip_backup]);
+    return {};
+  };
+  local *Genoring::PerformLocalOperations = sub {
+    my ($context) = @_;
+    push(@cache_operation_calls, ['local', $context->{'local_hooks'}]);
+  };
+  local *Genoring::PerformContainerOperations = sub {
+    my ($context) = @_;
+    push(@cache_operation_calls, ['container', $context->{'container_hooks'}]);
+  };
+  local *Genoring::CleanupOperations = sub { push(@cache_operation_calls, ['cleanup']); };
+  local *Genoring::EndOperations = sub { push(@cache_operation_calls, ['end']); };
+
+  ClearModuleCaches();
+}
+is_deeply(
+  \@cache_operation_calls,
+  [
+    ['prepare', 1],
+    ['local', {'clearcache' => {}}],
+    ['container', {'clearcache' => {}}],
+    ['cleanup'],
+    ['end'],
+  ],
+  'Module cache clearing uses the standard operation lifecycle'
+);
+
+# Alternative service lists use service names (not hash keys or indexes).
+{
+  local *Genoring::GetModuleAlternatives = sub {
+    return {
+      listed => {
+        'add' => ['genoring-proxy-httpd'],
+        'remove' => ['genoring-db'],
+      },
+      substituted => {
+        'substitute' => {
+          'genoring-proxy' => 'genoring-proxy-httpd',
+        },
+      },
+      legacy_substituted => {
+        'substitue' => {
+          'genoring-proxy' => 'genoring-proxy-httpd',
+        },
+      },
+    };
+  };
+  is_deeply(
+    GetModuleServices('genoring', undef, 'listed'),
+    ['genoring', 'genoring-proxy', 'genoring-proxy-httpd'],
+    'Alternative add/remove lists are applied to the service set'
+  );
+  is_deeply(
+    GetModuleServices('genoring', undef, 'substituted'),
+    ['genoring', 'genoring-db', 'genoring-proxy-httpd'],
+    'Documented substitute key replaces the default service'
+  );
+  is_deeply(
+    GetModuleServices('genoring', undef, 'legacy_substituted'),
+    ['genoring', 'genoring-db', 'genoring-proxy-httpd'],
+    'Legacy substitue key remains supported'
+  );
+}
+
+# Enabling and disabling alternatives updates config and Compose and runs only
+# the standard service hooks for the services being replaced.
+my @alternative_calls;
+{
+  local *Genoring::PrepareOperations = sub {
+    push(@alternative_calls, ['prepare']);
+    return {'operation_mode' => 'backend'};
+  };
+  local *Genoring::StartGenoring = sub {
+    push(@alternative_calls, ['start', $_[0]]);
+  };
+  local *Genoring::ApplyContainerHooks = sub {
+    my ($hook, $module, $related, $args, $services) = @_;
+    push(@alternative_calls, ['hook', $hook, $module, $related, [@$services]]);
+    return {};
+  };
+  local *Genoring::CleanupOperations = sub {
+    push(@alternative_calls, ['cleanup', $_[0]->{'failed'} || '']);
+  };
+  local *Genoring::EndOperations = sub {
+    push(@alternative_calls, ['end']);
+  };
+
+  EnableAlternative('genoring', 'httpd');
+  my $alternative_config = Genoring::ReadYaml($instance_config_yml)->[0];
+  is(
+    $alternative_config->{'modules'}->{'genoring'}->{'alternative'},
+    'httpd',
+    'Alternative selection is stored in config.yml'
+  );
+  is(
+    $alternative_config->{'modules'}->{'genoring'}->{'status'},
+    'enabled',
+    'Changing an alternative keeps its owning module enabled'
+  );
+  my $alternative_compose = Genoring::ReadYaml($instance_docker_compose_yml)->[0];
+  is_deeply(
+    [sort keys(%{$alternative_compose->{'services'}})],
+    ['genoring', 'genoring-db', 'genoring-proxy-httpd'],
+    'Alternative service replaces the default service in docker-compose.yml'
+  );
+  is_deeply(
+    [grep { $_->[0] eq 'hook' } @alternative_calls],
+    [
+      ['hook', 'disable', 'genoring', 1, ['genoring-proxy']],
+      ['hook', 'enable', 'genoring', 1, ['genoring-proxy-httpd']],
+    ],
+    'Alternative activation runs standard hooks for the replaced services'
+  );
+  is_deeply(
+    [grep { $_->[0] eq 'prepare' || $_->[0] eq 'cleanup' || $_->[0] eq 'end' } @alternative_calls],
+    [['prepare'], ['cleanup', ''], ['end']],
+    'Alternative activation uses the operation lifecycle'
+  );
+
+  @alternative_calls = ();
+  DisableAlternative('genoring', 'httpd');
+  ok(
+    !exists(Genoring::ReadYaml($instance_config_yml)->[0]->{'modules'}->{'genoring'}->{'alternative'}),
+    'Disabling the alternative removes its config selection'
+  );
+  my $default_compose = Genoring::ReadYaml($instance_docker_compose_yml)->[0];
+  is_deeply(
+    [sort keys(%{$default_compose->{'services'}})],
+    ['genoring', 'genoring-db', 'genoring-proxy'],
+    'Disabling the alternative restores the default service in docker-compose.yml'
+  );
+  is_deeply(
+    [grep { $_->[0] eq 'hook' } @alternative_calls],
+    [
+      ['hook', 'disable', 'genoring', 1, ['genoring-proxy-httpd']],
+      ['hook', 'enable', 'genoring', 1, ['genoring-proxy']],
+    ],
+    'Alternative removal runs standard hooks to restore the default service'
+  );
+  is_deeply(
+    [grep { $_->[0] eq 'prepare' || $_->[0] eq 'cleanup' || $_->[0] eq 'end' } @alternative_calls],
+    [['prepare'], ['cleanup', ''], ['end']],
+    'Alternative removal uses the operation lifecycle'
+  );
+}
+
+# A service-hook failure restores the previous config and generated services.
+{
+  my @rollback_calls;
+  my $enable_failed = 0;
+  local *Genoring::PrepareOperations = sub {
+    push(@rollback_calls, ['prepare']);
+    return {'operation_mode' => 'backend'};
+  };
+  local *Genoring::StartGenoring = sub {
+    push(@rollback_calls, ['start', $_[0]]);
+  };
+  local *Genoring::ApplyContainerHooks = sub {
+    my ($hook, $module, $related, $args, $services) = @_;
+    push(@rollback_calls, ['hook', $hook, [@$services]]);
+    if (('enable' eq $hook) && !$enable_failed++) {
+      return {'enable_genoring-proxy-httpd.sh' => 'forced test failure'};
+    }
+    return {};
+  };
+  local *Genoring::CleanupOperations = sub {
+    push(@rollback_calls, ['cleanup', $_[0]->{'failed'} || '']);
+  };
+  local *Genoring::EndOperations = sub {
+    push(@rollback_calls, ['end']);
+  };
+
+  my $error;
+  eval { EnableAlternative('genoring', 'httpd'); };
+  $error = $@;
+  like($error, qr/Failed to change alternative.*forced test failure/s, 'Alternative hook failure is reported');
+  ok(
+    !exists(Genoring::ReadYaml($instance_config_yml)->[0]->{'modules'}->{'genoring'}->{'alternative'}),
+    'Alternative hook failure restores the previous config.yml selection'
+  );
+  my $rolled_back_compose = Genoring::ReadYaml($instance_docker_compose_yml)->[0];
+  is_deeply(
+    [sort keys(%{$rolled_back_compose->{'services'}})],
+    ['genoring', 'genoring-db', 'genoring-proxy'],
+    'Alternative hook failure restores default docker-compose.yml services'
+  );
+  is_deeply(
+    [grep { $_->[0] eq 'hook' } @rollback_calls],
+    [
+      ['hook', 'disable', ['genoring-proxy']],
+      ['hook', 'enable', ['genoring-proxy-httpd']],
+      ['hook', 'disable', ['genoring-proxy-httpd']],
+      ['hook', 'enable', ['genoring-proxy']],
+    ],
+    'Alternative rollback reverses service hooks in both directions'
+  );
+  ok(
+    (grep { $_->[0] eq 'cleanup' && $_->[1] =~ /forced test failure/ } @rollback_calls),
+    'Alternative failure enters standard backup restoration cleanup'
+  );
+}
 
 # GetModulesConfig()
 is_deeply(
@@ -408,7 +605,7 @@ is_deeply(
   {
     'httpd' => {
       'description' => 'Replaces NGINX server with Apache 2 HTTPd.',
-      'substitue' => {
+      'substitute' => {
         'genoring-proxy' => 'genoring-proxy-httpd',
       },
     },
