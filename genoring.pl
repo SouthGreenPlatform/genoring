@@ -1043,10 +1043,10 @@ elsif ($command =~ m/^services$/i) {
 elsif ($command =~ m/^alt(?:ernatives?)?$/i) {
   ListAlternatives(@arguments);
 }
-elsif ($command =~ m/^enablealt(?:ernative)?$/i) {
+elsif ($command =~ m/^en(?:able)?alt(?:ernative)?$/i) {
   EnableAlternative(@arguments);
 }
-elsif ($command =~ m/^disablealt(?:ernative)?$/i) {
+elsif ($command =~ m/^dis(?:able)?alt(?:ernative)?$/i) {
   DisableAlternative(@arguments);
 }
 elsif ($command =~ m/^(?:toexternal|tolocal)$/i) {
