@@ -281,6 +281,27 @@ directory. A GenoRing module is a directory with the following structure:
   the amd64 version. Therefore, it is recommended to only provide a "Dockerfile"
   and only provide others for specific needs that can't be covered
   automatically.
+- "overrides": a module may declare Docker image overrides in the optional
+  "overrides" mapping of its module YAML file. Each key identifies a target
+  service (prefer the "genoring-<service>" form; the service name, or its
+  current image name, is also accepted) and must have a matching
+  "services/overrides/<key>.dockerfile". Override Dockerfiles use the target
+  service's image in their "FROM" instruction; GenoRing replaces it with the
+  preceding image in the override chain. Files used by "COPY" must be in the
+  "services/overrides" directory, which is the Docker build context.
+
+  Overrides are applied only when both the module and the targeted service are
+  active. An optional "alternatives" list limits an override to the selected
+  alternative name; use the module name in that list to select the module's
+  default services. When multiple modules override one service, GenoRing builds
+  them in module-name order. It rebuilds the original module image first when
+  the service has local sources, then applies each override and tags the final
+  image with the service's original image name. For services based on public
+  images, the final image gets an instance-specific
+  "genoring-override-<project>-<service>" name, and that image is written into
+  the generated "docker-compose.yml" as a local-only image. The active override
+  module list and effective image are persisted under "service_overrides" in
+  "config.yml".
 - "res": if the module needs additional directory and files, that could be
    mounted in containers for instance, they should be put in this resources
    directory.

@@ -40,10 +40,10 @@ services:
 # Each key is a service alternative machine name with its characteristics.
 # Alternative service definitions are placed in the module "services/alt/"
 # directory.
-# Here "genoring-alternative1" is the machine name of an alternative. Multiple
+# Here "alternative1" is the machine name of an alternative. Multiple
 # alternatives can be defined here, one section after the other.
 alternatives:
-  genoring-alternative1:
+  alternative1:
     name: "Alternative 1 name"
     description: "Replaces NGINX server with Apache 2 HTTPd."
     # substitute: Optional. The list of substituted services with their
@@ -58,8 +58,23 @@ alternatives:
     # remove: Optional. The list of existing services that are disabled.
     remove:
     - genoring-service2
-  genoring-alternative2:
+  alternative2:
     # ...
+
+# overrides: Optional. The list of existing GenoRing services to override.
+# An override consists of a Dockerfile name provided in the
+# "services/overrides/" directory with the file name pattern:
+# `genoring-<service_name>.dockerfile`
+overrides:
+  genoring-service_name:
+    description: "The override description; what it does."
+    # "alternatives" is only specified when an override is only required for a
+    # given alternative or the base version. If not specified, it will
+    # always be applied.
+    # It expects a list of names which can be either alternative names or the
+    # module name. Ex.: only apply the override for the base version and
+    # alternative 2:
+    alternatives: ['TEMPLATE', 'alternative2']
 
 # volumes: Optional. The list of new volumes provided by this module. Each key
 # is a volume machine name with its characteristics. For "shared" volumes, the

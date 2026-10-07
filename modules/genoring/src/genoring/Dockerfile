@@ -1,6 +1,6 @@
 # Compile with:
 #   docker build -t genoring .
-FROM php:8.3-fpm-bookworm
+FROM php:8.4-fpm-trixie
 
 LABEL net.genoring.image.authors="v.guignon@cgiar.org"
 
@@ -34,8 +34,8 @@ ENV PHP_INI_SCAN_DIR=:/opt/drupal/php
 # - 'cron' is used by Drupal to periodically run some maintenance tasks.
 # - 'git' might be used later in genoring script for automated updates and is
 #   already usefull when accessing the container shell for dev tasks.
-# - 'gnupg' is required to install Postgresql 16 which is itself required by
-#   genoring script (mostly for database dump).
+# - 'gnupg' is required to install PostgreSQL from the pgdg repository, which is
+#   itself required by genoring script (mostly for database dump).
 # - 'sendmail' is used by Drupal to send emails.
 # - 'vim' is convenient when accessing the container shell.
 # - 'rsync', 'unzip', 'wget' and 'zip' are convenient when accessing the
@@ -64,12 +64,9 @@ RUN set -eux \
     libavif-dev \
     libxml2-dev \
     libzip-dev \
-    libc-client-dev \
-    libkrb5-dev \
     libonig-dev \
   && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp --with-avif --with-xpm \
-  && docker-php-ext-configure imap --with-kerberos --with-imap-ssl \
-  && docker-php-ext-install -j$(nproc) gd zip pdo pdo_mysql pgsql mysqli pdo_pgsql opcache mbstring exif imap \
+  && docker-php-ext-install -j$(nproc) gd zip pdo pdo_mysql pgsql mysqli pdo_pgsql opcache mbstring exif \
   # reset apt-mark's "manual" list so that "purge --auto-remove" will remove all build dependencies.
   && apt-mark auto '.*' > /dev/null \
   && apt-mark manual $savedAptMark \
@@ -80,13 +77,16 @@ RUN set -eux \
     | cut -d: -f1 \
     | sort -u \
     | xargs -rt apt-mark manual \
-  && apt-get purge -y libc-client-dev libkrb5-dev --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
+  && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
   && rm -rf /var/lib/apt/lists/*
 
 # Add PostgreSQL 18.
+# Note: apt-key is deprecated; the repository key is installed as a keyring
+# referenced by "signed-by". The pgdg repository now follows the Debian release
+# of the base image (trixie).
 RUN set -eux \
-  && /bin/sh -c 'printf "deb https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main\n" > /etc/apt/sources.list.d/pgdg.list' \
-  && /bin/sh -c 'wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -' \
+  && /bin/sh -c 'wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc > /etc/apt/trusted.gpg.d/apt.postgresql.org.asc' \
+  && /bin/sh -c 'printf "deb [signed-by=/etc/apt/trusted.gpg.d/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main\n" > /etc/apt/sources.list.d/pgdg.list' \
   && apt-get update && apt-get install -y --no-install-recommends postgresql-18 \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*

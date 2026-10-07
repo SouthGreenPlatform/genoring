@@ -1004,7 +1004,7 @@ elsif ($command =~ m/^clearcache$/i) {
   }
   ClearModuleCaches();
 }
-elsif ($command =~ m/^build$/i) {
+elsif ($command =~ m/^(?:build|compile)$/i) {
   Build(@arguments);
 }
 elsif ($command =~ m/^modules$/i) {

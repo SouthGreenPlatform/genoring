@@ -38,6 +38,7 @@ use File::Basename;
 use File::Copy;
 use File::Path qw( make_path remove_tree );
 use File::Spec;
+use File::Temp qw( tempfile );
 use JSON::PP;
 use Time::Piece;
 
@@ -1170,6 +1171,7 @@ sub SetupGenoring {
     # Build missing containers with sources.
     BuildMissingContainers();
   }
+  ApplyServiceOverrides();
 
   # Process environment variables and ask user for inputs for variables with
   # tags SET and OPT.
@@ -1456,6 +1458,277 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
         die "ERROR: failed to open environment file '$Genoring::MODULES_DIR/$module/env/$env_file':\n$!\n";
       }
     }
+  }
+}
+
+
+sub _ReadServiceImage {
+  my ($module, $service) = @_;
+  my $service_path = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'services', "$service.yml");
+  if (!-f $service_path) {
+    $service_path = File::Spec->catfile(
+      $Genoring::MODULES_DIR, $module, 'services', 'alt', "$service.yml"
+    );
+  }
+  if (!-f $service_path) {
+    die "ERROR: Service '$service' from module '$module' has no service definition.\n";
+  }
+  my $yaml = ReadYaml($service_path);
+  return $yaml->[0]->{'image'};
+}
+
+
+sub _GetServiceImage {
+  my ($module, $service) = @_;
+  my $image = _ReadServiceImage($module, $service);
+  if (!$image || ('HASH' eq ref($image)) || ('ARRAY' eq ref($image)) || ($image =~ /\$/)) {
+    die "ERROR: Service '$service' from module '$module' must define a literal Docker image to support overrides.\n";
+  }
+  return $image;
+}
+
+
+sub _OverrideImagePrefix {
+  my ($service) = @_;
+  my $project = GetProjectName();
+  $project = lc($project);
+  $project =~ s/[^a-z0-9_.-]+/-/g;
+  $service = lc($service);
+  $service =~ s/[^a-z0-9_.-]+/-/g;
+  return "genoring-override-$project-$service";
+}
+
+
+sub _GetDockerImageId {
+  my ($image) = @_;
+  my $image_id = Run(
+    "$Genoring::DOCKER_COMMAND images -q " . _ShellQuote($image) . ' 2>&1'
+  );
+  $image_id =~ s/^\s+|\s+$//g;
+  return $image_id;
+}
+
+
+sub _GetServiceOverridePlans {
+  my ($services) = @_;
+  my %plans;
+  my $enabled_modules = GetModules(1);
+  my @declarations;
+
+  foreach my $module (@$enabled_modules) {
+    my $module_info = GetModuleInfo($module);
+    my $module_overrides = $module_info->{'overrides'} || {};
+    if ('HASH' ne ref($module_overrides)) {
+      die "ERROR: Invalid overrides section in module '$module': expected a mapping.\n";
+    }
+
+    foreach my $target (sort keys(%$module_overrides)) {
+      my $override = $module_overrides->{$target};
+      if ('HASH' ne ref($override)) {
+        die "ERROR: Invalid override for service '$target' in module '$module': expected a mapping.\n";
+      }
+      if (exists($override->{'alternatives'})) {
+        if ('ARRAY' ne ref($override->{'alternatives'})) {
+          die "ERROR: Invalid alternatives list for override '$target' in module '$module'.\n";
+        }
+        my $module_config = GetModuleConf($module);
+        my $selected = $module_config->{'alternative'} || $module;
+        next if !grep { $_ eq $selected } @{$override->{'alternatives'}};
+      }
+      push(
+        @declarations,
+        {
+          'module' => $module,
+          'target' => $target,
+          'version' => $module_info->{'version'} || '',
+        }
+      );
+    }
+  }
+
+  return \%plans if !@declarations;
+
+  foreach my $service (sort keys(%$services)) {
+    my $owner = $services->{$service};
+    my @matching;
+    my $base_image;
+    foreach my $declaration (@declarations) {
+      if (($declaration->{'target'} eq $service)
+        || ($declaration->{'target'} eq "genoring-$service")
+      ) {
+        push(@matching, $declaration);
+        next;
+      }
+      $base_image ||= _ReadServiceImage($owner, $service);
+      if (defined($base_image) && ($declaration->{'target'} eq $base_image)) {
+        push(@matching, $declaration);
+      }
+    }
+    next if !@matching;
+    $base_image = _GetServiceImage($owner, $service);
+
+    my $source_dir = File::Spec->catdir($Genoring::MODULES_DIR, $owner, 'src', $service);
+    my $plan = {
+      'owner' => $owner,
+      'base_image' => $base_image,
+      'source_dir' => $source_dir,
+      'has_source' => (-d $source_dir ? 1 : 0),
+      'overrides' => [],
+    };
+    foreach my $declaration (@matching) {
+      my $dockerfile = File::Spec->catfile(
+        $Genoring::MODULES_DIR, $declaration->{'module'}, 'services', 'overrides',
+        "$declaration->{'target'}.dockerfile"
+      );
+      if (!-r $dockerfile) {
+        die "ERROR: Module '$declaration->{'module'}' declares an override for '$service' but '$dockerfile' is missing or unreadable.\n";
+      }
+      my @stat = stat($dockerfile);
+      push(
+        @{$plan->{'overrides'}},
+        {
+          %$declaration,
+          'dockerfile' => $dockerfile,
+          'mtime' => $stat[9] || 0,
+          'ctime' => $stat[10] || 0,
+          'size' => $stat[7] || 0,
+        }
+      );
+    }
+
+    my $owner_info = GetModuleInfo($owner);
+    my @signature_parts = ($owner, $owner_info->{'version'} || '', $base_image);
+    if ($plan->{'has_source'}) {
+      my $dockerfile = File::Spec->catfile($source_dir, 'Dockerfile');
+      $dockerfile = File::Spec->catfile($source_dir, 'Dockerfile.default')
+        if !-f $dockerfile;
+      my @stat = stat($dockerfile);
+      push(@signature_parts, $stat[9] || 0, $stat[10] || 0, $stat[7] || 0);
+    }
+    foreach my $override (@{$plan->{'overrides'}}) {
+      push(
+        @signature_parts,
+        $override->{'module'},
+        $override->{'version'},
+        $override->{'target'},
+        $override->{'mtime'},
+        $override->{'ctime'},
+        $override->{'size'},
+      );
+    }
+    $plan->{'signature'} = join('|', @signature_parts);
+    $plans{$service} = $plan;
+  }
+
+  return \%plans;
+}
+
+
+sub ApplyServiceOverrides {
+  ClearInternalCache();
+  my $services = GetServices();
+  my $plans = _GetServiceOverridePlans($services);
+  my $config = GetConfig();
+  my $previous = $config->{'service_overrides'} || {};
+  my %updated = %$previous;
+  my $changed = 0;
+
+  foreach my $service (keys(%updated)) {
+    if (!exists($plans->{$service})) {
+      my $old = $updated{$service};
+      if ($old->{'source'} && $old->{'owner'}) {
+        Build($old->{'owner'}, $service, $old->{'base_image'});
+      }
+      delete($updated{$service});
+      $changed = 1;
+    }
+  }
+
+  foreach my $service (sort keys(%$plans)) {
+    my $plan = $plans->{$service};
+    my $old = $previous->{$service} || {};
+    my $modules = [map { $_->{'module'} } @{$plan->{'overrides'}}];
+    my $prefix = _OverrideImagePrefix($service);
+    my $image = $plan->{'has_source'} ? $plan->{'base_image'} : "$prefix:latest";
+    my $image_id = _GetDockerImageId($image);
+    next if $image_id
+      && ($old->{'signature'} || '') eq $plan->{'signature'}
+      && ($old->{'image'} || '') eq $image
+      && ($old->{'image_id'} || '') eq $image_id
+      && 'ARRAY' eq ref($old->{'modules'})
+      && join("\0", @{$old->{'modules'}}) eq join("\0", @$modules);
+
+    my @temporary_images;
+    eval {
+      my $previous_image = $plan->{'base_image'};
+      if ($plan->{'has_source'}) {
+        $previous_image = "$prefix-stage-0:latest";
+        push(@temporary_images, $previous_image);
+        Build($plan->{'owner'}, $service, $previous_image);
+      }
+      foreach my $index (0 .. $#{$plan->{'overrides'}}) {
+        my $output_image = $image;
+        if ($index < $#{$plan->{'overrides'}}) {
+          $output_image = "$prefix-stage-" . ($index + ($plan->{'has_source'} ? 1 : 0)) . ':latest';
+          push(@temporary_images, $output_image);
+        }
+        _BuildServiceOverride(
+          $plan->{'overrides'}->[$index]->{'dockerfile'},
+          $plan->{'overrides'}->[$index]->{'module'},
+          $plan->{'base_image'},
+          $previous_image,
+          $output_image
+        );
+        $previous_image = $output_image;
+      }
+    };
+    if ($@) {
+      my $failure = $@;
+      foreach my $temporary_image (@temporary_images) {
+        next if !_GetDockerImageId($temporary_image);
+        Run(
+          "$Genoring::DOCKER_COMMAND image rm -f " . _ShellQuote($temporary_image),
+          "Failed to remove temporary override image '$temporary_image'.",
+          0,
+          $g_debug || $g_flags->{'verbose'}
+        );
+      }
+      die $failure;
+    }
+    foreach my $temporary_image (@temporary_images) {
+      next if !_GetDockerImageId($temporary_image);
+      Run(
+        "$Genoring::DOCKER_COMMAND image rm -f " . _ShellQuote($temporary_image),
+        "Failed to remove temporary override image '$temporary_image'.",
+        0,
+        $g_debug || $g_flags->{'verbose'}
+      );
+    }
+
+    $image_id = _GetDockerImageId($image);
+    if (!$image_id) {
+      die "ERROR: Override image '$image' for service '$service' was not found after building.\n";
+    }
+    $updated{$service} = {
+      'image' => $image,
+      'image_id' => $image_id,
+      'base_image' => $plan->{'base_image'},
+      'owner' => $plan->{'owner'},
+      'modules' => $modules,
+      'signature' => $plan->{'signature'},
+      'source' => $plan->{'has_source'} ? 1 : 0,
+    };
+    $changed = 1;
+  }
+
+  if ($changed) {
+    if (%updated) {
+      $config->{'service_overrides'} = \%updated;
+    }
+    else {
+      delete($config->{'service_overrides'});
+    }
+    SaveConfig();
   }
 }
 
@@ -1862,6 +2135,12 @@ sub GenerateDockerComposeFile {
   foreach my $service (sort keys(%services)) {
     my $service_name = GetContainerName($service);
     $compose->{'services'}->{$service} = $services{$service}->{'definition'};
+    if (exists($config->{'service_overrides'}->{$service}->{'image'})) {
+      $compose->{'services'}->{$service}->{'image'} =
+        $config->{'service_overrides'}->{$service}->{'image'};
+      delete($compose->{'services'}->{$service}->{'build'});
+      $compose->{'services'}->{$service}->{'pull_policy'} = 'never';
+    }
     if ($Genoring::COMPATIBILITY =~ /\bdc1\b/) {
       delete($compose->{'services'}->{$service}->{'profiles'});
       delete($compose->{'services'}->{$service}->{'pull_policy'});
@@ -3031,6 +3310,7 @@ sub InstallModule {
       # Build missing containers with sources.
       BuildMissingContainers();
     }
+    ApplyServiceOverrides();
 
     PerformLocalOperations($context);
 
@@ -3050,6 +3330,7 @@ sub InstallModule {
     eval {
       # Remove module from config.yml if installation failed.
       RemoveModuleConf($module);
+      ApplyServiceOverrides();
     };
     warn "WARNING: $@\n" if $@;
     eval {
@@ -3125,6 +3406,7 @@ sub EnableModule {
     $module_config->{'status'} = 'enabled';
     SetModuleConf($module, $module_config);
 
+    ApplyServiceOverrides();
     PerformLocalOperations($context);
 
     # Update Docker Compose config.
@@ -3145,6 +3427,7 @@ sub EnableModule {
       my $module_config = GetModuleConf($module);
       $module_config->{'status'} = 'disabled';
       SetModuleConf($module, $module_config);
+      ApplyServiceOverrides();
     };
     warn "WARNING: $@\n" if $@;
     eval {
@@ -3230,12 +3513,14 @@ sub DisableModule {
     # Disable or uninstall module.
     if ($uninstall) {
       RemoveModuleConf($module);
+      ApplyServiceOverrides();
     }
     else {
       # @todo Get current module config and just change its status.
       my $module_config = GetModuleConf($module);
       $module_config->{'status'} = 'disabled';
       SetModuleConf($module, $module_config);
+      ApplyServiceOverrides();
     }
     # Update Docker Compose config.
     GenerateDockerComposeFile();
@@ -3561,6 +3846,7 @@ sub _ChangeAlternative {
     }
     SetModuleConf($module, \%new_config);
     $configuration_changed = 1;
+    ApplyServiceOverrides();
     GenerateDockerComposeFile();
 
     if ($module_is_enabled && @added_services) {
@@ -3583,6 +3869,7 @@ sub _ChangeAlternative {
           delete($new_config{'alternative'});
         }
         SetModuleConf($module, \%new_config);
+        ApplyServiceOverrides();
         GenerateDockerComposeFile();
         _ApplyAlternativeServiceHooks($context, 'disable', $module, \@added_services);
       };
@@ -3598,6 +3885,7 @@ sub _ChangeAlternative {
         delete($old_config{'alternative'});
       }
       SetModuleConf($module, \%old_config);
+      ApplyServiceOverrides();
       GenerateDockerComposeFile();
     };
     push(@rollback_errors, $@) if $@;
@@ -4888,9 +5176,10 @@ APPLYCONTAINERHOOKS_HOOKS:
 
 B<Description>: Builds a given container. Two arguments are always passed to
 the builder: GENORING_UID and GENORING_GID that correspond to their respective
-environment variables set by GenoRing.
+environment variables set by GenoRing. An alternate image name can be supplied
+when building an intermediate image in an override chain.
 
-B<ArgsCount>: 2
+B<ArgsCount>: 2-3
 
 =over 4
 
@@ -4902,6 +5191,10 @@ Module machine name.
 
 Container name.
 
+=item $image_name: (string) (O)
+
+Image name to build. Defaults to the service name.
+
 =back
 
 B<Return>: (nothing)
@@ -4909,7 +5202,7 @@ B<Return>: (nothing)
 =cut
 
 sub Build {
-  my ($module, $service) = @_;
+  my ($module, $service, $image_name) = @_;
 
   if (!$module) {
     die "ERROR: Build: Missing module name!";
@@ -4933,38 +5226,9 @@ sub Build {
       die "ERROR: Build: Missing service name!";
     }
   }
+  $image_name ||= $service;
 
-  # Check if "buildx" is enabled.
-  my $disable_buildx = 0;
-  if (!$g_flags->{'skip-checks'}) {
-    eval {
-      my $output = Run("$Genoring::DOCKER_COMMAND buildx ls 2>&1", '', 1);
-      if ($output =~ /\buse\b/) {
-        if (Confirm("WARNING: Docker buildx (BuildKit plugin) is not enabled. It may be a problem if running ARM architectures. Do you want to enable it?")) {
-          eval {
-            $output = Run("$Genoring::DOCKER_COMMAND buildx create --use 2>&1", '', 1);
-          };
-          if ($@) {
-            warn "WARNING: Failed to enable Docker buildx:\n$@\nGenoRing will try building the container image without buildx.\n";
-            $disable_buildx = 1;
-          }
-        }
-        else {
-          $disable_buildx = 1;
-        }
-      }
-    };
-    if ($@) {
-      warn "WARNING: '$Genoring::DOCKER_COMMAND buildx' command not available! It is recommended to install Docker buildx (multi-platform build, see https://docs.docker.com/build/building/multi-platform/). GenoRing will try building the container image without buildx.\n";
-      if ($g_debug) {
-        warn $@;
-      }
-      $disable_buildx = 1;
-    }
-    if ($disable_buildx) {
-      $Genoring::DOCKER_BUILD_COMMAND =~ s/ buildx//;
-    }
-  }
+  _EnsureDockerBuildx();
 
   # Get service sub-directory for sources (take into account ARM support).
   if (!-d "$Genoring::MODULES_DIR/$module/src/$service") {
@@ -5050,20 +5314,127 @@ sub Build {
     );
   }
 
-  Run(
-    "$Genoring::DOCKER_COMMAND image rm -f $service",
-    "Failed to remove previous image (service ${module}[$service])!",
-    1,
-    $g_debug || $g_flags->{'verbose'}
+  my $existing_image = Run(
+    "$Genoring::DOCKER_COMMAND images -q " . _ShellQuote($image_name) . " 2>&1"
   );
+  if ($existing_image) {
+    Run(
+      "$Genoring::DOCKER_COMMAND image rm -f " . _ShellQuote($image_name),
+      "Failed to remove previous image (service ${module}[$service])!",
+      1,
+      $g_debug || $g_flags->{'verbose'}
+    );
+  }
   my $service_src_path = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'src' , $service);
   my $no_cache = '';
   if ($g_flags->{'no-cache'}) {
     $no_cache = '--no-cache';
   }
   Run(
-    "$Genoring::DOCKER_BUILD_COMMAND $no_cache --build-arg GENORING_UID=$ENV{GENORING_UID} --build-arg GENORING_GID=$ENV{GENORING_GID} -t $service $service_src_path",
+    "$Genoring::DOCKER_BUILD_COMMAND $no_cache --build-arg GENORING_UID=$ENV{GENORING_UID} --build-arg GENORING_GID=$ENV{GENORING_GID} -t "
+      . _ShellQuote($image_name) . ' ' . _ShellQuote($service_src_path),
     "Failed to build container (service ${module}[$service])",
+    1,
+    1
+  );
+}
+
+
+sub _EnsureDockerBuildx {
+  return if $g_flags->{'skip-checks'};
+  my $disable_buildx = 0;
+  eval {
+    my $output = Run("$Genoring::DOCKER_COMMAND buildx ls 2>&1", '', 1);
+    if ($output =~ /\buse\b/) {
+      if (Confirm("WARNING: Docker buildx (BuildKit plugin) is not enabled. It may be a problem if running ARM architectures. Do you want to enable it?")) {
+        eval {
+          $output = Run("$Genoring::DOCKER_COMMAND buildx create --use 2>&1", '', 1);
+        };
+        if ($@) {
+          warn "WARNING: Failed to enable Docker buildx:\n$@\nGenoRing will try building the container image without buildx.\n";
+          $disable_buildx = 1;
+        }
+      }
+      else {
+        $disable_buildx = 1;
+      }
+    }
+  };
+  if ($@) {
+    warn "WARNING: '$Genoring::DOCKER_COMMAND buildx' command not available! It is recommended to install Docker buildx (multi-platform build, see https://docs.docker.com/build/building/multi-platform/). GenoRing will try building the container image without buildx.\n";
+    warn $@ if $g_debug;
+    $disable_buildx = 1;
+  }
+  if ($disable_buildx) {
+    $Genoring::DOCKER_BUILD_COMMAND =~ s/ buildx//;
+  }
+}
+
+
+sub _ShellQuote {
+  my ($value) = @_;
+  if (('Win32' eq GetOs()) || ($Genoring::COMPATIBILITY =~ /\bdos\b/)) {
+    $value =~ s/"/\\"/g;
+    return "\"$value\"";
+  }
+  $value =~ s/'/'\\''/g;
+  return "'$value'";
+}
+
+
+sub _BuildServiceOverride {
+  my ($dockerfile, $module, $base_image, $previous_image, $output_image) = @_;
+  my $dockerfile_fh;
+  open($dockerfile_fh, '<:utf8', $dockerfile)
+    or die "ERROR: Unable to read service override Dockerfile '$dockerfile': $!\n";
+  my $docker_source = do { local $/; <$dockerfile_fh> };
+  close($dockerfile_fh);
+
+  my $replaced = 0;
+  $docker_source =~ s{
+    ^([ \t]*FROM[ \t]+(?:--platform=\S+[ \t]+)?)
+    (\S+)
+    (.*)$
+  }{
+    my ($prefix, $image, $suffix) = ($1, $2, $3);
+    if ($image eq $base_image) {
+      $replaced++;
+      $prefix . $previous_image . $suffix;
+    }
+    else {
+      $&;
+    }
+  }gimex;
+  if (!$replaced) {
+    die "ERROR: Override Dockerfile '$dockerfile' does not use the base image '$base_image' in a FROM instruction.\n";
+  }
+
+  if ($g_flags->{'platform'} && ($g_flags->{'platform'} ne $Genoring::DEFAULT_ARCHITECTURE)) {
+    my $platform = $g_flags->{'platform'};
+    $docker_source =~ s/^([ \t]*FROM[ \t]+)(?!--platform=)/$1--platform=$platform /mg;
+  }
+
+  _EnsureDockerBuildx();
+  my ($temp_fh, $temp_path) = tempfile('genoring-override-XXXXXX', SUFFIX => '.dockerfile', UNLINK => 1);
+  print {$temp_fh} $docker_source
+    or die "ERROR: Unable to write temporary override Dockerfile for module '$module': $!\n";
+  close($temp_fh)
+    or die "ERROR: Unable to close temporary override Dockerfile for module '$module': $!\n";
+
+  if (_GetDockerImageId($output_image)) {
+    Run(
+      "$Genoring::DOCKER_COMMAND image rm -f " . _ShellQuote($output_image),
+      "Failed to remove previous override image '$output_image'.",
+      1,
+      $g_debug || $g_flags->{'verbose'}
+    );
+  }
+  my $no_cache = $g_flags->{'no-cache'} ? '--no-cache' : '';
+  my $context = File::Basename::dirname($dockerfile);
+  Run(
+    "$Genoring::DOCKER_BUILD_COMMAND $no_cache --build-arg GENORING_UID=$ENV{GENORING_UID} --build-arg GENORING_GID=$ENV{GENORING_GID} -f "
+      . _ShellQuote($temp_path) . ' -t ' . _ShellQuote($output_image) . ' ' . _ShellQuote($context),
+    "Failed to build service override from module '$module'.",
     1,
     1
   );
@@ -5223,6 +5594,7 @@ sub SaveConfig {
     # Initialize config cache.
     GetConfig();
   }
+  my $service_overrides = $_g_config->{'service_overrides'} || {};
   my $config = {
     'project' => GetProjectName(),
     'version' => $Genoring::GENORING_VERSION,
@@ -5230,6 +5602,7 @@ sub SaveConfig {
     'modules' => $_g_modules->{'config'},
     'volume_mapping' => $_g_config->{'volume_mapping'} // {},
   };
+  $config->{'service_overrides'} = $service_overrides if %$service_overrides;
   WriteYaml($Genoring::CONFIG_FILE, $config, "# GenoRing config file\n");
 }
 
@@ -6242,6 +6615,8 @@ sub SetModuleConf {
   delete($_g_modules->{'disabled'});
   delete($_g_modules->{'enabled'});
   delete($_g_modules->{'all'});
+  $_g_services = {};
+  $_g_volumes = {};
 }
 
 
@@ -6273,6 +6648,8 @@ sub RemoveModuleConf {
   if ($_g_modules->{'config'}->{$module}) {
     delete($_g_modules->{'config'}->{$module});
     SaveConfig();
+    $_g_services = {};
+    $_g_volumes = {};
   }
 }
 

@@ -27,7 +27,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 71;
+use Test::More tests => 74;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -283,6 +283,35 @@ is_deeply(
   $expected_config,
   'Default config matches expected config'
 );
+
+# Stored override images replace source images in the generated Compose file.
+{
+  ClearInternalCache('services');
+  $config->{'service_overrides'} = {
+    'genoring' => {'image' => 'genoring-test-override'},
+  };
+  local *Genoring::ClearInternalCache = sub {};
+  local *Genoring::SaveConfig = sub {};
+  local *Genoring::Run = sub { return ''; };
+  GenerateDockerComposeFile();
+  my $overridden_compose = Genoring::ReadYaml($instance_docker_compose_yml)->[0];
+  is(
+    $overridden_compose->{'services'}->{'genoring'}->{'image'},
+    'genoring-test-override',
+    'Compose uses the effective image recorded for an override'
+  );
+  is(
+    $overridden_compose->{'services'}->{'genoring'}->{'pull_policy'},
+    'never',
+    'Compose does not pull the generated local override image'
+  );
+  ok(
+    !exists($overridden_compose->{'services'}->{'genoring'}->{'build'}),
+    'Compose does not rebuild the unoverridden source image'
+  );
+  delete($config->{'service_overrides'});
+  GenerateDockerComposeFile();
+}
 
 # SaveConfig() && ClearInternalCache()
 $config->{'project'} = $instance;
@@ -807,6 +836,7 @@ my $test_output = '';
   local *Genoring::ApplyLocalHooks = sub { return {}; };
   local *Genoring::PrepareOperations = sub { return {}; };
   local *Genoring::BuildMissingContainers = sub {};
+  local *Genoring::ApplyServiceOverrides = sub {};
   local *Genoring::PerformLocalOperations = sub {};
   local *Genoring::PerformContainerOperations = sub {};
   local *Genoring::CleanupOperations = sub {};
