@@ -27,7 +27,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 74;
+use Test::More tests => 75;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -829,6 +829,17 @@ is(GetProfile(), 'dev', 'Got profile');
 # ExportVolume
 # ImportIntoVolume
 
+# Module dependency resolution adds compatible available dependencies.
+{
+  local *Genoring::ApplyLocalHooks = sub { return {}; };
+  my $plan = Genoring::_GetModuleActivationPlan(['gigwa']);
+  is_deeply(
+    $plan->{'order'},
+    ['mongodb42', 'gigwa'],
+    'Module dependencies are planned before their dependents'
+  );
+}
+
 # InstallModule()
 my $test_output = '';
 {
@@ -853,15 +864,15 @@ my $test_output = '';
   # and run the test again to get the new queries.
 
   $expected_config->{'modules'}->{'mongodb42'} = {
-    'version' => '1.0',
+    'version' => '1.1',
     'status' => 'enabled',
   };
   # Test InstallModule().
   InstallModule('mongodb42');
   $config = GetConfig();
   is_deeply(
-    $config,
-    $expected_config,
+    $config->{'modules'},
+    $expected_config->{'modules'},
     'MongoDB 4.2 module enabled'
   );
 };

@@ -2023,7 +2023,7 @@ sub GenerateDockerComposeFile {
           my $module_info = GetModuleInfo($module);
           my $version_constraint = $volume_dep->{'version_constraint'} || '=';
           # @todo Code to test.
-          my $dep_version = $volume_dep->{'major_version'} . '.' . ($volume_dep->{'minor_version'} || '');
+          my $dep_version = $volume_dep->{'major_version'} . '.' . ($volume_dep->{'minor_version'} || '0');
           if ((('=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) == 0))
             || (('<' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) < 0))
             || (('<=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) <= 0))
@@ -2352,7 +2352,8 @@ sub PerformLocalOperations {
       keys(%$local_hooks);
     foreach my $local_hook (@local_hooks) {
       my $args = $context->{'local_hooks'}->{$local_hook}->{'args'};
-      my $errors = ApplyLocalHooks($local_hook, $module, $args);
+      my $hook_modules = $context->{'local_hooks'}->{$local_hook}->{'modules'} || $module;
+      my $errors = ApplyLocalHooks($local_hook, $hook_modules, $args);
       $context->{'local_hooks'}->{$local_hook}->{'ok'} = 1;
       if (%$errors) {
         $context->{'failed'} = join("\n", map { $_ . ': ' . $errors->{$_} } sort keys(%$errors));
@@ -2421,7 +2422,8 @@ sub PerformContainerOperations {
     foreach my $container_hook (@container_hooks) {
       my $related = $context->{'container_hooks'}->{$container_hook}->{'related'};
       my $args = $context->{'container_hooks'}->{$container_hook}->{'args'};
-      my $errors = ApplyContainerHooks($container_hook, $module, $related, $args);
+      my $hook_modules = $context->{'container_hooks'}->{$container_hook}->{'modules'} || $module;
+      my $errors = ApplyContainerHooks($container_hook, $hook_modules, $related, $args);
       $context->{'container_hooks'}->{$container_hook}->{'ok'} = 1;
       if (%$errors) {
         $context->{'failed'} = join("\n", map { $_ . ': ' . $errors->{$_} } sort keys(%$errors));
@@ -2477,13 +2479,16 @@ sub CleanupOperations {
     # Revert container hooks.
     print "  - Reverting service hooks...\n";
     my $failed = 0;
-    foreach my $container_hook (keys(%$container_hooks)) {
+    foreach my $container_hook (sort {
+        ($container_hooks->{$b}->{'order'} || 0) <=> ($container_hooks->{$a}->{'order'} || 0)
+      } keys(%$container_hooks)) {
       my $revert_hook = $context->{'container_hooks'}->{$container_hook}->{'revert'};
-      if ($revert_hook) {
+      if ($revert_hook && $context->{'container_hooks'}->{$container_hook}->{'ok'}) {
         my $related = $context->{'container_hooks'}->{$container_hook}->{'related'};
         my $args = $context->{'container_hooks'}->{$container_hook}->{'args'};
+        my $hook_modules = $context->{'container_hooks'}->{$container_hook}->{'modules'} || $module;
         eval {
-          ApplyContainerHooks($revert_hook, $module, $related, $args);
+          ApplyContainerHooks($revert_hook, $hook_modules, $related, $args);
           $context->{'container_hooks'}->{$container_hook}->{'reverted'} = 1;
         };
         if ($@) {
@@ -2497,12 +2502,15 @@ sub CleanupOperations {
     StopGenoring();
     print "- Reverting local hooks...\n";
     $failed = 0;
-    foreach my $local_hook (keys(%$local_hooks)) {
+    foreach my $local_hook (sort {
+        ($local_hooks->{$b}->{'order'} || 0) <=> ($local_hooks->{$a}->{'order'} || 0)
+      } keys(%$local_hooks)) {
       my $revert_hook = $context->{'local_hooks'}->{$local_hook}->{'revert'};
-      if ($revert_hook) {
+      if ($revert_hook && $context->{'local_hooks'}->{$local_hook}->{'ok'}) {
         my $args = $context->{'local_hooks'}->{$local_hook}->{'args'};
+        my $hook_modules = $context->{'local_hooks'}->{$local_hook}->{'modules'} || $module;
         eval {
-          ApplyLocalHooks($local_hook, $module, $args);
+          ApplyLocalHooks($revert_hook, $hook_modules, $args);
           $context->{'local_hooks'}->{$local_hook}->{'reverted'} = 1;
         };
         if ($@) {
@@ -2545,22 +2553,32 @@ sub EndOperations {
 
   my ($context) = @_;
 
-  my ($mode, $current_mode, $local_hooks, $container_hooks, $module) = (
+  my ($operation_mode, $current_mode) = (
     $context->{'operation_mode'},
     $context->{'current_mode'},
-    $context->{'local_hooks'},
-    $context->{'container_hooks'},
-    $context->{'module'},
   );
 
-  # Restart as needed.
+  # Restore the mode that was active before the operation.
   if ('running' eq $current_mode) {
     print "- Restarting GenoRing...\n";
     StartGenoring('online');
     print "  ...OK.\n";
   }
-  elsif (('backend' ne $current_mode) && ('offline' ne $current_mode)) {
-    # Stop containers.
+  elsif ('backend' eq $current_mode) {
+    if ('backend' ne $operation_mode) {
+      StopGenoring();
+      StartGenoring('backend');
+      print "  ...Restored backend mode.\n";
+    }
+  }
+  elsif ('offline' eq $current_mode) {
+    if ('offline' ne $operation_mode) {
+      StopGenoring();
+      StartGenoring('offline');
+      print "  ...Restored offline mode.\n";
+    }
+  }
+  else {
     print "- Stopping Genoring...\n";
     StopGenoring();
     print "  ...OK.\n";
@@ -3202,13 +3220,13 @@ sub UpgradeFramework {
 
 B<Description>: Installs and enables the given module.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1+
 
 =over 4
 
 =item $module: (string) (R)
 
-The module name.
+One or more module names. Required modules are included in the same operation.
 
 =back
 
@@ -3216,131 +3234,315 @@ B<Return>: (nothing)
 
 =cut
 
-sub InstallModule {
+sub _ValidateModuleFrameworkCompatibility {
   my ($module) = @_;
-  if (!$module) {
-    die "ERROR: InstallModule: Missing module name!\n";
-  }
-
-  if (! -d "$Genoring::MODULES_DIR/$module") {
-    die "ERROR: InstallModule: Module '$module' not found!\n";
-  }
-
   my $module_info = GetModuleInfo($module);
-  # Check requirements.
   if (!$module_info
       || !exists($module_info->{'genoring_script_version'})
+      || !$module_info->{'genoring_script_version'}
       || (0 < CompareVersions($module_info->{'genoring_script_version'}, $Genoring::GENORING_VERSION))
   ) {
-    die "ERROR: InstallModule: Module '$module' not supported by current GenoRing script version!\nRequired version: " . ($module_info->{'genoring_script_version'} || 'n/a') . ", current script version: $Genoring::GENORING_VERSION.\n";
+    die "ERROR: Module '$module' is not supported by current GenoRing script version!\nRequired version: "
+      . ($module_info->{'genoring_script_version'} || 'n/a')
+      . ", current script version: $Genoring::GENORING_VERSION.\n";
+  }
+  return $module_info;
+}
+
+
+sub _ModuleDependencyApplies {
+  my ($module, $dependency) = @_;
+  my $profiles = $dependency->{'profiles'} || [];
+  if (@$profiles && !grep { $_ eq GetProfile() } @$profiles) {
+    return 0;
+  }
+  if ($dependency->{'service'}) {
+    my %services = map { $_ => 1 } @{GetModuleServices($module)};
+    return 0 if !$services{$dependency->{'service'}};
+  }
+  return 1;
+}
+
+
+sub _ModuleDependencyTargetMatches {
+  my ($dependency, $candidate, $installed, $dependency_type) = @_;
+  return 0 if !-d "$Genoring::MODULES_DIR/$candidate";
+
+  my $candidate_info = GetModuleInfo($candidate);
+  my $candidate_config = GetModuleConf($candidate);
+  my $version = $installed->{$candidate}
+    ? ($candidate_config->{'version'} || $candidate_info->{'version'} || '')
+    : ($candidate_info->{'version'} || '');
+  if ($dependency->{'major_version'}) {
+    return 0 if !$version;
+    my $required_version = $dependency->{'major_version'} . '.' . ($dependency->{'minor_version'} || '0');
+    my $comparison = CompareVersions($version, $required_version);
+    my $version_constraint = $dependency->{'version_constraint'} || '=';
+    return 0 if ('=' eq $version_constraint && $comparison != 0)
+      || ('<' eq $version_constraint && $comparison >= 0)
+      || ('<=' eq $version_constraint && $comparison > 0)
+      || ('>' eq $version_constraint && $comparison <= 0)
+      || ('>=' eq $version_constraint && $comparison < 0);
   }
 
-  my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
-  if (exists($enabled_modules{$module})) {
-    warn "WARNING: InstallModule: Module '$module' already installed!\n";
-    return;
+  if ($dependency->{'element'}) {
+    my $element = $dependency->{'element'};
+    my %elements;
+    if ('volumes' eq $dependency_type) {
+      %elements = map { $_ => 1 } @{GetModuleVolumes($candidate, 'all')};
+    }
+    else {
+      %elements = map { $_ => 1 } @{GetModuleServices($candidate)};
+    }
+    return 0 if !$elements{$element};
+  }
+  return 1;
+}
+
+
+sub _ResolveModuleActivation {
+  my ($module, $state) = @_;
+  return if $state->{'enabled'}->{$module};
+  return if $state->{'planned'}->{$module};
+  die "ERROR: Circular module dependency involving '$module'.\n" if $state->{'visiting'}->{$module};
+  die "ERROR: Module '$module' not found!\n" if !-d "$Genoring::MODULES_DIR/$module";
+
+  my $new_install = !$state->{'installed'}->{$module};
+  my $module_info = $new_install
+    ? _ValidateModuleFrameworkCompatibility($module)
+    : GetModuleInfo($module);
+
+  if ($new_install && !$state->{'requirements_checked'}->{$module}) {
+    my $errors = ApplyLocalHooks('requirements', $module);
+    if (%$errors) {
+      die "ERROR: Could not install module '$module': some requirements were not met.\n"
+        . ($errors->{$module} || join("\n", values(%$errors)));
+    }
+    $state->{'requirements_checked'}->{$module} = 1;
   }
 
-  # Check module requirements.
-  my $errors = ApplyLocalHooks('requirements', $module);
-  if (%$errors) {
-    die
-      "ERROR: Could not install module '$module': some requirements were not met.\n"
-      . $errors->{$module};
-  }
-  # Check module dependencies.
-  # @todo Dependencies are not checked properly:
-  #   - no version check.
-  #   - no service check.
-  #   - no conflict check.
-  foreach my $service_dep (@{$module_info->{'dependencies'}->{'services'}}) {
-    my $constraint = ParseDependencies($service_dep);
-    next if !%$constraint;
-    # Only look for requirements or conflicts.
-    if ('REQUIRES' eq $constraint->{'constraint'}) {
-      # Check if one of the required modules is installed.
-      my $dependency_ok = 0;
-      foreach my $dependency (@{$constraint->{'dependencies'}}) {
-        if (exists($enabled_modules{$dependency->{'module'}})) {
-          # @todo Check version.
-          # my $dep_service = $dependency->{'element'}
-          # $dependency->{'version_constraint'}
-          # $dependency->{'major_version'}
-          # $dependency->{'minor_version'}
-          $dependency_ok = 1;
+  $state->{'visiting'}->{$module} = 1;
+  my $dependencies = $module_info->{'dependencies'} || {};
+  foreach my $dependency_type (qw(services volumes)) {
+    foreach my $dependency_line (@{$dependencies->{$dependency_type} || []}) {
+      my $constraint = ParseDependencies($dependency_line);
+      next if !%$constraint
+        || 'REQUIRES' ne $constraint->{'constraint'}
+        || !_ModuleDependencyApplies($module, $constraint);
+
+      my $satisfied = 0;
+      my @candidate_errors;
+      foreach my $candidate (@{$constraint->{'dependencies'}}) {
+        my $candidate_module = $candidate->{'module'};
+        if ($state->{'enabled'}->{$candidate_module}
+            && _ModuleDependencyTargetMatches($candidate, $candidate_module, $state->{'installed'}, $dependency_type)) {
+          $satisfied = 1;
           last;
         }
+        next if !-d "$Genoring::MODULES_DIR/$candidate_module";
+        if ($state->{'installed'}->{$candidate_module}
+            && !_ModuleDependencyTargetMatches($candidate, $candidate_module, $state->{'installed'}, $dependency_type)) {
+          push(@candidate_errors, "$candidate_module does not satisfy the requested version/service");
+          next;
+        }
+        my %trial = %$state;
+        foreach my $key (qw(enabled installed planned visiting requirements_checked)) {
+          $trial{$key} = {%{$state->{$key}}};
+        }
+        $trial{'order'} = [@{$state->{'order'}}];
+        my $resolved = eval {
+          _ResolveModuleActivation($candidate_module, \%trial);
+          die "dependency target does not satisfy its constraint"
+            if !_ModuleDependencyTargetMatches($candidate, $candidate_module, $trial{'installed'}, $dependency_type);
+          1;
+        };
+        if ($resolved) {
+          %$state = %trial;
+          $satisfied = 1;
+          last;
+        }
+        push(@candidate_errors, "$candidate_module: $@");
       }
-      if (!$dependency_ok) {
-        die
-          "ERROR: Could not install module '$module': some required modules are not enabled:\n- "
-          . join("\n- ", map { $_->{'module'}; } @{$constraint->{'dependencies'}});
+      if (!$satisfied) {
+        my $alternatives = join(' OR ', map {
+          $_->{'module'} . ($_->{'major_version'} ? ' ' . ($_->{'version_constraint'} || '=') . ' '
+            . $_->{'major_version'} . (defined($_->{'minor_version'}) ? '.' . $_->{'minor_version'} : '') : '')
+            . ($_->{'element'} ? ' ' . $_->{'element'} : '')
+        } @{$constraint->{'dependencies'}});
+        die "ERROR: Module '$module' requires an available and compatible module/service: $alternatives.\n"
+          . (@candidate_errors ? join("\n", @candidate_errors) . "\n" : '');
       }
-    }
-    elsif ('CONFLICTS' eq $constraint->{'constraint'}) {
-      # @todo To implement...
     }
   }
+  delete $state->{'visiting'}->{$module};
+  $state->{'planned'}->{$module} = 1;
+  $state->{'enabled'}->{$module} = 1;
+  push(@{$state->{'order'}}, $module);
+  $state->{'new_install'}->{$module} = $new_install;
+}
+
+
+sub _CheckModuleActivationConflicts {
+  my ($modules) = @_;
+  my %installed = map { $_ => 1 } @$modules;
+  foreach my $module (@$modules) {
+    my $module_info = GetModuleInfo($module);
+    my $dependencies = $module_info->{'dependencies'} || {};
+    foreach my $dependency_type (qw(services volumes)) {
+      foreach my $dependency_line (@{$dependencies->{$dependency_type} || []}) {
+        my $constraint = ParseDependencies($dependency_line);
+        next if !%$constraint
+          || 'CONFLICTS' ne $constraint->{'constraint'}
+          || !_ModuleDependencyApplies($module, $constraint);
+        foreach my $candidate (@{$constraint->{'dependencies'}}) {
+          if ($installed{$candidate->{'module'}}
+              && _ModuleDependencyTargetMatches($candidate, $candidate->{'module'}, \%installed, $dependency_type)) {
+            my $conflict_module = $candidate->{'module'};
+            my $conflict_element = $candidate->{'element'};
+            die "ERROR: Module '$module' conflicts with module/service '$conflict_module'"
+              . ($conflict_element ? " '$conflict_element'" : '') . ".\n";
+          }
+        }
+      }
+    }
+  }
+}
+
+
+sub _GetModuleActivationPlan {
+  my ($roots) = @_;
+  my $installed_config = GetModulesConfig();
+  my %installed = map { $_ => 1 } keys(%$installed_config);
+  my %enabled = map { $_ => 1 } @{GetModules(1)};
+  my $state = {
+    'enabled' => {%enabled},
+    'installed' => {%installed},
+    'planned' => {},
+    'visiting' => {},
+    'requirements_checked' => {},
+    'new_install' => {},
+    'order' => [],
+  };
+  foreach my $module (@$roots) {
+    _ResolveModuleActivation($module, $state);
+  }
+  my %final_modules = %{$state->{'enabled'}};
+  _CheckModuleActivationConflicts([sort keys(%final_modules)]);
+  return $state;
+}
+
+
+sub _ActivateModulePlan {
+  my ($plan) = @_;
+  my @modules = @{$plan->{'order'}};
+  return if !@modules;
   my $context = PrepareOperations();
-  $context->{'module'} = $module;
+  $context->{'operation_mode'} = 'backend';
+  my @new_modules = grep { $plan->{'new_install'}->{$_} } @modules;
+  my @enabled_modules = grep { !$plan->{'enabled_before'}->{$_} } @modules;
+  my %old_config;
+  foreach my $module (@enabled_modules) {
+    my $config = GetModuleConf($module);
+    $old_config{$module} = $config && %$config ? {%$config} : undef;
+  }
+
+  $context->{'module'} = \@enabled_modules;
   $context->{'local_hooks'} = {
-    'init' => {
-      'revert' => 'uninstall',
+    'enable' => {
+      'modules' => \@enabled_modules,
+      'revert' => 'disable',
+      'order' => 2,
     },
   };
+  if (@new_modules) {
+    $context->{'local_hooks'}->{'init'} = {
+      'modules' => \@new_modules,
+      'revert' => 'uninstall',
+      'order' => 1,
+    };
+  }
   $context->{'container_hooks'} = {
     'enable' => {
+      'modules' => \@enabled_modules,
       'revert' => 'disable',
       'related' => 1,
     },
   };
 
-  # Setup environment files.
   eval {
-    # Enable module.
-    my $module_config = GetModuleConf($module);
-    $module_config->{'status'} = 'enabled';
-    $module_config->{'version'} = $module_info->{'version'};
-    SetModuleConf($module, $module_config);
-
-    # Setup new environment variables.
-    SetupGenoringEnvironment(undef, $module);
+    foreach my $module (@enabled_modules) {
+      my $module_config = GetModuleConf($module);
+      $module_config->{'status'} = 'enabled';
+      if ($plan->{'new_install'}->{$module}) {
+        $module_config->{'version'} = GetModuleInfo($module)->{'version'};
+      }
+      SetModuleConf($module, $module_config);
+    }
+    SetupGenoringEnvironment(undef, $_) for @new_modules;
 
     if (!exists($g_flags->{'quiet-build'})) {
-      # Build missing containers with sources.
       BuildMissingContainers();
     }
     ApplyServiceOverrides();
-
     PerformLocalOperations($context);
-
-    # Update Docker Compose config.
     GenerateDockerComposeFile();
-
     PerformContainerOperations($context);
   };
-  # Check if an intermediate operation failed.
-  if ($@) {
-    $context->{'failed'} = $@;
-  }
+  $context->{'failed'} = $@ if $@;
 
   CleanupOperations($context);
-
   if ($context->{'failed'}) {
+    foreach my $module (@enabled_modules) {
+      eval {
+        if (defined($old_config{$module})) {
+          SetModuleConf($module, $old_config{$module});
+        }
+        else {
+          RemoveModuleConf($module);
+        }
+      };
+      warn "WARNING: $@\n" if $@;
+    }
     eval {
-      # Remove module from config.yml if installation failed.
-      RemoveModuleConf($module);
       ApplyServiceOverrides();
-    };
-    warn "WARNING: $@\n" if $@;
-    eval {
-      # Update Docker Compose config.
       GenerateDockerComposeFile();
     };
     warn "WARNING: $@\n" if $@;
   }
-
   EndOperations($context);
+}
+
+
+sub InstallModule {
+  my (@requested_modules) = @_;
+  die "ERROR: InstallModule: Missing module name!\n" if !@requested_modules;
+  my %seen;
+  @requested_modules = grep { defined($_) && length($_) && !$seen{$_}++ } @requested_modules;
+
+  my @to_install;
+  my %enabled = map { $_ => 1 } @{GetModules(1)};
+  foreach my $module (@requested_modules) {
+    die "ERROR: InstallModule: Module '$module' not found!\n" if !-d "$Genoring::MODULES_DIR/$module";
+    if ($enabled{$module}) {
+      warn "WARNING: InstallModule: Module '$module' already enabled!\n";
+      next;
+    }
+    push(@to_install, $module);
+  }
+  return if !@to_install;
+
+  my $plan = _GetModuleActivationPlan(\@to_install);
+  $plan->{'enabled_before'} = \%enabled;
+  my %requested = map { $_ => 1 } @to_install;
+  my @additional = grep { !$requested{$_} } @{$plan->{'order'}};
+  if (@additional && !Confirm(
+      "Installing these modules also requires enabling the following modules:\n- "
+        . join("\n- ", @additional) . "\nContinue?"
+    )) {
+    print "Operation canceled!\n";
+    return;
+  }
+  _ActivateModulePlan($plan);
 }
 
 
@@ -3348,15 +3550,16 @@ sub InstallModule {
 
 =head2 EnableModule
 
-B<Description>: Installs and enables the given module.
+B<Description>: Enables the given installed module and its required modules.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1+
 
 =over 4
 
 =item $module: (string) (R)
 
-The module name.
+One or more installed module names. Required modules are activated in the same
+operation after confirmation.
 
 =back
 
@@ -3365,79 +3568,29 @@ B<Return>: (nothing)
 =cut
 
 sub EnableModule {
-  my ($module) = @_;
-  if (!$module) {
-    die "ERROR: EnableModule: Missing module name!\n";
+  my (@modules) = @_;
+  die "ERROR: EnableModule: Missing module name!\n" if !@modules;
+  my %seen;
+  @modules = grep { defined($_) && length($_) && !$seen{$_}++ } @modules;
+  my %enabled = map { $_ => 1 } @{GetModules(1)};
+  foreach my $module (@modules) {
+    die "ERROR: EnableModule: Module '$module' not found!\n" if !-d "$Genoring::MODULES_DIR/$module";
+    die "ERROR: EnableModule: Module '$module' already enabled!\n" if $enabled{$module};
+    die "ERROR: EnableModule: Module '$module' not installed!\n" if !GetModuleConf($module)->{'status'};
   }
 
-  if (! -d "$Genoring::MODULES_DIR/$module") {
-    die "ERROR: EnableModule: Module '$module' not found!\n";
+  my $plan = _GetModuleActivationPlan(\@modules);
+  $plan->{'enabled_before'} = \%enabled;
+  my %requested = map { $_ => 1 } @modules;
+  my @additional = grep { !$requested{$_} } @{$plan->{'order'}};
+  if (@additional && !Confirm(
+      "Enabling these modules also requires enabling the following modules:\n- "
+        . join("\n- ", @additional) . "\nContinue?"
+    )) {
+    print "Operation canceled!\n";
+    return;
   }
-
-  # @todo Check module dependencies.
-
-  my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
-  if (exists($enabled_modules{$module})) {
-    die "ERROR: EnableModule: Module '$module' already enabled!\n";
-  }
-  my %disabled_modules = map { $_ => $_ } @{GetModules(0)};
-  if (!exists($disabled_modules{$module})) {
-    die "ERROR: EnableModule: Module '$module' not installed!\n";
-  }
-
-  my $context = PrepareOperations();
-  $context->{'module'} = $module;
-  $context->{'local_hooks'} = {
-    'enable' => {
-      'revert' => 'disable',
-    },
-  };
-  $context->{'container_hooks'} = {
-    'enable' => {
-      'revert' => 'disable',
-      'related' => 1,
-    },
-  };
-
-  # Setup environment files.
-  eval {
-    # Enable module.
-    my $module_config = GetModuleConf($module);
-    $module_config->{'status'} = 'enabled';
-    SetModuleConf($module, $module_config);
-
-    ApplyServiceOverrides();
-    PerformLocalOperations($context);
-
-    # Update Docker Compose config.
-    GenerateDockerComposeFile();
-
-    PerformContainerOperations($context);
-  };
-  # Check if an intermediate operation failed.
-  if ($@) {
-    $context->{'failed'} = $@;
-  }
-
-  CleanupOperations($context);
-
-  if ($context->{'failed'}) {
-    eval {
-      # Disable module if failed.
-      my $module_config = GetModuleConf($module);
-      $module_config->{'status'} = 'disabled';
-      SetModuleConf($module, $module_config);
-      ApplyServiceOverrides();
-    };
-    warn "WARNING: $@\n" if $@;
-    eval {
-      # Update Docker Compose config.
-      GenerateDockerComposeFile();
-    };
-    warn "WARNING: $@\n" if $@;
-  }
-
-  EndOperations($context);
+  _ActivateModulePlan($plan);
 }
 
 
@@ -3461,86 +3614,170 @@ B<Return>: (nothing)
 
 =cut
 
-sub DisableModule {
+sub _FindDependentModules {
+  my ($roots, $uninstall) = @_;
+  my $config = GetModulesConfig();
+  my %installed = map { $_ => 1 } keys(%$config);
+  my %enabled = map { $_ => 1 } @{GetModules(1)};
+  my %removed = map { $_ => 1 } @$roots;
+  my %depth = map { $_ => 0 } @$roots;
+  my $changed = 1;
+  while ($changed) {
+    $changed = 0;
+    foreach my $candidate (sort keys(%installed)) {
+      next if $removed{$candidate} || (!$uninstall && !$enabled{$candidate});
+      my $module_info = GetModuleInfo($candidate);
+      my $dependencies = $module_info->{'dependencies'} || {};
+      DEPENDENCY_TYPES:
+      foreach my $dependency_type (qw(services volumes)) {
+        foreach my $line (@{$dependencies->{$dependency_type} || []}) {
+          my $constraint = ParseDependencies($line);
+          next if !%$constraint
+            || 'REQUIRES' ne $constraint->{'constraint'}
+            || !_ModuleDependencyApplies($candidate, $constraint);
+          my ($uses_removed, $uses_remaining) = (0, 0);
+          foreach my $dependency (@{$constraint->{'dependencies'}}) {
+            my $dependency_module = $dependency->{'module'};
+            next if !$installed{$dependency_module};
+            next if !$uninstall && !$enabled{$dependency_module};
+            next if !_ModuleDependencyTargetMatches($dependency, $dependency_module, \%installed, $dependency_type);
+            if ($removed{$dependency_module}) {
+              $uses_removed = 1;
+            }
+            elsif ($uninstall ? $installed{$dependency_module} : $enabled{$dependency_module}) {
+              $uses_remaining = 1;
+            }
+          }
+          if ($uses_removed && !$uses_remaining) {
+            my $parent_depth = 0;
+            foreach my $dependency (@{$constraint->{'dependencies'}}) {
+              $parent_depth = $depth{$dependency->{'module'}}
+                if $removed{$dependency->{'module'}} && ($depth{$dependency->{'module'}} || 0) > $parent_depth;
+            }
+            $removed{$candidate} = 1;
+            $depth{$candidate} = $parent_depth + 1;
+            $changed = 1;
+            last DEPENDENCY_TYPES;
+          }
+        }
+      }
+    }
+  }
+  my %roots = map { $_ => 1 } @$roots;
+  my @ordered = sort { $depth{$b} <=> $depth{$a} || $a cmp $b } keys(%removed);
+  my @dependents = grep { !$roots{$_} } @ordered;
+  return (\@ordered, \@dependents);
+}
+
+
+sub _DisableModuleSet {
   my ($module, $non_interactive, $uninstall) = @_;
-
-  if (!$module) {
-    # Die on logic error.
-    die "ERROR: DisableModule: Missing module name!\n";
-  }
-
-  if (! -d "$Genoring::MODULES_DIR/$module") {
-    warn "WARNING: DisableModule: Module '$module' not found!\n";
-  }
-
-  # @todo Check other module dependencies (to this module).
-
-  my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
-  if (!exists($enabled_modules{$module})) {
-    warn "WARNING: DisableModule: Module '$module' already disabled! Will retry to disable it.\n";
-  }
-  elsif (!$non_interactive) {
-    if (!Confirm("Are you sure you want to disable module '$module'?")) {
+  my ($ordered_modules, $dependents) = _FindDependentModules([$module], $uninstall);
+  my %enabled = map { $_ => 1 } @{GetModules(1)};
+  if (!$non_interactive && ($enabled{$module} || @$dependents)) {
+    my $message = $uninstall
+      ? "This action removes data files used or generated by module '$module'. Are you sure you want to UNINSTALL it?"
+      : "Are you sure you want to disable module '$module'?";
+    if (@$dependents) {
+      my $action = $uninstall ? 'uninstalled' : 'disabled';
+      $message .= "\nThe following dependent modules will also be $action:\n- "
+        . join("\n- ", @$dependents);
+    }
+    if (!Confirm($message)) {
       print "Operation canceled!\n";
-      exit(0);
+      return;
     }
   }
 
+  my $enabled = \%enabled;
   my $context = PrepareOperations();
-  $context->{'module'} = $module;
+  $context->{'operation_mode'} = 'backend';
+  my %old_config;
+  foreach my $target (@$ordered_modules) {
+    my $config = GetModuleConf($target);
+    $old_config{$target} = $config && %$config ? {%$config} : undef;
+  }
+  my @affected_enabled = grep { $enabled->{$_} } @$ordered_modules;
+  $context->{'module'} = \@affected_enabled;
   $context->{'local_hooks'} = {
     'disable' => {
+      'modules' => \@affected_enabled,
       'revert' => 'enable',
       'order' => 1,
     },
   };
   $context->{'container_hooks'} = {
     'disable' => {
+      'modules' => \@affected_enabled,
       'revert' => 'enable',
       'related' => 1,
       'order' => 1,
     },
   };
   if ($uninstall) {
-    $context->{'local_hooks'}->{'uninstall'} = {'order' => 2,};
+    $context->{'local_hooks'}->{'uninstall'} = {
+      'modules' => $ordered_modules,
+      'order' => 2,
+    };
     $context->{'container_hooks'}->{'uninstall'} = {
+      'modules' => $ordered_modules,
       'related' => 1,
       'order' => 2,
     };
   }
 
   eval {
-    # Disable or uninstall module.
-    if ($uninstall) {
-      RemoveModuleConf($module);
-      ApplyServiceOverrides();
+    foreach my $target (@$ordered_modules) {
+      if ($uninstall) {
+        RemoveModuleConf($target);
+      }
+      elsif ($enabled->{$target}) {
+        my $module_config = GetModuleConf($target);
+        $module_config->{'status'} = 'disabled';
+        SetModuleConf($target, $module_config);
+      }
     }
-    else {
-      # @todo Get current module config and just change its status.
-      my $module_config = GetModuleConf($module);
-      $module_config->{'status'} = 'disabled';
-      SetModuleConf($module, $module_config);
-      ApplyServiceOverrides();
-    }
-    # Update Docker Compose config.
+    ApplyServiceOverrides();
     GenerateDockerComposeFile();
-
-    # Set maintenance mode to apply disabling hooks.
     PerformContainerOperations($context);
-
-    # Perform local hooks if needed.
     PerformLocalOperations($context);
-
-    if ($uninstall && !$g_flags->{'preserve-env'}) {
-      # Remove module environment files.
-      RemoveEnvFiles($module);
-    }
   };
-  if ($@) {
-    $context->{'failed'} = $@;
-  }
+  $context->{'failed'} = $@ if $@;
   CleanupOperations($context);
+  if ($context->{'failed'}) {
+    foreach my $target (@$ordered_modules) {
+      eval {
+        if (defined($old_config{$target})) {
+          SetModuleConf($target, $old_config{$target});
+        }
+        else {
+          RemoveModuleConf($target);
+        }
+      };
+      warn "WARNING: $@\n" if $@;
+    }
+    eval {
+      ApplyServiceOverrides();
+      GenerateDockerComposeFile();
+    };
+    warn "WARNING: $@\n" if $@;
+  }
+  elsif ($uninstall && !$g_flags->{'preserve-env'}) {
+    RemoveEnvFiles($_) for @$ordered_modules;
+  }
   EndOperations($context);
+}
+
+
+sub DisableModule {
+  my ($module, $non_interactive) = @_;
+  die "ERROR: DisableModule: Missing module name!\n" if !$module;
+  if (!-d "$Genoring::MODULES_DIR/$module") {
+    warn "WARNING: DisableModule: Module '$module' not found!\n";
+  }
+  my %enabled = map { $_ => 1 } @{GetModules(1)};
+  warn "WARNING: DisableModule: Module '$module' already disabled! Will retry to disable it.\n" if !$enabled{$module};
+  _DisableModuleSet($module, $non_interactive, 0);
 }
 
 
@@ -3576,23 +3813,13 @@ sub UninstallModule {
     die "ERROR: UninstallModule: Missing module name!\n";
   }
 
-  if (! -d "$Genoring::MODULES_DIR/$module") {
-    warn "WARNING: UninstallModule: Module '$module' not found!\n";
+  if (!-d "$Genoring::MODULES_DIR/$module" && !GetModuleConf($module)->{'status'}) {
+    die "ERROR: UninstallModule: Module '$module' not found or not installed!\n";
   }
-
-  # @todo Check other module dependencies (to this module).
-
-  my %enabled_modules = map { $_ => $_ } @{GetModules(1)};
-  if (!exists($enabled_modules{$module})) {
+  if (!GetModuleConf($module)->{'status'}) {
     warn "WARNING: UninstallModule: Module '$module' already uninstalled! Will retry to uninstall it.\n";
   }
-  elsif (!$non_interactive) {
-    if (!Confirm("This action will also remove data files used or generated by the module. Are you sure you want to UNINSTALL module '$module'?")) {
-      print "Operation canceled!\n";
-      exit(0);
-    }
-  }
-  DisableModule($module, 1, 1);
+  _DisableModuleSet($module, $non_interactive, 1);
 }
 
 

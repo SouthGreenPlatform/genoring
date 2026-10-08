@@ -16,7 +16,7 @@ genoring.pl - Manages GenoRing platform.
   | moduledetails <MODULE>
   | setup [-default | -minimal] [-reset]
   | reset [-f] [-delete-containers] [-preserve-env]
-  | enable <MODULE> | disable <MODULE> | uninstall <MODULE> [-preserve-env]
+  | enable <MODULE>... | disable <MODULE> | uninstall <MODULE> [-preserve-env]
   | enablealt <MODULE> <SERVICE> | disablealt <MODULE> <SERVICE>
   | toexternal <SERVICE> <IP> | togenoring <SERVICE> [ALTERNATIVE]
   | update [MODULE] | upgrade [MODULE]
@@ -291,11 +291,12 @@ If '-preserve-env' is used, current environment files are kept.
 
 =head4 Syntax
 
-  perl genoring.pl enable <MODULE>
+  perl genoring.pl enable <MODULE>...
 
 =head4 Description
 
-Installs and enables the given GenoRing module.
+Installs and enables the given GenoRing module and any required modules that
+are available. Confirmation is requested before additional modules are enabled.
 
 
 =head3 disable
