@@ -28,7 +28,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 77;
+use Test::More tests => 78;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -315,6 +315,19 @@ is_deeply(
 }
 
 # SaveConfig() && ClearInternalCache()
+$config->{'modules'}->{'genoring'}->{'services'} = {
+  'genoring' => {'status' => 'enabled'},
+  'genoring-proxy.merge' => {'status' => 'enabled'},
+  'genoring-proxy.override' => {'status' => 'disabled'},
+};
+SaveConfig();
+is_deeply(
+  Genoring::ReadYaml($instance_config_yml)->[0]->{'modules'}->{'genoring'}->{'services'},
+  {'genoring' => {'status' => 'enabled'}},
+  'Config save removes merge and override files mistakenly stored as services'
+);
+delete($config->{'modules'}->{'genoring'}->{'services'});
+SaveConfig();
 $config->{'project'} = $instance;
 SaveConfig();
 $config->{'project'} = 'xyz';
@@ -645,7 +658,11 @@ is_deeply(
   local *Genoring::GetModuleConf = sub {
     return {
       'external_services' => {'external-service' => '127.0.0.1'},
-      'services' => {'disabled-service' => {'status' => 'disabled'}},
+      'services' => {
+        'disabled-service' => {'status' => 'disabled'},
+        'disabled-service.merge' => {'status' => 'disabled'},
+        'external-service.override' => {'status' => 'disabled'},
+      },
     };
   };
   is_deeply(

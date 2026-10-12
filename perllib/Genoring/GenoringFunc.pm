@@ -1462,6 +1462,35 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
 }
 
 
+=pod
+
+=head2 _ReadServiceImage
+
+B<Description>: Returns the Docker image declared by the service definition
+file of the given module service (i.e. "services/<service>.yml" or
+"services/alt/<service>.yml"). Dies if the service has no definition file.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name owning the service.
+
+=item $service: (string) (R)
+
+The service name.
+
+=back
+
+B<Return>: (scalar)
+
+The "image" entry of the service definition as loaded by ReadYaml (can be a
+plain string, but also a structure depending on the service definition file).
+
+=cut
+
 sub _ReadServiceImage {
   my ($module, $service) = @_;
   my $service_path = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'services', "$service.yml");
@@ -1478,6 +1507,35 @@ sub _ReadServiceImage {
 }
 
 
+=pod
+
+=head2 _GetServiceImage
+
+B<Description>: Returns the literal Docker image name declared by the given
+module service. Dies if the service has no image or if its image is not a
+literal string (i.e. a structure or containing shell variables), as such
+images can not support overrides.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name owning the service.
+
+=item $service: (string) (R)
+
+The service name.
+
+=back
+
+B<Return>: (string)
+
+The Docker image name.
+
+=cut
+
 sub _GetServiceImage {
   my ($module, $service) = @_;
   my $image = _ReadServiceImage($module, $service);
@@ -1487,6 +1545,31 @@ sub _GetServiceImage {
   return $image;
 }
 
+
+=pod
+
+=head2 _OverrideImagePrefix
+
+B<Description>: Returns the Docker image name prefix to use for override
+images of the given service (i.e. "genoring-override-<project>-<service>"),
+with project and service names lowercased and normalized to only contain
+alphanumerical characters, ".", "_" and "-".
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $service: (string) (R)
+
+The service name.
+
+=back
+
+B<Return>: (string)
+
+The override image name prefix (without tag).
+
+=cut
 
 sub _OverrideImagePrefix {
   my ($service) = @_;
@@ -1499,6 +1582,29 @@ sub _OverrideImagePrefix {
 }
 
 
+=pod
+
+=head2 _GetDockerImageId
+
+B<Description>: Returns the Docker image identifier of the given image, or an
+empty string if the image is not available locally.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $image: (string) (R)
+
+The Docker image name.
+
+=back
+
+B<Return>: (string)
+
+The Docker image identifier or an empty string.
+
+=cut
+
 sub _GetDockerImageId {
   my ($image) = @_;
   my $image_id = Run(
@@ -1508,6 +1614,35 @@ sub _GetDockerImageId {
   return $image_id;
 }
 
+
+=pod
+
+=head2 _GetServiceOverridePlans
+
+B<Description>: Computes the service override plans for all services targeted
+by overrides declared by enabled modules (from their module info "overrides"
+section). For each overridden service, the plan contains the owner module,
+the base image, the source directory, the list of override Dockerfiles (with
+file timestamps and size) and a signature used to detect changes. Dies on
+invalid override declarations or missing Dockerfiles.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $services: (hash ref) (R)
+
+A mapping of service names to their owner module, as returned by
+GetServices().
+
+=back
+
+B<Return>: (hash ref)
+
+A mapping of overridden service names to their override plan (with "owner",
+"base_image", "source_dir", "has_source", "overrides" and "signature" keys).
+
+=cut
 
 sub _GetServiceOverridePlans {
   my ($services) = @_;
@@ -1623,6 +1758,25 @@ sub _GetServiceOverridePlans {
   return \%plans;
 }
 
+
+=pod
+
+=head2 ApplyServiceOverrides
+
+B<Description>: Applies service image overrides declared by enabled modules.
+For each overridden service, chains the override Dockerfiles (starting from
+the service base image or its source build) to generate a new Docker image,
+but only when the plan signature, image or override modules changed since last
+run. Services with no override plan anymore are restored to their base or
+source image. The resulting state is saved in the global config
+("service_overrides" section). Dies on build failures and cleans up
+temporary stage images.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
 
 sub ApplyServiceOverrides {
   ClearInternalCache();
@@ -3071,6 +3225,7 @@ sub UpgradeFrameworkAlpha8 {
         or die "ERROR: UpgradeFrameworkAlpha8: Failed to list '$services_dir' directory!\n$!";
       foreach my $entry (readdir($dh)) {
         next if $entry =~ /^\./;
+        next if $entry =~ /\.(?:merge|override)\.yml$/;
         if ($entry =~ /^(.*)\.yml\.dis$/) {
           my $service = $1;
           my $old_path = File::Spec->catfile($services_dir, $entry);
@@ -3214,6 +3369,31 @@ sub UpgradeFramework {
 }
 
 
+=pod
+
+=head2 _ValidateModuleFrameworkCompatibility
+
+B<Description>: Checks that the given module is supported by the current
+GenoRing script version (i.e. its "genoring_script_version" is defined and not
+greater than $Genoring::GENORING_VERSION). Dies with an explicit error message
+otherwise.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=back
+
+B<Return>: (hash ref)
+
+The module info.
+
+=cut
+
 sub _ValidateModuleFrameworkCompatibility {
   my ($module) = @_;
   my $module_info = GetModuleInfo($module);
@@ -3230,6 +3410,34 @@ sub _ValidateModuleFrameworkCompatibility {
 }
 
 
+=pod
+
+=head2 _ModuleDependencyApplies
+
+B<Description>: Tells if a parsed dependency constraint applies to the given
+module, i.e. if its profile restriction matches the current profile and its
+service restriction matches one of the module services.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=item $dependency: (hash ref) (R)
+
+A parsed dependency constraint as returned by ParseDependencies().
+
+=back
+
+B<Return>: (boolean)
+
+A true value if the dependency applies, a false value otherwise.
+
+=cut
+
 sub _ModuleDependencyApplies {
   my ($module, $dependency) = @_;
   my $profiles = $dependency->{'profiles'} || [];
@@ -3243,6 +3451,43 @@ sub _ModuleDependencyApplies {
   return 1;
 }
 
+
+=pod
+
+=head2 _ModuleDependencyTargetMatches
+
+B<Description>: Tells if a candidate module satisfies a parsed dependency
+constraint, checking module presence, version constraints (major/minor version
+with "=", "<", "<=", ">" or ">=" constraint) and service or volume element
+constraints.
+
+B<ArgsCount>: 4
+
+=over 4
+
+=item $dependency: (hash ref) (R)
+
+A parsed dependency constraint as returned by ParseDependencies().
+
+=item $candidate: (hash ref) (R)
+
+The candidate dependency declaration to check.
+
+=item $installed: (hash ref) (R)
+
+A mapping of installed module names (used to select config or info version).
+
+=item $dependency_type: (string) (R)
+
+The type of dependency: "services" or "volumes".
+
+=back
+
+B<Return>: (boolean)
+
+A true value if the candidate matches the dependency, a false value otherwise.
+
+=cut
 
 sub _ModuleDependencyTargetMatches {
   my ($dependency, $candidate, $installed, $dependency_type) = @_;
@@ -3279,6 +3524,36 @@ sub _ModuleDependencyTargetMatches {
   return 1;
 }
 
+
+=pod
+
+=head2 _ResolveModuleActivation
+
+B<Description>: Recursively plans the activation of the given module and its
+requirements. For each "REQUIRES" dependency, tries enabled modules first,
+then resolves one of the candidate modules (with backtracking on failure),
+running module requirements hooks for new installs. Updates the given state
+(i.e. "enabled", "installed", "planned", "new_install" and "order" entries).
+Dies on circular dependencies, missing modules, unmet requirements or
+unsatisfied dependencies.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name to activate.
+
+=item $state: (hash ref) (R)
+
+The activation state to update (see _GetModuleActivationPlan()).
+
+=back
+
+B<Return>: (nothing)
+
+=cut
 
 sub _ResolveModuleActivation {
   my ($module, $state) = @_;
@@ -3362,6 +3637,28 @@ sub _ResolveModuleActivation {
 }
 
 
+=pod
+
+=head2 _CheckModuleActivationConflicts
+
+B<Description>: Checks that none of the given modules declares a "CONFLICTS"
+dependency matching another enabled module of the list. Dies with an explicit
+error message on the first conflict found.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $modules: (array ref) (R)
+
+The list of module names to check.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub _CheckModuleActivationConflicts {
   my ($modules) = @_;
   my %installed = map { $_ => 1 } @$modules;
@@ -3389,6 +3686,32 @@ sub _CheckModuleActivationConflicts {
 }
 
 
+=pod
+
+=head2 _GetModuleActivationPlan
+
+B<Description>: Computes the activation plan for the given root modules:
+resolves required modules (see _ResolveModuleActivation()) and checks for
+conflicts (see _CheckModuleActivationConflicts()).
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $roots: (array ref) (R)
+
+The list of root module names to activate.
+
+=back
+
+B<Return>: (hash ref)
+
+The activation state with "enabled", "installed", "planned", "new_install" and
+"order" entries. The "order" list gives the modules to activate in dependency
+order.
+
+=cut
+
 sub _GetModuleActivationPlan {
   my ($roots) = @_;
   my $installed_config = GetModulesConfig();
@@ -3411,6 +3734,32 @@ sub _GetModuleActivationPlan {
   return $state;
 }
 
+
+=pod
+
+=head2 _ActivateModulePlan
+
+B<Description>: Applies an activation plan: saves module configuration (with
+status "enabled" and, for new installs, module version), sets up environment
+of new modules, builds missing containers, applies service overrides, then
+applies local and container "enable" (and "init" for new modules) hooks in
+backend mode. On failure, restores previous module configurations and
+regenerates files.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $plan: (hash ref) (R)
+
+The activation plan as returned by _GetModuleActivationPlan(), with an
+additional "enabled_before" entry (mapping of previously enabled modules).
+
+=back
+
+B<Return>: (nothing)
+
+=cut
 
 sub _ActivateModulePlan {
   my ($plan) = @_;
@@ -3594,6 +3943,39 @@ sub EnableModule {
 }
 
 
+=pod
+
+=head2 _FindDependentModules
+
+B<Description>: Finds, among installed modules, those that transitively
+require (i.e. "REQUIRES" dependency) at least one of the given root modules
+and would be left with an unsatisfied dependency. Depending on $uninstall,
+only enabled or all installed modules are considered. Modules are ordered so
+that dependents appear after the modules they depend on (i.e. suitable for a
+disable/uninstall order).
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $roots: (array ref) (R)
+
+The list of root module names to disable or uninstall.
+
+=item $uninstall: (boolean) (U)
+
+If TRUE, all installed modules are considered (uninstall case), otherwise only
+enabled modules are (disable case).
+
+=back
+
+B<Return>: (list)
+
+Two array refs: the ordered list of all affected modules (roots and
+dependents, dependents last) and the list of dependent modules only.
+
+=cut
+
 sub _FindDependentModules {
   my ($roots, $uninstall) = @_;
   my $config = GetModulesConfig();
@@ -3649,6 +4031,38 @@ sub _FindDependentModules {
   return (\@ordered, \@dependents);
 }
 
+
+=pod
+
+=head2 _DisableModuleSet
+
+B<Description>: Disables (or uninstalls if $uninstall is TRUE) the given
+module and all its dependents (see _FindDependentModules()), after user
+confirmation in interactive mode. Applies local and container "disable" (and
+"uninstall") hooks in backend mode, removes module environment files on
+uninstall, and restores previous module configurations on failure.
+
+B<ArgsCount>: 2-3
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=item $non_interactive: (boolean) (U)
+
+If TRUE, no confirmation is asked.
+
+=item $uninstall: (boolean) (U)
+
+If TRUE, the modules are uninstalled instead of just disabled.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
 
 sub _DisableModuleSet {
   my ($module, $non_interactive, $uninstall) = @_;
@@ -3993,6 +4407,30 @@ sub DisableAlternative {
 }
 
 
+=pod
+
+=head2 _GetAlternativeChanges
+
+B<Description>: Extracts and validates the service changes of an alternative
+service definition: the "substitute" mapping and the "add"/"remove" lists.
+Dies if the definition structure is invalid.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $alternative: (hash ref) (R)
+
+The alternative service definition.
+
+=back
+
+B<Return>: (hash ref)
+
+A hash ref with "substitute", "add" and "remove" entries.
+
+=cut
+
 sub _GetAlternativeChanges {
   my ($alternative) = @_;
 
@@ -4011,12 +4449,73 @@ sub _GetAlternativeChanges {
 }
 
 
+=pod
+
+=head2 _AlternativeServiceSet
+
+B<Description>: Returns the set of services of the given module for the given
+alternative (or the default service set if no alternative name is provided).
+
+B<ArgsCount>: 1-2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=item $alternative_name: (string) (U)
+
+The alternative name. If not set, the default services are used.
+
+=back
+
+B<Return>: (hash ref)
+
+A mapping of service names (as keys) to TRUE values.
+
+=cut
+
 sub _AlternativeServiceSet {
   my ($module, $alternative_name) = @_;
   my %services = map { $_ => 1 } @{GetModuleServices($module, undef, $alternative_name)};
   return \%services;
 }
 
+
+=pod
+
+=head2 _ApplyAlternativeServiceHooks
+
+B<Description>: Applies the given container hook to the given service set of
+the given module. Starts GenoRing in the operation mode of the given context
+first. Dies with a detailed error message on hook failures.
+
+B<ArgsCount>: 4
+
+=over 4
+
+=item $context: (hash ref) (R)
+
+An operation context as returned by PrepareOperations().
+
+=item $hook: (string) (R)
+
+The container hook name (e.g. "enable" or "disable").
+
+=item $module: (string) (R)
+
+The module name.
+
+=item $services: (array ref) (R)
+
+The list of service names the hook applies to.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
 
 sub _ApplyAlternativeServiceHooks {
   my ($context, $hook, $module, $services) = @_;
@@ -4030,6 +4529,36 @@ sub _ApplyAlternativeServiceHooks {
   }
 }
 
+
+=pod
+
+=head2 _ChangeAlternative
+
+B<Description>: Switches the given module to the given service alternative
+(or removes it if no alternative name is provided): disables container hooks
+of removed services, updates module configuration, applies service overrides
+and regenerates the Docker Compose file, then enables container hooks of added
+services. On failure, rolls back configuration, files and hooks as far as
+possible and reports rollback errors.
+
+B<ArgsCount>: 1-2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=item $new_alternative: (string) (U)
+
+The alternative name to enable. If not set, the current alternative is
+removed.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
 
 sub _ChangeAlternative {
   my ($module, $new_alternative) = @_;
@@ -5567,6 +6096,22 @@ sub Build {
 }
 
 
+=pod
+
+=head2 _EnsureDockerBuildx
+
+B<Description>: Checks that the Docker buildx (BuildKit) plugin is available
+and enabled, and proposes to enable it otherwise. If buildx is not available,
+not enabled or the user declined to enable it, removes it from
+$Genoring::DOCKER_BUILD_COMMAND so that container images are built without
+buildx. Does nothing if the "skip-checks" flag is set.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
 sub _EnsureDockerBuildx {
   return if $g_flags->{'skip-checks'};
   my $disable_buildx = 0;
@@ -5598,6 +6143,30 @@ sub _EnsureDockerBuildx {
 }
 
 
+=pod
+
+=head2 _ShellQuote
+
+B<Description>: Quotes the given value for shell usage: with double quotes on
+Windows/DOS systems, and with single quotes (and escaped inner single quotes)
+otherwise.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $value: (string) (R)
+
+The value to quote.
+
+=back
+
+B<Return>: (string)
+
+The quoted value.
+
+=cut
+
 sub _ShellQuote {
   my ($value) = @_;
   if (('Win32' eq GetOs()) || ($Genoring::COMPATIBILITY =~ /\bdos\b/)) {
@@ -5608,6 +6177,48 @@ sub _ShellQuote {
   return "'$value'";
 }
 
+
+=pod
+
+=head2 _BuildServiceOverride
+
+B<Description>: Builds one service override stage: rewrites "FROM"
+instructions of the given override Dockerfile that use the base image to use
+the previous stage image instead, adds the platform option if needed, then
+builds the resulting image in a temporary Dockerfile. Dies if the Dockerfile
+can not be read or written, or if it does not use the base image in a "FROM"
+instruction. Removes any previous image with the same name before building.
+
+B<ArgsCount>: 5
+
+=over 4
+
+=item $dockerfile: (string) (R)
+
+The override Dockerfile path.
+
+=item $module: (string) (R)
+
+The module name declaring the override.
+
+=item $base_image: (string) (R)
+
+The base image the override is applied to.
+
+=item $previous_image: (string) (R)
+
+The image to chain the override on (i.e. base image or previous override stage
+image).
+
+=item $output_image: (string) (R)
+
+The name of the Docker image to generate.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
 
 sub _BuildServiceOverride {
   my ($dockerfile, $module, $base_image, $previous_image, $output_image) = @_;
@@ -5822,6 +6433,11 @@ sub SaveConfig {
     GetConfig();
   }
   my $service_overrides = $_g_config->{'service_overrides'} || {};
+  foreach my $module_config (values(%{$_g_modules->{'config'}})) {
+    next if ('HASH' ne ref($module_config) || 'HASH' ne ref($module_config->{'services'}));
+    delete($module_config->{'services'}->{$_})
+      foreach grep { /\.(?:merge|override)\z/ } keys(%{$module_config->{'services'}});
+  }
   my $config = {
     'project' => GetProjectName(),
     'version' => $Genoring::GENORING_VERSION,
@@ -6155,6 +6771,7 @@ sub GetModuleServices {
   if ($include) {
     if (('disabled' eq $include) || ('all' eq $include)) {
       foreach my $service (sort keys(%$service_statuses)) {
+        next if $service =~ /\.(?:merge|override)$/;
         if ('disabled' eq ($service_statuses->{$service}->{'status'} || 'enabled')) {
           push(@services_list, $service);
         }
