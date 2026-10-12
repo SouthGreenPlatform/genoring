@@ -6661,7 +6661,9 @@ sub GetVolumeName {
   }
 
   my $volume_name = $volume;
-  $volume_name =~ s/^genoring-/$ENV{'COMPOSE_PROJECT_NAME'}-/;
+  if ($Genoring::COMPATIBILITY !~ /\bdc1\b/) {
+    $volume_name =~ s/^genoring-/$ENV{'COMPOSE_PROJECT_NAME'}-/;
+  }
   return $volume_name;
 }
 
