@@ -6,7 +6,11 @@ LABEL net.genoring.image.authors="v.guignon@cgiar.org"
 LABEL description="PostgreSQL 18 with PostGIS and pgvector"
 
 # Adds PgVector (from https://hub.docker.com/r/pgvector/pgvector).
-ADD https://github.com/pgvector/pgvector.git#v0.8.4 /tmp/pgvector
+ADD https://github.com/pgvector/pgvector/archive/refs/tags/v0.8.4.tar.gz /tmp
+RUN mkdir -p /tmp/pgvector \
+    && tar -xzf /tmp/v0.8.4.tar.gz -C /tmp/pgvector --strip-components=1 \
+    && rm /tmp/v0.8.4.tar.gz
+
 RUN apt-get update \
   && apt-mark hold locales \
   && apt-get install -y --no-install-recommends \
