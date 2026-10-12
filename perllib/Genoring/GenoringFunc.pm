@@ -3214,26 +3214,6 @@ sub UpgradeFramework {
 }
 
 
-=pod
-
-=head2 InstallModule
-
-B<Description>: Installs and enables the given module.
-
-B<ArgsCount>: 1+
-
-=over 4
-
-=item $module: (string) (R)
-
-One or more module names. Required modules are included in the same operation.
-
-=back
-
-B<Return>: (nothing)
-
-=cut
-
 sub _ValidateModuleFrameworkCompatibility {
   my ($module) = @_;
   my $module_info = GetModuleInfo($module);
@@ -3513,6 +3493,26 @@ sub _ActivateModulePlan {
 }
 
 
+=pod
+
+=head2 InstallModule
+
+B<Description>: Installs and enables the given module.
+
+B<ArgsCount>: 1+
+
+=over 4
+
+=item $module: (string) (R)
+
+One or more module names. Required modules are included in the same operation.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
 sub InstallModule {
   my (@requested_modules) = @_;
   die "ERROR: InstallModule: Missing module name!\n" if !@requested_modules;
@@ -3593,26 +3593,6 @@ sub EnableModule {
   _ActivateModulePlan($plan);
 }
 
-
-=pod
-
-=head2 DisableModule
-
-B<Description>: Disables the given module.
-
-B<ArgsCount>: 1
-
-=over 4
-
-=item $module: (string) (R)
-
-The module name.
-
-=back
-
-B<Return>: (nothing)
-
-=cut
 
 sub _FindDependentModules {
   my ($roots, $uninstall) = @_;
@@ -3768,6 +3748,26 @@ sub _DisableModuleSet {
   EndOperations($context);
 }
 
+
+=pod
+
+=head2 DisableModule
+
+B<Description>: Disables the given module.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
 
 sub DisableModule {
   my ($module, $non_interactive) = @_;
@@ -6107,7 +6107,11 @@ sub GetModuleServices {
 
   if (-d $services_dir) {
     if (opendir(my $dh, $services_dir)) {
-      my @service_files = grep { $_ =~ m/^[^\.].*\.yml$/ && -r File::Spec->catfile($services_dir, $_) } readdir($dh);
+      my @service_files = grep {
+        $_ =~ m/^[^\.].*\.yml$/
+          && $_ !~ m/\.(?:merge|override)\.yml$/
+          && -r File::Spec->catfile($services_dir, $_)
+      } readdir($dh);
       foreach my $service_yml (@service_files) {
         my $service = substr($service_yml, 0, -4);
         if (($service_statuses->{$service} && ('disabled' eq ($service_statuses->{$service}->{'status'} || 'enabled')))
@@ -6162,7 +6166,11 @@ sub GetModuleServices {
     if (('alt' eq $include) || ('all' eq $include)) {
       if (-d $alt_dir) {
         opendir(my $dh, $alt_dir) || die "ERROR: GetModuleServices: Failed to list '$alt_dir' directory!\n$!";
-        foreach my $alt_yml (grep { $_ =~ m/^[^\.].*\.yml$/ && -r File::Spec->catfile($alt_dir, $_) } readdir($dh)) {
+        foreach my $alt_yml (grep {
+          $_ =~ m/^[^\.].*\.yml$/
+            && $_ !~ m/\.(?:merge|override)\.yml$/
+            && -r File::Spec->catfile($alt_dir, $_)
+        } readdir($dh)) {
           my $service = substr($alt_yml, 0, -4);
           push(@services_list, $service);
         }

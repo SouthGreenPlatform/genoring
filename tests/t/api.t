@@ -20,6 +20,7 @@ use File::Basename qw(dirname);
 use File::Copy;
 use File::Path qw(make_path remove_tree);
 use File::Spec;
+use File::Temp qw(tempdir);
 use FindBin;
 use Getopt::Long qw(GetOptions);
 use IO::Select;
@@ -27,7 +28,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 75;
+use Test::More tests => 77;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -627,6 +628,37 @@ is_deeply(
   'Genoring unexpected service type match no services'
 
 );
+
+{
+  my $module_root = tempdir(CLEANUP => 1);
+  my $services_dir = File::Spec->catdir($module_root, 'service-filter-test', 'services');
+  make_path($services_dir);
+  foreach my $service_file (
+    qw(external-service.yml external-service.merge.yml external-service.override.yml
+      disabled-service.yml disabled-service.merge.yml disabled-service.override.yml)
+  ) {
+    open(my $service_fh, '>', File::Spec->catfile($services_dir, $service_file))
+      or die "Unable to create test service file '$service_file': $!";
+    close($service_fh);
+  }
+  local $Genoring::MODULES_DIR = $module_root;
+  local *Genoring::GetModuleConf = sub {
+    return {
+      'external_services' => {'external-service' => '127.0.0.1'},
+      'services' => {'disabled-service' => {'status' => 'disabled'}},
+    };
+  };
+  is_deeply(
+    GetModuleServices('service-filter-test'),
+    [],
+    'External and disabled services do not expose their merge or override files as services'
+  );
+  is_deeply(
+    GetModuleServices('service-filter-test', 'all'),
+    ['disabled-service', 'external-service'],
+    'Service listing includes disabled and external services without merge or override entries'
+  );
+}
 
 # GetModuleAlternatives()
 is_deeply(
