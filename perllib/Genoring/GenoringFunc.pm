@@ -5022,6 +5022,33 @@ sub ValidateBackupManifest {
 
 =head2 CreateVolumeArchive
 
+=B<Description>: Creates a backup archive of the specified Docker volumes and environment files.
+
+B<ArgsCount>: 4
+
+=over 4
+
+=item $backupdir: (string) (R)
+
+The directory where the backup archive will be created.
+
+=item $archive_name: (string) (O)
+
+The name of the backup archive file. Defaults to 'genoring-volumes.tar.gz' if not provided.
+
+=item $volumes: (arrayref) (O)
+
+An array reference containing the names of the Docker volumes to include in the backup.
+
+=item $env_files: (arrayref) (O)
+
+An array reference containing the paths of environment files to include in the
+backup.
+
+=back
+
+B<Return>: (string) The path to the created backup archive.
+
 =cut
 
 sub CreateVolumeArchive {
@@ -5029,9 +5056,19 @@ sub CreateVolumeArchive {
   $archive_name ||= 'genoring-volumes.tar.gz';
   my $archive_path = File::Spec->catfile($backupdir, $archive_name);
   my $staging_dir = File::Spec->catdir($backupdir, '.archive-stage');
+  my $absolute_backupdir = File::Spec->rel2abs($backupdir);
+  my $remove_staging_command =
+    "$Genoring::DOCKER_COMMAND run --rm -u 0 -v "
+    . _ShellQuote("$absolute_backupdir:/backup")
+    . " alpine rm -rf /backup/.archive-stage";
 
   if (-d $staging_dir) {
-    remove_tree($staging_dir);
+    Run(
+      $remove_staging_command,
+      "Failed to remove temporary archive directory '$staging_dir'.",
+      1,
+      0
+    );
   }
   make_path($staging_dir);
 
@@ -5071,7 +5108,12 @@ sub CreateVolumeArchive {
 
   my $tar_cmd = "tar --numeric-owner -czpf '$archive_path' -C '$staging_dir' .";
   Run($tar_cmd, "Failed to create backup archive '$archive_path'.", 1, 0);
-  remove_tree($staging_dir);
+  Run(
+    $remove_staging_command,
+    "Failed to remove temporary archive directory '$staging_dir'.",
+    1,
+    0
+  );
   if (-d File::Spec->catdir($backupdir, 'config')) {
     remove_tree(File::Spec->catdir($backupdir, 'config'));
   }
