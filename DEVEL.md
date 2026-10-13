@@ -183,6 +183,8 @@ directory. A GenoRing module is a directory with the following structure:
   services removed and added by the change. The operation creates a backup and
   restores the previous service configuration if a hook or configuration step
   fails. The owning module remains enabled; only its service set changes.
+  Note: it is also possible to override or merge service definitions to other
+  existing services. See TEMPLATE services documentation for details.
 - "volumes": a set of YAML files corresponding to named volumes shared across
   containers. These are not to be confused with volumes that can be defined in
   the services above. A module service can mount a shared volume in its
@@ -289,7 +291,6 @@ directory. A GenoRing module is a directory with the following structure:
   service's image in their "FROM" instruction; GenoRing replaces it with the
   preceding image in the override chain. Files used by "COPY" must be in the
   "services/overrides" directory, which is the Docker build context.
-
   Overrides are applied only when both the module and the targeted service are
   active. An optional "alternatives" list limits an override to the selected
   alternative name; use the module name in that list to select the module's
@@ -302,6 +303,9 @@ directory. A GenoRing module is a directory with the following structure:
   the generated "docker-compose.yml" as a local-only image. The active override
   module list and effective image are persisted under "service_overrides" in
   "config.yml".
+  Note: these overrides a related to the Docker container content, but it is
+  also possible to override the definition of service using the container. See
+  "services" item and TEMPLATE services documentation for details.
 - "res": if the module needs additional directory and files, that could be
    mounted in containers for instance, they should be put in this resources
    directory.
@@ -429,7 +433,7 @@ development process.
 If you use custom host names that are not resolved by public DNS but are set in
 your local `/etc/hosts` file, Docker containers will not be able to resolve
 those hosts as well. To have them resolved in GenoRing, you should add them to
-an `extra_hosts.yml` file in the root of GenoRing (where `config.yml` is).
+an `extra-hosts.yml` file in the root of GenoRing (where `config.yml` is).
 Each entry must be on one line in the format (yaml hash):
 
 ```

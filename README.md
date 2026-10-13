@@ -171,7 +171,7 @@ GenoRing requires PERL 5.8+ core and Docker v20.10.13+.
 
 Depending on your server architecture, you may have to configure your firewall
 to allow external access to the GenoRing platform. To select the port to use,
-use the parameter "-port=<HTTP_PORT>". By default, port 8080 is used.
+use the parameter "-port <HTTP_PORT>". By default, port 8080 is used.
 
 **This is it**: GenoRing is ready to be started!
 
@@ -200,7 +200,7 @@ Start GenoRing (from installation directory):
 ```
   # perl genoring.pl start
   or on a specific HTTP port:
-  perl genoring.pl start -port=8888
+  perl genoring.pl start -port 8888
 ```
 
 See what is going on (logs):
@@ -464,7 +464,7 @@ Report issues or support request on GenoRing Git issue queue at:
    /etc/hosts file. How can I have it handled properly with Docker containers of
    GenoRing?**
 
-**A.** Create or use the "extra_hosts.yml" file and add your host in a new line,
+**A.** Create or use the "extra-hosts.yml" file and add your host in a new line,
    following the format: "hostanme: IP_address" (note: the space after the colon
    is important, otherwise it is not a valid YAML). Ex.:
 

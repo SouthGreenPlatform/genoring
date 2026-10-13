@@ -41,7 +41,7 @@ a `docker-compose.yml` file that orchestrates the instance services. All these
 directories and files are generated automatically by `genoring.pl`. Additional
 files may be present to support specific use cases:
 
-- `extra_hosts.yml`, when services are externalized from the framework;
+- `extra-hosts.yml`, when services are externalized from the framework;
 - `docker-compose.override.yml`, to provide manual overrides to the generated
   `docker-compose.yml` file.
 
