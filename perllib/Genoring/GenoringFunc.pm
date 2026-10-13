@@ -5106,7 +5106,20 @@ sub CreateVolumeArchive {
     );
   }
 
-  my $tar_cmd = "tar --numeric-owner -czpf '$archive_path' -C '$staging_dir' .";
+  my $absolute_staging_dir = File::Spec->rel2abs($staging_dir);
+  my $absolute_archive_path = File::Spec->rel2abs($archive_path);
+  my $archive_uid = $>;
+  my $archive_gid = $) + 0;
+  my $tar_cmd =
+    "$Genoring::DOCKER_COMMAND run --rm -u 0 -v "
+    . _ShellQuote("$absolute_staging_dir:/source:ro")
+    . " -v "
+    . _ShellQuote(dirname($absolute_archive_path) . ':/destination')
+    . " alpine sh -c "
+    . _ShellQuote('tar --numeric-owner -czpf "$1" -C /source . && chown "$2:$3" "$1"')
+    . " sh "
+    . _ShellQuote('/destination/' . basename($absolute_archive_path))
+    . " $archive_uid $archive_gid";
   Run($tar_cmd, "Failed to create backup archive '$archive_path'.", 1, 0);
   Run(
     $remove_staging_command,
