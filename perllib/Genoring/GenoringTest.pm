@@ -29,6 +29,7 @@ use Data::Dumper;
 use Fcntl qw(O_CREAT O_EXCL O_WRONLY);
 use File::Basename qw(basename dirname);
 use File::Copy qw(copy);
+use File::Find qw(find);
 use File::Path qw(make_path);
 use File::Spec;
 use IO::Handle;
@@ -42,8 +43,9 @@ use Genoring;
 
 use base qw(Exporter);
 our @EXPORT = qw(
-  GetNewInstance InitializeInstance ListInstances RemoveInstances
-  RemoveInstanceLogs RunGenoring
+  CleanTests DiscoverTests GetNewInstance InitializeInstance ListInstances
+  ListTests ReadTestName RemoveInstanceLogs RemoveInstances RunGenoring
+  SelectTests
 );
 
 
@@ -683,6 +685,242 @@ sub RunGenoring {
 }
 
 
+=pod
+
+=head2 DiscoverTests
+
+B<Description>: Discovers all regression test files in the "t" directory
+(recursively). For each ".t" file, builds a test description structure with
+the test category (i.e. the relative sub-directory of the file in "t", or
+"base" for files at the root of "t"), the test name (i.e. the file name
+without the ".t" extension), the test identifier (i.e. "<category>/<name>"),
+a description extracted from the test file "NAME" section and the test file
+path relative to the test directory. Returned tests are sorted by identifier.
+
+B<ArgsCount>: 0
+
+B<Return>: (list)
+
+A sorted list of test description hash refs (with "category", "name", "id",
+"description" and "path" keys).
+
+=cut
+
+sub DiscoverTests {
+  my @tests;
+  find(
+    {
+      no_chdir => 1,
+      wanted => sub {
+        return unless -f $_ && /\.t\z/;
+        my $path = File::Spec->abs2rel($File::Find::name, 't');
+        my ($directory, $filename) = $path =~ m{^(?:(.*)/)?([^/]+)\.t\z};
+        $directory = 'base' unless defined($directory) && length($directory);
+        my $category = $directory;
+        my $description = ReadTestName($File::Find::name);
+        push @tests, {
+          category => $category,
+          name => $filename,
+          id => "$category/$filename",
+          description => $description,
+          path => File::Spec->catfile('t', $path),
+        };
+      },
+    },
+    't',
+  );
+  return sort { $a->{id} cmp $b->{id} } @tests;
+}
+
+
+=pod
+
+=head2 ReadTestName
+
+B<Description>: Extracts the test description from the "NAME" section of the
+given test file, i.e. the first non-empty line following the "=head1 NAME"
+directive, with the "<name> - " prefix removed.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $path: (string) (R)
+
+The test file path.
+
+=back
+
+B<Return>: (string)
+
+The test description or "(description unavailable)" if the test file has no
+usable "NAME" section.
+
+=cut
+
+sub ReadTestName {
+  my ($path) = @_;
+  open(my $handle, '<', $path)
+    or die "ERROR: Unable to read test '$path': $!\n";
+  my $in_name = 0;
+  while (my $line = <$handle>) {
+    if ($line =~ /^=head1\s+NAME\s*$/) {
+      $in_name = 1;
+      next;
+    }
+    next unless $in_name;
+    next if $line =~ /^\s*$/;
+    close($handle);
+    chomp($line);
+    $line =~ s/^\s+|\s+$//g;
+    $line =~ s/^\S+\s+-\s+//;
+    return $line;
+  }
+  close($handle);
+  return '(description unavailable)';
+}
+
+
+=pod
+
+=head2 ListTests
+
+B<Description>: Displays the given tests grouped by category (sorted), with
+the name and description of each test.
+
+B<ArgsCount>: 1+
+
+=over 4
+
+=item @tests: (list of hash refs) (R)
+
+Test description structures as returned by DiscoverTests().
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub ListTests {
+  my @tests = @_;
+  my %categories;
+  push @{ $categories{$_->{category}} }, $_ for @tests;
+  for my $category (sort keys %categories) {
+    print "$category:\n";
+    for my $test (@{ $categories{$category} }) {
+      print "  $test->{name} - $test->{description}\n";
+    }
+  }
+}
+
+
+=pod
+
+=head2 SelectTests
+
+B<Description>: Filters the given tests according to the given selection
+string: a comma-separated list of category names or test identifiers. Test
+identifiers may omit the "base/" category prefix (default category), and a
+trailing "/" is ignored. Without selection, all tests are returned. Selected
+tests are de-duplicated, keeping the original test order.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $tests: (array ref) (R)
+
+The list of test description structures to filter, as returned by
+DiscoverTests().
+
+=item $selection: (string) (U)
+
+The selection string (i.e. "<category>" or "<category>/<test>[,...]"). If not
+set, all tests are selected.
+
+=back
+
+B<Return>: (list)
+
+The list of selected test description structures.
+
+=cut
+
+sub SelectTests {
+  my ($tests, $selection) = @_;
+  return @$tests unless defined($selection) && length($selection);
+
+  my %by_id = map { $_->{id} => $_ } @$tests;
+  my %categories = map { $_->{category} => 1 } @$tests;
+  my @selected;
+  for my $item (split /,/, $selection) {
+    $item =~ s/^\s+|\s+$//g;
+    $item =~ s{/$}{};
+    next unless length($item);
+    if (exists($categories{$item})) {
+      push @selected, grep { $_->{category} eq $item } @$tests;
+      next;
+    }
+    $item =~ s{^base/}{};
+    my $id = $item =~ m{/} ? $item : "base/$item";
+    push @selected, $by_id{$id} if exists($by_id{$id});
+  }
+  my %seen;
+  return grep { !$seen{$_->{id}}++ } @selected;
+}
+
+
+=pod
+
+=head2 CleanTests
+
+B<Description>: Cleans up GenoRing test instances and their logs. With a
+selection, only removes the logs of the test instance with that name (and dies
+if no instance matches). Without selection, removes all logs and all test
+instances, after user confirmation unless $force is TRUE.
+
+B<ArgsCount>: 0-2
+
+=over 4
+
+=item $selection: (string) (U)
+
+A test instance name. If not set, all test instances are removed.
+
+=item $force: (boolean) (U)
+
+If TRUE, no confirmation is asked.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub CleanTests {
+  my ($selection, $force) = @_;
+  my @instances = ListInstances();
+  if (defined($selection) && length($selection)) {
+    # Just remove the selected logs.
+    RemoveInstanceLogs($selection);
+    print "Logs cleared for instance $selection.\n";
+    @instances = grep { $_ eq $selection } @instances;
+    die "ERROR: Test instance '$selection' not found.\n" unless @instances;
+  }
+  else {
+    # If no selection is provided, we can remove all the logs.
+    RemoveInstanceLogs();
+    print "Logs cleared.\n";
+  }
+  return print "No test instances to remove.\n" unless @instances;
+  unless ($force) {
+    print "Remove ", scalar(@instances), " test instance(s)? [y/N] ";
+    my $answer = <STDIN> // '';
+    return print "Cleanup cancelled.\n" unless $answer =~ /^y\s*\z/i;
+  }
+  RemoveInstances(@instances);
+}
 
 
 =pod
