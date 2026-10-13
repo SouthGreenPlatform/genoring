@@ -210,9 +210,7 @@ sub Run {
       $full_command =~ s/^\s+|\s+$//g;
       # Remove redirections.
       $full_command =~ s/\b\d>.+$//g;
-      my @command_array = ($full_command =~ /(".*?"|\S+)/g);
-      @command_array = map { s/^"(.*)"$/$1/g; $_ } @command_array;
-      open(my $pipe, '-|', @command_array)
+      open(my $pipe, '-|', $full_command)
         or die("Can't launch child: $!\n");
       while (defined(my $line = <$pipe>)) {
         $output .= $line;
