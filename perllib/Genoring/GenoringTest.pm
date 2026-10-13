@@ -349,7 +349,8 @@ sub ListInstances {
 
 =head2 RemoveInstances
 
-B<Description>: Remove the given test instances or all the existing instances.
+B<Description>: Remove the given test instances or all the existing instances,
+including their Docker Compose volumes.
 
 B<ArgsCount>: 1
 
@@ -383,8 +384,29 @@ sub RemoveInstances {
     my $parent_directory = dirname($directory);
     my $directory_name = basename($directory);
 
+    my @volume_names;
+    open(my $volume_pipe, '-|', $Genoring::DOCKER_COMMAND, 'volume', 'ls',
+      '--quiet', '--filter', "label=com.docker.compose.project=$instance_name")
+      or die "Unable to list Docker volumes for test instance '$instance_name': $!\n";
+    while (my $volume_name = <$volume_pipe>) {
+      chomp($volume_name);
+      push(@volume_names, $volume_name) if length($volume_name);
+    }
+    if (!close($volume_pipe)) {
+      my $exit_code = $? == -1 ? 'unavailable' : ($? >> 8);
+      die "Unable to list Docker volumes for test instance '$instance_name' (exit code: $exit_code).\n";
+    }
+    if (@volume_names) {
+      print "Removing Docker volumes for test instance $instance_name.\n";
+      my $status = system($Genoring::DOCKER_COMMAND, 'volume', 'rm', @volume_names);
+      if ($status == -1 || ($status >> 8)) {
+        my $exit_code = $status == -1 ? 'unavailable' : ($status >> 8);
+        die "Unable to remove Docker volumes for test instance '$instance_name' (exit code: $exit_code).\n";
+      }
+    }
+
     my @command = (
-      'docker', 'run', '--rm', '--user', '0:0',
+      $Genoring::DOCKER_COMMAND, 'run', '--rm', '--user', '0:0',
       '--mount', "type=bind,source=$parent_directory,destination=/tests",
       'alpine:latest', 'rm', '-rf', "/tests/$directory_name",
     );
