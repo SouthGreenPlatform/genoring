@@ -5095,9 +5095,30 @@ sub CreateVolumeArchive {
   foreach my $volume (@volume_names) {
     my $volume_dir = File::Spec->catdir($volumes_dir, $volume);
     make_path($volume_dir);
-    my $real_volume = GetVolumeName($volume);
+    my $storage = _GetBackupVolumeStorage($volume);
+    my $source_path = '/source';
+    my $source_mount;
+    if ($storage && exists($storage->{'path'})) {
+      die "ERROR: Exposed volume '$volume' is missing its mapped directory '$storage->{'path'}'.\n"
+        if !-d $storage->{'path'};
+      $source_mount = $storage->{'path'} . ':/source:ro';
+    }
+    elsif ($storage && exists($storage->{'volume'})) {
+      $source_mount = $storage->{'volume'} . ':/source:ro';
+      $source_path .= $storage->{'subdirectory'} || '';
+    }
+    else {
+      $source_mount = GetVolumeName($volume) . ':/source:ro';
+    }
     Run(
-      "$Genoring::DOCKER_COMMAND run --rm -u 0 -v $real_volume:/source:ro -v $volume_dir:/dest alpine sh -c \"cp -a /source/. /dest/\"",
+      "$Genoring::DOCKER_COMMAND run --rm -u 0 -v "
+        . _ShellQuote($source_mount)
+        . " -v "
+        . _ShellQuote("$volume_dir:/dest")
+        . " alpine sh -c "
+        . _ShellQuote('cp -a "$1/." /dest/')
+        . " sh "
+        . _ShellQuote($source_path),
       "Failed to copy Docker volume '$volume' into backup archive.",
       1,
       0
@@ -5130,6 +5151,29 @@ sub CreateVolumeArchive {
   }
 
   return $archive_path;
+}
+
+sub _GetBackupVolumeStorage {
+  my ($volume) = @_;
+  foreach my $module (@{GetModules(1)}) {
+    my $volume_info = GetModuleInfo($module)->{'volumes'}->{$volume};
+    next if !$volume_info || 'exposed' ne ($volume_info->{'type'} || '');
+    my $mapping = $volume_info->{'mapping'} || next;
+    $mapping =~ s~^volumes/~~;
+    my $mapped_path = '${GENORING_VOLUMES_DIR}/' . $mapping;
+    my ($mapped_volume, $subdirectory) = GetPathVolume($mapped_path);
+    if ($mapped_volume) {
+      return {
+        'volume' => $mapped_volume,
+        'subdirectory' => $subdirectory || '',
+      };
+    }
+    my $volumes_dir = $ENV{'GENORING_VOLUMES_DIR'} || $Genoring::VOLUMES_DIR;
+    return {
+      'path' => File::Spec->catdir($volumes_dir, split(m~/~, $mapping)),
+    };
+  }
+  return;
 }
 
 
@@ -5176,8 +5220,18 @@ sub RestoreVolumeArchive {
   }
 
   my $restore_dir = File::Spec->catdir($backupdir, '.restore-stage');
+  my $absolute_backupdir = File::Spec->rel2abs($backupdir);
+  my $remove_restore_command =
+    "$Genoring::DOCKER_COMMAND run --rm -u 0 -v "
+    . _ShellQuote("$absolute_backupdir:/backup")
+    . " alpine rm -rf /backup/.restore-stage";
   if (-d $restore_dir) {
-    remove_tree($restore_dir);
+    Run(
+      $remove_restore_command,
+      "Failed to remove temporary restore directory '$restore_dir'.",
+      1,
+      0
+    );
   }
   make_path($restore_dir);
 
@@ -5185,8 +5239,23 @@ sub RestoreVolumeArchive {
     or die "ERROR: Unable to resolve backup archive '$archive_path'.\n";
   my $absolute_restore_dir = abs_path($restore_dir)
     or die "ERROR: Unable to resolve restore staging directory '$restore_dir'.\n";
+  my $restore_uid = $>;
+  my $restore_gid = $) + 0;
+  my $extract_command =
+    "$Genoring::DOCKER_COMMAND run --rm -u 0 -v "
+    . _ShellQuote("$absolute_archive:/archive.tar.gz:ro")
+    . " -v "
+    . _ShellQuote("$absolute_restore_dir:/restore")
+    . " alpine sh -c "
+    . _ShellQuote(
+      'tar --numeric-owner -xzpf /archive.tar.gz -C /restore'
+      . ' && for path in /restore/config /restore/env; do'
+      . ' if [ -e "$path" ]; then chown -R "$1:$2" "$path"; fi;'
+      . ' done'
+    )
+    . " sh $restore_uid $restore_gid";
   Run(
-    "$Genoring::DOCKER_COMMAND run --rm -u 0 -v '$absolute_archive:/archive.tar.gz:ro' -v '$absolute_restore_dir:/restore' alpine sh -c \"tar --numeric-owner -xzpf /archive.tar.gz -C /restore\"",
+    $extract_command,
     "Failed to extract backup archive '$archive_path'.",
     1,
     0
@@ -5199,11 +5268,33 @@ sub RestoreVolumeArchive {
   }
   foreach my $volume (@{$volumes}) {
     next if $selected_modules && !$allowed_volumes{$volume};
-    my $source_dir = File::Spec->catdir($restore_dir, 'volumes', $volume);
-    next if !-d $source_dir;
-    my $real_volume = GetVolumeName($volume);
+    my $storage = _GetBackupVolumeStorage($volume);
+    my $destination_path = '/dest';
+    my $destination_mount;
+    if ($storage && exists($storage->{'path'})) {
+      $destination_mount = $storage->{'path'} . ':/dest';
+    }
+    elsif ($storage && exists($storage->{'volume'})) {
+      $destination_mount = $storage->{'volume'} . ':/dest';
+      $destination_path .= $storage->{'subdirectory'} || '';
+    }
+    else {
+      $destination_mount = GetVolumeName($volume) . ':/dest';
+    }
     Run(
-      "$Genoring::DOCKER_COMMAND run --rm -u 0 -v $real_volume:/dest -v $source_dir:/source:ro alpine sh -c \"cp -a /source/. /dest/\"",
+      "$Genoring::DOCKER_COMMAND run --rm -u 0 -v "
+        . _ShellQuote($destination_mount)
+        . " -v "
+        . _ShellQuote("$absolute_restore_dir:/restore:ro")
+        . " alpine sh -c "
+        . _ShellQuote(
+          'source="/restore/volumes/$1";'
+          . ' if [ -d "$source" ]; then mkdir -p "$2"; cp -a "$source/." "$2/"; fi'
+        )
+        . " sh "
+        . _ShellQuote($volume)
+        . " "
+        . _ShellQuote($destination_path),
       "Failed to restore Docker volume '$volume' from backup archive.",
       1,
       0
@@ -5227,7 +5318,12 @@ sub RestoreVolumeArchive {
     RestoreEnvironmentFiles(File::Spec->catdir($restore_dir, 'env'), $selected_modules);
   }
 
-  remove_tree($restore_dir);
+  Run(
+    $remove_restore_command,
+    "Failed to remove temporary restore directory '$restore_dir'.",
+    1,
+    0
+  );
   return 1;
 }
 

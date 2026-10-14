@@ -53,7 +53,7 @@ volumes:
     name: "PostgreSQL data"
     description: "Contains PostgreSQL data file structure. Those files should not be edited and are there for system backup purposes."
     type: "exposed"
-    mapping: "volumes/db/pgdata"
+    mapping: "volumes/db/data"
   genoring-volume-proxy-nginx-includes:
     name: "NGINX includes"
     description: "Contains NGINX virtual host definitions to include."
