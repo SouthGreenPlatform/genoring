@@ -113,8 +113,8 @@ directory. A GenoRing module is a directory with the following structure:
   underscores and must start with a letter.
 - "README.md": a README file explaining the purpose of the module and how it
   works.
-- "TOLOCAL.md": a file explaining how to turn Docker service containers into
-  "local" services handled either by the server hosting GenoRing or other
+- "TOEXTERNAL.md": a file explaining how to turn Docker service containers into
+  "external" services handled either by the server hosting GenoRing or other
   available servers.
 - "env": a directory containing environment files used by the module that will
   be used by GenoRing when the module is enabled, to ask the admin to set
