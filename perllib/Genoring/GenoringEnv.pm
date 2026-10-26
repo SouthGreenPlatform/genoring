@@ -26,6 +26,7 @@ use utf8;
 use Cwd qw();
 use Sys::Hostname;
 use Genoring::GenoringFunc;
+use Genoring::GenoringConst;
 
 
 
@@ -83,7 +84,7 @@ Set by genoring.pl to 1 (TRUE) when running the script.
 # Prepare environment variables...
 
 # For Windows env, add PWD.
-if (!defined($ENV{'PWD'})) {
+if (!exists($ENV{'PWD'}) || !$ENV{'PWD'}) {
   $ENV{'PWD'} = Cwd::cwd();
 }
 $ENV{'PWD'} ||= '.';
@@ -98,25 +99,26 @@ else {
 
 # Initializes current project name (ie. instance name).
 if (!exists($ENV{'COMPOSE_PROJECT_NAME'})
+    || !$ENV{'COMPOSE_PROJECT_NAME'}
     || ($ENV{'COMPOSE_PROJECT_NAME'} !~ m/\w/)
 ) {
   # If COMPOSE_PROJECT_NAME is not set, try to use the one from docker compose
   # file or use default.
-  $ENV{'COMPOSE_PROJECT_NAME'} = Genoring::GetProjectName();
+  $ENV{'COMPOSE_PROJECT_NAME'} = GetProjectName();
 }
-elsif ((Genoring::GetProjectName() ne $ENV{'COMPOSE_PROJECT_NAME'})
+elsif ((GetProjectName() ne $ENV{'COMPOSE_PROJECT_NAME'})
   && (-e $Genoring::DOCKER_COMPOSE_FILE)
 ) {
   # Make sure we use the correct project name.
-  if (!Genoring::Confirm("WARNING: You are trying to run an already configured GenoRing instance with a different COMPOSE_PROJECT_NAME (configured: '" . Genoring::GetProjectName() . "', requested: '" . $ENV{'COMPOSE_PROJECT_NAME'} . "'). This may not work as expected. Do you want to continue anyway?")) {
+  if (!Confirm("WARNING: You are trying to run an already configured GenoRing instance with a different COMPOSE_PROJECT_NAME (configured: '" . Genoring::GetProjectName() . "', requested: '" . $ENV{'COMPOSE_PROJECT_NAME'} . "'). This may not work as expected. Do you want to continue anyway?")) {
     die "Stopped due to incorrect COMPOSE_PROJECT_NAME value.\n";
   }
 }
 
 # Set COMPOSE_PROFILES to an empty string to prevent warning 'The
 # "COMPOSE_PROFILES" variable is not set. Defaulting to a blank string.'.
-if (!defined($ENV{'COMPOSE_PROFILES'})) {
-  if ('Win32' eq Genoring::GetOs()) {
+if (!exists($ENV{'COMPOSE_PROFILES'}) || !$ENV{'COMPOSE_PROFILES'}) {
+  if ('Win32' eq GetOs()) {
     # Windows does not detect COMPOSE_PROFILES if set to an empty string.
     $ENV{'COMPOSE_PROFILES'} = ' ';
   }
@@ -126,12 +128,12 @@ if (!defined($ENV{'COMPOSE_PROFILES'})) {
 }
 
 # Set default port (can be modified by "-port" flag later).
-if (!defined($ENV{'GENORING_HOST'})) {
+if (!exists($ENV{'GENORING_HOST'}) || !$ENV{'GENORING_HOST'}) {
   $ENV{'GENORING_HOST'} = hostname() || 'localhost';
 }
 
 # Set default port (can be modified by "-port" flag later).
-if (!defined($ENV{'GENORING_PORT'})) {
+if (!exists($ENV{'GENORING_PORT'}) || !$ENV{'GENORING_PORT'}) {
   $ENV{'GENORING_PORT'} = $Genoring::GENORING_DEFAULT_PORT;
 }
 
@@ -139,11 +141,9 @@ if (!defined($ENV{'GENORING_PORT'})) {
 $ENV{'GENORING_DIR'} = $Genoring::GENORING_DIR;
 
 # Adjust GENORING_VOLUMES_DIR environment variable and $Genoring::VOLUMES_DIR.
-if (!defined($ENV{'GENORING_VOLUMES_DIR'})) {
+if ((!exists($ENV{'GENORING_VOLUMES_DIR'}) || !$ENV{'GENORING_VOLUMES_DIR'})
+    && $Genoring::VOLUMES_DIR) {
   $ENV{'GENORING_VOLUMES_DIR'} = $Genoring::VOLUMES_DIR;
-}
-else {
-  $Genoring::VOLUMES_DIR = $ENV{'GENORING_VOLUMES_DIR'};
 }
 
 $ENV{'GENORING_NO_EXPOSED_VOLUMES'} ||= '';

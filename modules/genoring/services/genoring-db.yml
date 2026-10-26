@@ -1,7 +1,9 @@
-image: postgis/postgis:16-3.5
+image: genoring-db
+build: ${GENORING_DIR}/modules/genoring/src/genoring-db
+pull_policy: never
 env_file:
   - ${PWD}/env/genoring_db.env
 volumes:
-  - ${GENORING_VOLUMES_DIR}/db/pgdata:/var/lib/postgresql/data
+  - ${GENORING_VOLUMES_DIR}/db/data:/var/lib/postgresql/data
   - genoring-data-volume:/data
 restart: always

@@ -16,10 +16,10 @@ Perl5
 
 $g_debug $g_exec_prefix $g_flags $g_project
 ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
-CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
+CheckFreeSpace CheckGenoringUser CleanupOperations ClearInternalCache ClearModuleCaches
 CompareVersions Build BuildMissingContainers Confirm
 CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
-CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
+CreateVolumeDirectory DeleteAllContainers DisableAlternative
 DisableModule EnableAlternative EnableModule EndOperations ExportVolume
 GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
 GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
@@ -32,8 +32,9 @@ PerformLocalOperations PrepareOperations Reinitialize RemoveDependencyFiles
 RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
 Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
-ToExternalService UninstallModule Update Upgrade WaitModulesReady
-IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping
+ToExternalService UninstallModule Update Upgrade UpgradeFrameworkAlpha8
+WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
+GetVolumeMapping IsInstalled
 
 =head1 DESCRIPTION
 
@@ -47,18 +48,18 @@ require 5.8.0;
 use strict;
 use warnings;
 use utf8;
+use Genoring::GenoringFunc;
 use Genoring::GenoringConst;
 use Genoring::GenoringEnv;
-use Genoring::GenoringFunc;
 
 use base qw(Exporter);
 our @EXPORT = qw(
   $g_debug $g_exec_prefix $g_flags $g_project
   ApplyContainerHooks ApplyLocalHooks Backup CanUseExposedVolumes
-  CheckFreeSpace CheckGenoringUser CleanupOperations ClearCache
+  CheckFreeSpace CheckGenoringUser CleanupOperations ClearInternalCache ClearModuleCaches
   CompareVersions Build BuildMissingContainers Confirm
   CopyDirectory CopyFiles CopyModuleFiles CopyVolumeFiles
-  CreateVolumeDirectory DeleteAllContainers DirCopy DisableAlternative
+  CreateVolumeDirectory DeleteAllContainers DisableAlternative
   DisableModule EnableAlternative EnableModule EndOperations ExportVolume
   GenerateDockerComposeFile GetConfig GetContainerName GetDiagosticLogs
   GetEnvironmentFiles GetEnvVariable GetLogs GetModuleAlternatives
@@ -71,11 +72,17 @@ our @EXPORT = qw(
   RemoveEnvFiles RemoveModuleConf RemoveVolumeDirectories RemoveVolumeFiles
   Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
   SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
-  ToExternalService UninstallModule Update Upgrade WaitModulesReady
-  IsGitAvailable GetAvailableVersions GetPathVolume GetVolumeMapping
+  ToExternalService UninstallModule Update Upgrade UpgradeFrameworkAlpha8
+  WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
+GetVolumeMapping IsInstalled WriteBackupManifest ReadBackupManifest
+ValidateBackupManifest
 );
 # Init $NULL.
 $Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';
+
+# Init config automatically.
+GetConfig();
+
 
 
 

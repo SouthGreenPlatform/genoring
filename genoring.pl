@@ -16,11 +16,11 @@ genoring.pl - Manages GenoRing platform.
   | moduledetails <MODULE>
   | setup [-default | -minimal] [-reset]
   | reset [-f] [-delete-containers] [-preserve-env]
-  | enable <MODULE> | disable <MODULE> | uninstall <MODULE> [-preserve-env]
+  | enable <MODULE>... | disable <MODULE> | uninstall <MODULE> [-preserve-env]
   | enablealt <MODULE> <SERVICE> | disablealt <MODULE> <SERVICE>
   | toexternal <SERVICE> <IP> | togenoring <SERVICE> [ALTERNATIVE]
   | update [MODULE] | upgrade [MODULE]
-  | backup [BKNAME] | restore [BKNAME] | build <MODULE> <SERVICE> [-no-cache]
+  | backup [BKNAME] | restore [BKNAME] | clearcache | build <MODULE> <SERVICE> [-no-cache]
   | shell [SERVICE] [-cmd=<COMMAND>] ]
   | exportvolume <VOLUME> [ARCHIVE.tar.gz]
   | importvolume <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
@@ -75,32 +75,6 @@ use lib "$FindBin::Bin/perllib";
 use Genoring;
 
 ++$|; #no buffering
-
-
-
-
-# Script global constants
-##########################
-
-=pod
-
-=head1 CONSTANTS
-
-B<$Genoring::GENORING_DIR>: (string)
-
-Installation directory of GenoRing. This "constant" from the GenoRing package is
-ajusted to reflect current script path.
-
-B<$Genoring::MODULES_DIR>: (string)
-
-Name of the module directory. This "constant" from the GenoRing package is
-ajusted to reflect current script path.
-
-=cut
-
-$Genoring::GENORING_DIR = dirname(__FILE__);
-$Genoring::GENORING_DIR = Cwd::cwd() if ('.' eq $Genoring::GENORING_DIR);
-$Genoring::MODULES_DIR = File::Spec->catfile($Genoring::GENORING_DIR, 'modules');
 
 
 
@@ -317,11 +291,12 @@ If '-preserve-env' is used, current environment files are kept.
 
 =head4 Syntax
 
-  perl genoring.pl enable <MODULE>
+  perl genoring.pl enable <MODULE>...
 
 =head4 Description
 
-Installs and enables the given GenoRing module.
+Installs and enables the given GenoRing module and any required modules that
+are available. Confirmation is requested before additional modules are enabled.
 
 
 =head3 disable
@@ -397,26 +372,38 @@ ALTERNATIVE is specified, the given service alternative will be used.
 
 =head4 Syntax
 
-  perl genoring.pl backup [BACKUP_NAME [MODULE]]
+  perl genoring.pl backup [BACKUP_NAME [MODULE[,MODULE...]]]
 
 =head4 Description
 
 Performs a general backup of the GenoRing system into a backup directory
-(volumes/backups/[BACKUP_NAME]/) or a backup of the given module data and config
-(in volumes/backups/[BACKUP_NAME]/[MODULE]/).
+(volumes/backups/[BACKUP_NAME]/), or backs up the Docker volumes and environment
+files of one or more modules into the same archive.
 
 
 =head3 restore
 
 =head4 Syntax
 
-  perl genoring.pl restore [BACKUP_NAME [MODULE]]
+  perl genoring.pl restore [BACKUP_NAME [MODULE[,MODULE...]]]
 
 =head4 Description
 
-Restores a general backup of the GenoRing system from the backup directory
-(volumes/backups/[BACKUP_NAME]/) or from a backup of the given module
-(in volumes/backups/[BACKUP_NAME]/[MODULE]/).
+Restores a general GenoRing backup from the backup directory
+(volumes/backups/[BACKUP_NAME]/), or restores the Docker volumes and environment
+files of one or more modules from that archive.
+
+
+=head3 clearcache
+
+=head4 Syntax
+
+  perl genoring.pl clearcache
+
+=head4 Description
+
+Clears caches managed by enabled modules by running their local and container
+clearcache hooks. Container hooks are run only in running services.
 
 
 =head3 update
@@ -915,7 +902,7 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
   }
 
   # Check if setup needs to be run first.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     # Needs first-time initialization.
     print "GenoRing needs to be setup...\n";
     SetupGenoring();
@@ -942,7 +929,7 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
 }
 elsif ($command =~ m/^stop$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -961,7 +948,7 @@ elsif ($command =~ m/^reset|reinit(?:ialize)?$/i) {
 }
 elsif ($command =~ m/^update$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -969,7 +956,7 @@ elsif ($command =~ m/^update$/i) {
 }
 elsif ($command =~ m/^upgrade$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -982,7 +969,7 @@ elsif ($command =~ m/^setup$/i) {
 }
 elsif ($command =~ m/^enable$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -990,7 +977,7 @@ elsif ($command =~ m/^enable$/i) {
 }
 elsif ($command =~ m/^disable$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -998,7 +985,7 @@ elsif ($command =~ m/^disable$/i) {
 }
 elsif ($command =~ m/^uninstall$/i) {
   # Check if installed.
-  if (!-e $Genoring::DOCKER_COMPOSE_FILE) {
+  if (!IsInstalled()) {
     warn "GenoRing needs to be setup first.\n";
     exit(1);
   }
@@ -1010,7 +997,15 @@ elsif ($command =~ m/^backup$/i) {
 elsif ($command =~ m/^restore$/i) {
   Restore(@arguments);
 }
-elsif ($command =~ m/^build$/i) {
+elsif ($command =~ m/^clearcache$/i) {
+  # Check if installed.
+  if (!IsInstalled()) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
+  ClearModuleCaches();
+}
+elsif ($command =~ m/^(?:build|compile)$/i) {
   Build(@arguments);
 }
 elsif ($command =~ m/^modules$/i) {
@@ -1049,10 +1044,10 @@ elsif ($command =~ m/^services$/i) {
 elsif ($command =~ m/^alt(?:ernatives?)?$/i) {
   ListAlternatives(@arguments);
 }
-elsif ($command =~ m/^enablealt(?:ernative)?$/i) {
+elsif ($command =~ m/^en(?:able)?alt(?:ernative)?$/i) {
   EnableAlternative(@arguments);
 }
-elsif ($command =~ m/^disablealt(?:ernative)?$/i) {
+elsif ($command =~ m/^dis(?:able)?alt(?:ernative)?$/i) {
   DisableAlternative(@arguments);
 }
 elsif ($command =~ m/^(?:toexternal|tolocal)$/i) {

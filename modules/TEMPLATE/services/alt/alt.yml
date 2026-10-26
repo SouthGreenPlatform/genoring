@@ -4,8 +4,8 @@
 alt_name:
   description: Tells what the alternative does.
   # 3 cases can be combined:
-  # - substitue to replace an existing module service by another.
-  substitue:
+  # - substitute to replace an existing module service by another.
+  substitute:
     # Replaces the existing genoring-service-name by the one defined in this
     # "alt" directory as "genoring-new-service.yml".
     genoring-service-name: genoring-new-service

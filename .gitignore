@@ -1,8 +1,9 @@
 /docker-compose.yml
 /docker-compose.override.yml
 /config.yml
-/extra_hosts.yml
+/extra-hosts.yml
 /env
 /agreed.txt
 /dependencies
+/tests/temptests
 !.gitignore
