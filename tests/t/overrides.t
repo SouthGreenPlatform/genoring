@@ -17,7 +17,7 @@ use File::Temp qw(tempdir);
 use FindBin;
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
-use Test::More tests => 16;
+use Test::More tests => 22;
 
 my $modules_dir = tempdir(CLEANUP => 1);
 local $Genoring::MODULES_DIR = $modules_dir;
@@ -39,6 +39,7 @@ write_file(
   File::Spec->catfile($modules_dir, 'base', 'src', 'genoring-app', 'Dockerfile'),
   "FROM scratch\n"
 );
+make_path(File::Spec->catdir($modules_dir, 'publicbase'));
 foreach my $module ('override_one', 'override_two', 'inactive_override') {
   write_file(
     File::Spec->catfile(
@@ -102,6 +103,7 @@ my %module_config = (
 
 {
   my @builds;
+  my @compose_updates;
   my $config = {'service_overrides' => {}};
   my $plan = {
     'owner' => 'base',
@@ -118,6 +120,7 @@ my %module_config = (
   local *Genoring::GetConfig = sub { return $config; };
   local *Genoring::GetProjectName = sub { return 'test-project'; };
   local *Genoring::SaveConfig = sub {};
+  local *Genoring::GenerateDockerComposeFile = sub { push(@compose_updates, 1); };
   local *Genoring::Run = sub {
     return $_[0] =~ / images -q / ? 'image-id' : '';
   };
@@ -137,6 +140,7 @@ my %module_config = (
   );
   Genoring::ApplyServiceOverrides();
   is(scalar(@builds), 3, 'Does not rebuild an unchanged override chain');
+  is(scalar(@compose_updates), 1, 'Regenerates Compose after changing an override image');
 }
 
 {
@@ -183,6 +187,7 @@ my %module_config = (
   local *Genoring::GetConfig = sub { return $config; };
   local *Genoring::GetProjectName = sub { return 'other_instance'; };
   local *Genoring::SaveConfig = sub {};
+  local *Genoring::GenerateDockerComposeFile = sub {};
   local *Genoring::Run = sub {
     return $_[0] =~ / images -q / ? 'public-image-id' : '';
   };
@@ -221,17 +226,70 @@ my %module_config = (
   local *Genoring::GetServices = sub { return {}; };
   local *Genoring::GetConfig = sub { return $config; };
   local *Genoring::SaveConfig = sub {};
+  local *Genoring::GenerateDockerComposeFile = sub {};
   local *Genoring::_GetServiceOverridePlans = sub { return {}; };
   local *Genoring::Build = sub { push(@base_builds, [@_]); };
 
-  Genoring::ApplyServiceOverrides();
-  is_deeply(
-    $base_builds[0],
-    ['base', 'genoring-app', 'genoring'],
-    'Restores the original source image when its override is removed'
-  );
+  Genoring::ApplyServiceOverrides('genoring-app', 1);
+  is(scalar(@base_builds), 0, 'Does not rebuild a source image during override bookkeeping');
   ok(
     !exists($config->{'service_overrides'}),
-    'Removes stale override tracking from the instance config'
+    'Removes stale override tracking after a service rebuild'
   );
+}
+
+{
+  my @calls;
+  local $Genoring::DOCKER_COMMAND = 'docker';
+  local $Genoring::DOCKER_BUILD_COMMAND = 'docker build';
+  local $Genoring::DEFAULT_ARCHITECTURE = 'linux/amd64';
+  local *Genoring::_EnsureDockerBuildx = sub {};
+  local *Genoring::IsContainerRunning = sub { return (); };
+  local *Genoring::GetServices = sub { return {'genoring-app' => 'base'}; };
+  local *Genoring::Run = sub {
+    push(@calls, ['run', $_[0]]);
+    return '';
+  };
+  local *Genoring::ApplyServiceOverrides = sub {
+    push(@calls, ['overrides', @_]);
+  };
+  Genoring::Build('base', 'genoring-app');
+  is(
+    $calls[-1]->[0],
+    'overrides',
+    'A direct source service build applies overrides after the base build'
+  );
+  is_deeply(
+    $calls[-1],
+    ['overrides', 'genoring-app', 1],
+    'The compiled base image is passed to override processing'
+  );
+  ok(
+    (grep { $_->[0] eq 'run' && $_->[1] =~ / build / } @calls),
+    'A direct build still compiles the base image'
+  );
+}
+
+{
+  my @override_calls;
+  local $Genoring::DOCKER_COMMAND = 'docker';
+  local *Genoring::GetServices = sub { return {'genoring-public' => 'publicbase'}; };
+  local *Genoring::GetConfig = sub { return {}; };
+  local *Genoring::_GetServiceOverridePlans = sub {
+    return {
+      'genoring-public' => {
+        'overrides' => [{'module' => 'override_public'}],
+      },
+    };
+  };
+  local *Genoring::ApplyServiceOverrides = sub {
+    push(@override_calls, [@_]);
+  };
+  Genoring::Build('publicbase', 'genoring-public');
+  is_deeply(
+    $override_calls[0],
+    ['genoring-public', 0],
+    'A public-image service build applies overrides without rebuilding the base'
+  );
+  is(scalar(@override_calls), 1, 'Public image override build exits without a source build');
 }

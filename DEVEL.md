@@ -303,6 +303,12 @@ directory. A GenoRing module is a directory with the following structure:
   the generated "docker-compose.yml" as a local-only image. The active override
   module list and effective image are persisted under "service_overrides" in
   "config.yml".
+  Overrides are built when the target service is compiled, for example with
+  `./genoring.pl build genoring genoring`; enabling or disabling an override
+  module does not itself rebuild the target image. Rebuild the target service
+  after changing its active override modules or Dockerfiles. For a public-image
+  service, the same build command applies its overrides without rebuilding the
+  public base image.
   Note: these overrides a related to the Docker container content, but it is
   also possible to override the definition of service using the container. See
   "services" item and TEMPLATE services documentation for details.

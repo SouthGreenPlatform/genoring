@@ -1169,8 +1169,6 @@ sub SetupGenoring {
     # Build missing containers with sources.
     BuildMissingContainers();
   }
-  ApplyServiceOverrides();
-
   # Process environment variables and ask user for inputs for variables with
   # tags SET and OPT.
   print "- Setup environment...\n";
@@ -1624,7 +1622,7 @@ the base image, the source directory, the list of override Dockerfiles (with
 file timestamps and size) and a signature used to detect changes. Dies on
 invalid override declarations or missing Dockerfiles.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1-2
 
 =over 4
 
@@ -1632,6 +1630,10 @@ B<ArgsCount>: 1
 
 A mapping of service names to their owner module, as returned by
 GetServices().
+
+=item $service_filter: (string) (O)
+
+If supplied, only plans for this active service are generated.
 
 =back
 
@@ -1643,7 +1645,7 @@ A mapping of overridden service names to their override plan (with "owner",
 =cut
 
 sub _GetServiceOverridePlans {
-  my ($services) = @_;
+  my ($services, $service_filter) = @_;
   my %plans;
   my $enabled_modules = GetModules(1);
   my @declarations;
@@ -1682,6 +1684,7 @@ sub _GetServiceOverridePlans {
   return \%plans if !@declarations;
 
   foreach my $service (sort keys(%$services)) {
+    next if defined($service_filter) && $service ne $service_filter;
     my $owner = $services->{$service};
     my @matching;
     my $base_image;
@@ -1761,36 +1764,42 @@ sub _GetServiceOverridePlans {
 
 =head2 ApplyServiceOverrides
 
-B<Description>: Applies service image overrides declared by enabled modules.
-For each overridden service, chains the override Dockerfiles (starting from
-the service base image or its source build) to generate a new Docker image,
-but only when the plan signature, image or override modules changed since last
-run. Services with no override plan anymore are restored to their base or
-source image. The resulting state is saved in the global config
-("service_overrides" section). Dies on build failures and cleans up
-temporary stage images.
+B<Description>: Applies active service image overrides to a service after its
+base image has been built (or when the public base image is used). Chains the
+override Dockerfiles to generate the final Docker image and saves the result
+in the global config ("service_overrides" section). Dies on build failures and
+cleans up temporary stage images.
 
-B<ArgsCount>: 0
+B<ArgsCount>: 0-2
+
+=over 4
+
+=item $service: (string) (O)
+
+=item $base_image_ready: (boolean) (O)
+
+If true, the service base image has just been built and can be tagged as the
+first intermediate layer instead of rebuilding it.
+
+=back
 
 B<Return>: (nothing)
 
 =cut
 
 sub ApplyServiceOverrides {
+  my ($service_filter, $base_image_ready) = @_;
   ClearInternalCache();
   my $services = GetServices();
-  my $plans = _GetServiceOverridePlans($services);
+  my $plans = _GetServiceOverridePlans($services, $service_filter);
   my $config = GetConfig();
   my $previous = $config->{'service_overrides'} || {};
   my %updated = %$previous;
   my $changed = 0;
 
   foreach my $service (keys(%updated)) {
+    next if defined($service_filter) && $service ne $service_filter;
     if (!exists($plans->{$service})) {
-      my $old = $updated{$service};
-      if ($old->{'source'} && $old->{'owner'}) {
-        Build($old->{'owner'}, $service, $old->{'base_image'});
-      }
       delete($updated{$service});
       $changed = 1;
     }
@@ -1816,7 +1825,19 @@ sub ApplyServiceOverrides {
       if ($plan->{'has_source'}) {
         $previous_image = "$prefix-stage-0:latest";
         push(@temporary_images, $previous_image);
-        Build($plan->{'owner'}, $service, $previous_image);
+        if ($base_image_ready) {
+          Run(
+            "$Genoring::DOCKER_COMMAND image tag "
+              . _ShellQuote($plan->{'base_image'}) . ' '
+              . _ShellQuote($previous_image),
+            "Failed to tag the compiled base image for service '$service'.",
+            1,
+            $g_debug || $g_flags->{'verbose'}
+          );
+        }
+        else {
+          Build($plan->{'owner'}, $service, $previous_image);
+        }
       }
       foreach my $index (0 .. $#{$plan->{'overrides'}}) {
         my $output_image = $image;
@@ -1881,6 +1902,7 @@ sub ApplyServiceOverrides {
       delete($config->{'service_overrides'});
     }
     SaveConfig();
+    GenerateDockerComposeFile();
   }
 }
 
@@ -3810,7 +3832,6 @@ sub _ActivateModulePlan {
     if (!exists($g_flags->{'quiet-build'})) {
       BuildMissingContainers();
     }
-    ApplyServiceOverrides();
     PerformLocalOperations($context);
     GenerateDockerComposeFile();
     PerformContainerOperations($context);
@@ -3831,7 +3852,6 @@ sub _ActivateModulePlan {
       warn "WARNING: $@\n" if $@;
     }
     eval {
-      ApplyServiceOverrides();
       GenerateDockerComposeFile();
     };
     warn "WARNING: $@\n" if $@;
@@ -4129,7 +4149,6 @@ sub _DisableModuleSet {
         SetModuleConf($target, $module_config);
       }
     }
-    ApplyServiceOverrides();
     GenerateDockerComposeFile();
     PerformContainerOperations($context);
     PerformLocalOperations($context);
@@ -4149,7 +4168,6 @@ sub _DisableModuleSet {
       warn "WARNING: $@\n" if $@;
     }
     eval {
-      ApplyServiceOverrides();
       GenerateDockerComposeFile();
     };
     warn "WARNING: $@\n" if $@;
@@ -4600,7 +4618,6 @@ sub _ChangeAlternative {
     }
     SetModuleConf($module, \%new_config);
     $configuration_changed = 1;
-    ApplyServiceOverrides();
     GenerateDockerComposeFile();
 
     if ($module_is_enabled && @added_services) {
@@ -4623,7 +4640,6 @@ sub _ChangeAlternative {
           delete($new_config{'alternative'});
         }
         SetModuleConf($module, \%new_config);
-        ApplyServiceOverrides();
         GenerateDockerComposeFile();
         _ApplyAlternativeServiceHooks($context, 'disable', $module, \@added_services);
       };
@@ -4639,7 +4655,6 @@ sub _ChangeAlternative {
         delete($old_config{'alternative'});
       }
       SetModuleConf($module, \%old_config);
-      ApplyServiceOverrides();
       GenerateDockerComposeFile();
     };
     push(@rollback_errors, $@) if $@;
@@ -6108,6 +6123,7 @@ B<Return>: (nothing)
 
 sub Build {
   my ($module, $service, $image_name) = @_;
+  my $custom_image_name = defined($image_name);
 
   if (!$module) {
     die "ERROR: Build: Missing module name!";
@@ -6115,11 +6131,11 @@ sub Build {
   elsif (!-d "$Genoring::MODULES_DIR/$module") {
     die "ERROR: Build: The given module ($module) was not found in the module directory!";
   }
-  elsif (!-d "$Genoring::MODULES_DIR/$module/src") {
-    die "ERROR: Build: The given module ($module) does not have sources!";
-  }
 
   if (!$service) {
+    if (!-d "$Genoring::MODULES_DIR/$module/src") {
+      die "ERROR: Build: The given module ($module) does not have sources!";
+    }
     # Try to get default service.
     opendir(my $dh, "$Genoring::MODULES_DIR/$module/src")
       or die "ERROR: Build: Failed to access '$Genoring::MODULES_DIR/$module/src' directory!";
@@ -6133,13 +6149,28 @@ sub Build {
   }
   $image_name ||= $service;
 
+  my $service_src_path = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'src', $service);
+  if (!-d $service_src_path) {
+    my $services = GetServices();
+    my $active_service = exists($services->{$service}) && ($services->{$service} eq $module);
+    my $plans = $active_service
+      ? _GetServiceOverridePlans({$service => $module}, $service)
+      : {};
+    my $stored_override = (GetConfig()->{'service_overrides'} || {})->{$service};
+    if (!$active_service
+      || (!$plans->{$service} && !$stored_override)
+    ) {
+      die "ERROR: Build: The given service (${module}[$service]) does not have sources!";
+    }
+    print "Applying service overrides for ${module}[$service]...\n";
+    ApplyServiceOverrides($service, 0);
+    return;
+  }
+
   _EnsureDockerBuildx();
 
   # Get service sub-directory for sources (take into account ARM support).
-  if (!-d "$Genoring::MODULES_DIR/$module/src/$service") {
-    die "ERROR: Build: The given service (${module}[$service]) does not have sources!";
-  }
-  elsif ((!-r "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile")
+  if ((!-r "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile")
     && (!-r "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default")
   ) {
     die "ERROR: Build: Unable to access the Dockerfile of the given service (${module}[$service])!";
@@ -6230,7 +6261,6 @@ sub Build {
       $g_debug || $g_flags->{'verbose'}
     );
   }
-  my $service_src_path = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'src' , $service);
   my $no_cache = '';
   if ($g_flags->{'no-cache'}) {
     $no_cache = '--no-cache';
@@ -6242,6 +6272,12 @@ sub Build {
     1,
     1
   );
+  if (!$custom_image_name) {
+    my $services = GetServices();
+    if (exists($services->{$service}) && ($services->{$service} eq $module)) {
+      ApplyServiceOverrides($service, 1);
+    }
+  }
 }
 
 
