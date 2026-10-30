@@ -5172,20 +5172,23 @@ sub _GetBackupVolumeStorage {
   my ($volume) = @_;
   foreach my $module (@{GetModules(1)}) {
     my $volume_info = GetModuleInfo($module)->{'volumes'}->{$volume};
-    next if !$volume_info || 'exposed' ne ($volume_info->{'type'} || '');
+    next if !$volume_info || ($volume_info->{'type'} || '') !~ m/^(?:exposed|shared)$/;
     my $mapping = $volume_info->{'mapping'} || next;
     $mapping =~ s~^volumes/~~;
+    my $volumes_dir = $ENV{'GENORING_VOLUMES_DIR'} || $Genoring::VOLUMES_DIR;
+    my $volume_path = File::Spec->catdir($volumes_dir, split(m~/~, $mapping));
     my $mapped_path = '${GENORING_VOLUMES_DIR}/' . $mapping;
     my ($mapped_volume, $subdirectory) = GetPathVolume($mapped_path);
-    if ($mapped_volume) {
+    # Also test if the path exists for old versions of Docker not using the
+    # volume definition.
+    if ($mapped_volume && (!-e $volume_path)) {
       return {
         'volume' => $mapped_volume,
         'subdirectory' => $subdirectory || '',
       };
     }
-    my $volumes_dir = $ENV{'GENORING_VOLUMES_DIR'} || $Genoring::VOLUMES_DIR;
     return {
-      'path' => File::Spec->catdir($volumes_dir, split(m~/~, $mapping)),
+      'path' => $volume_path,
     };
   }
   return;
