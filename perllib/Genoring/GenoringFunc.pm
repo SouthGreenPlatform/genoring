@@ -7549,6 +7549,7 @@ sub GetProjectName {
         }
       }
       elsif (exists($ENV{'COMPOSE_PROJECT_NAME'})
+          && defined($ENV{'COMPOSE_PROJECT_NAME'})
           && ($ENV{'COMPOSE_PROJECT_NAME'} =~ m/\w/)
       ) {
         # Otherwise, try to get it form environment variable.

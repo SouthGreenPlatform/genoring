@@ -54,15 +54,15 @@ my $single_module_volumes = Genoring::GetBackupVolumes(['genoring']);
 my $repeated_module_volumes = Genoring::GetBackupVolumes(['genoring', 'genoring']);
 ok(@$single_module_volumes, 'Volumes are discovered for the selected module');
 is(
-  Genoring::GetModuleInfo('genoring')->{'volumes'}->{'genoring-volume-db-pgdata'}->{'mapping'},
-  'volumes/db/data/pgdata',
+  Genoring::GetModuleInfo('genoring')->{'volumes'}->{'genoring-volume-db-data'}->{'mapping'},
+  'volumes/db/data',
   'PostgreSQL exposed volume maps to the directory used by the database service'
 );
 ok(!(grep { $_ eq 'genoring-backups-volume' || $_ eq 'backups' } @$single_module_volumes), 'Backup storage volume is excluded');
 is_deeply($repeated_module_volumes, $single_module_volumes, 'Module volume sets are deduplicated');
 
 my $mapped_volume_dir = File::Spec->catdir($backup_root, 'volumes');
-my $postgres_data_dir = File::Spec->catdir($mapped_volume_dir, 'db', 'data', 'pgdata');
+my $postgres_data_dir = File::Spec->catdir($mapped_volume_dir, 'db', 'data');
 make_path($postgres_data_dir);
 my @docker_commands;
 {
@@ -71,9 +71,9 @@ my @docker_commands;
   local *Genoring::GetModuleInfo = sub {
     return {
       'volumes' => {
-        'genoring-volume-db-pgdata' => {
+        'genoring-volume-db-data' => {
           'type' => 'exposed',
-          'mapping' => 'volumes/db/data/pgdata',
+          'mapping' => 'volumes/db/data',
         },
       },
     };
@@ -86,7 +86,7 @@ my @docker_commands;
   Genoring::CreateVolumeArchive(
     $backup_root,
     'genoring-volumes.tar.gz',
-    ['genoring-volume-db-pgdata']
+    ['genoring-volume-db-data']
   );
 }
 ok(
@@ -104,9 +104,9 @@ close($archive_fh);
   local *Genoring::GetModuleInfo = sub {
     return {
       'volumes' => {
-        'genoring-volume-db-pgdata' => {
+        'genoring-volume-db-data' => {
           'type' => 'exposed',
-          'mapping' => 'volumes/db/data/pgdata',
+          'mapping' => 'volumes/db/data',
         },
       },
     };
@@ -119,7 +119,7 @@ close($archive_fh);
   Genoring::RestoreVolumeArchive(
     $backup_root,
     'genoring-volumes.tar.gz',
-    {'volumes' => ['genoring-volume-db-pgdata']}
+    {'volumes' => ['genoring-volume-db-data']}
   );
 }
 ok(

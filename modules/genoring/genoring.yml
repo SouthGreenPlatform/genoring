@@ -49,7 +49,7 @@ volumes:
     description: "Contains static extra HTML files."
     type: "shared"
     mapping: "volumes/www"
-  genoring-volume-db-pgdata:
+  genoring-volume-db-data:
     name: "PostgreSQL data"
     description: "Contains PostgreSQL data file structure. Those files should not be edited and are there for system backup purposes."
     type: "exposed"

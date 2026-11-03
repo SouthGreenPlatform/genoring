@@ -65,7 +65,7 @@ my $expected_files = [
   File::Spec->catfile($instance_dir, 'volumes', 'data', 'upload'),
   File::Spec->catfile($instance_dir, 'volumes', 'db', 'data', 'pgdata'),
   File::Spec->catfile($instance_dir, 'volumes', 'drupal', 'web', 'sites', 'default', 'settings.php'),
-  File::Spec->catfile($instance_dir, 'volumes', 'drupal', 'web', 'sites', 'default', 'db_settings.php'),
+  File::Spec->catfile($instance_dir, 'volumes', 'drupal', 'web', 'sites', 'default', 'settings.db.php'),
   File::Spec->catfile($instance_dir, 'volumes', 'proxy', 'nginx', 'genoring'),
   File::Spec->catfile($instance_dir, 'volumes', 'proxy', 'nginx', 'genoring-fpm.conf'),
   File::Spec->catfile($instance_dir, 'volumes', 'proxy', 'nginx', 'includes'),
@@ -76,7 +76,7 @@ foreach my $file (@$expected_files) {
 }
 
 # Make sure Drupal installation went well.
-my $db_settings_file = File::Spec->catfile($instance_dir, 'volumes', 'drupal', 'web', 'sites', 'default', 'db_settings.php');
+my $db_settings_file = File::Spec->catfile($instance_dir, 'volumes', 'drupal', 'web', 'sites', 'default', 'settings.db.php');
 my $db_settings_ok = 0;
 open(my $db_settings_fh, '<', $db_settings_file) or die "Unable to open $db_settings_file: $!";
 while (my $line = <$db_settings_fh>) {
@@ -86,7 +86,7 @@ while (my $line = <$db_settings_fh>) {
   }
 }
 close($db_settings_fh);
-ok($db_settings_ok, "Drupal database settings are present in db_settings.php");
+ok($db_settings_ok, "Drupal database settings are present in settings.db.php");
 
 # Cleanups test instance.
 SKIP: {

@@ -238,6 +238,9 @@ setup_cms()
   if [ ! -s /opt/drupal/web/sites/default/settings.php ]; then
     log "* settings.php..."
     cp /opt/drupal/web/sites/default/default.settings.php /opt/drupal/web/sites/default/settings.php
+    # Remove the commented "settings.local.php" include block (and its
+    # documentation) as it is re-added (uncommented) at the end of the file.
+    perl -0pi -e 's{/\*\*\n \* Load local development override configuration.*?\n# \}\n?}{}s' /opt/drupal/web/sites/default/settings.php
     # Append some settings.
     printf "\n\$settings['config_sync_directory'] = '../config/sync';\n\$settings['file_private_path'] = '/opt/drupal/private/';\n\n" >>/opt/drupal/web/sites/default/settings.php
     printf "\n\$settings['trusted_host_patterns'] = [\n" >>/opt/drupal/web/sites/default/settings.php
@@ -245,8 +248,33 @@ setup_cms()
     # escaping in env file, especially for "\E".
     echo "$DRUPAL_TRUSTED_HOST" >>/opt/drupal/web/sites/default/settings.php
     printf "];\n\n" >>/opt/drupal/web/sites/default/settings.php
-    # Append auto-include for external databases settings in "db_settings.php".
-    printf "\nif (file_exists(\$app_root . '/' . \$site_path . '/db_settings.php')) {\n  include \$app_root . '/' . \$site_path . '/db_settings.php';\n}\n\n" >>/opt/drupal/web/sites/default/settings.php
+    # Append auto-includes for database settings in "settings.db.php" and local
+    # overrides in "settings.local.php".
+    cat >>/opt/drupal/web/sites/default/settings.php <<'EOF'
+/**
+ * Load database settings and local override configuration, if available.
+ *
+ * The settings.db.php file contains the database credentials (Drupal database
+ * and external databases).
+ *
+ * Create a settings.local.php file to override variables on secondary (staging,
+ * development, etc.) installations of this site.
+ *
+ * Typical uses of settings.local.php include:
+ * - Disabling caching.
+ * - Disabling JavaScript/CSS compression.
+ * - Rerouting outgoing emails.
+ *
+ * Keep this code block at the end of this file to take full effect.
+ */
+if (file_exists($app_root . '/' . $site_path . '/settings.db.php')) {
+  include $app_root . '/' . $site_path . '/settings.db.php';
+}
+if (file_exists($app_root . '/' . $site_path . '/settings.local.php')) {
+  include $app_root . '/' . $site_path . '/settings.local.php';
+}
+
+EOF
     # Log settings.
     printf -- "--------------------------------------------------------------------------------\nsettings.php:\n-------------\n" >>"$setup_log"
     cat /opt/drupal/web/sites/default/settings.php >>"$setup_log"
@@ -271,21 +299,21 @@ setup_cms()
     log "  ...OK (services.yml)."
   fi
 
-  if [ ! -e /opt/drupal/web/sites/default/db_settings.php ]; then
-    log "* db_settings.php..."
-    cp /opt/genoring/db_settings.template.php /opt/drupal/web/sites/default/db_settings.php
+  if [ ! -e /opt/drupal/web/sites/default/settings.db.php ]; then
+    log "* settings.db.php..."
+    cp /opt/genoring/template.settings.db.php /opt/drupal/web/sites/default/settings.db.php
     # Log DB settings.
-    printf -- "--------------------------------------------------------------------------------\ndb_settings.php:\n----------------\n" >>"$setup_log"
-    cat /opt/drupal/web/sites/default/db_settings.php >>"$setup_log"
+    printf -- "--------------------------------------------------------------------------------\nsettings.db.php:\n----------------\n" >>"$setup_log"
+    cat /opt/drupal/web/sites/default/settings.db.php >>"$setup_log"
     printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
-    log "  ...OK (db_settings.php)."
+    log "  ...OK (settings.db.php)."
   fi
 
   # Install Drupal.
   log "* Initializing Drupal..."
   # Allow setting update by Drupal installation process.
   # Permissions will be automatically reset after installation.
-  chmod uog+w /opt/drupal/web/sites/default/settings.php /opt/drupal/web/sites/default/db_settings.php
+  chmod uog+w /opt/drupal/web/sites/default/settings.php /opt/drupal/web/sites/default/settings.db.php
   printf -- "--------------------------------------------------------------------------------\nDefault site directory:\n-----------------------\n" >>"$setup_log"
   ls -la /opt/drupal/web/sites/default >>"$setup_log"
   printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
@@ -317,7 +345,7 @@ setup_cms()
   sudo /opt/genoring/genoring_root.sh www_permissions
   # Allow back user to write in default and settings.php as the proxy is not
   # running with the same user and will not have write access to those.
-  chmod og-w,u+w /opt/drupal/web/sites/default /opt/drupal/web/sites/default/settings.php /opt/drupal/web/sites/default/db_settings.php
+  chmod og-w,u+w /opt/drupal/web/sites/default /opt/drupal/web/sites/default/settings.php /opt/drupal/web/sites/default/settings.db.php
   log "  ...OK (file system)."
 
   # Externalize database credentials.
@@ -330,12 +358,12 @@ setup_cms()
   perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' /opt/drupal/web/sites/default/settings.php >>"$setup_log"
   printf "\n--------------------------------------------------------------------------------\n" >>"$setup_log"
   # Proceed.
-  perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' /opt/drupal/web/sites/default/settings.php >> /opt/drupal/web/sites/default/db_settings.php
+  perl -n -e 'BEGIN{undef $/;} print $1 if m/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)/smig' /opt/drupal/web/sites/default/settings.php >> /opt/drupal/web/sites/default/settings.db.php
   perl -pi -e 'BEGIN{undef $/;} s/^(\$databases\[\x27default\x27\]\[\x27default\x27\]\s+=.*?\n\s*\); *\n?)//smig' /opt/drupal/web/sites/default/settings.php
   printf "Updated settings.php:\n---------------------\n" >>"$setup_log"
   cat /opt/drupal/web/sites/default/settings.php >>"$setup_log"
-  printf -- "--------------------------------------------------------------------------------\n\nUpdated db_settings.php:\n------------------------\n" >>"$setup_log"
-  cat /opt/drupal/web/sites/default/db_settings.php >>"$setup_log"
+  printf -- "--------------------------------------------------------------------------------\n\nUpdated settings.db.php:\n------------------------\n" >>"$setup_log"
+  cat /opt/drupal/web/sites/default/settings.db.php >>"$setup_log"
   printf -- "--------------------------------------------------------------------------------\n\n" >>"$setup_log"
   log "  ...OK (database credentials)."
 
@@ -610,7 +638,8 @@ backup()
 {
   backup_name="${1:-$(date +"drupal_backup_%Y%m%d_%H%M%S")}"
   mkdir -p /backups/$backup_name/genoring/
-  drush -y archive:dump --destination=/backups/$backup_name/genoring/ --overwrite --exclude-code-paths=web/sites/default/db_settings.php,web/sites/simpletest/.+,$DRUSH_EXCLUDE_CODE_PATHS
+  # We keep "db_settings.php" for backward compatibility.
+  drush -y archive:dump --destination=/backups/$backup_name/genoring/ --overwrite --exclude-code-paths=web/sites/default/db_settings.php,web/sites/default/settings.db.php,web/sites/simpletest/.+,$DRUSH_EXCLUDE_CODE_PATHS
   if [ $? -gt 0 ]; then
     log_error "ERROR: Failed to perform site backup!"
     exit 1

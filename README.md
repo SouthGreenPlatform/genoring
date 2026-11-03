@@ -542,7 +542,7 @@ Report issues or support request on GenoRing Git issue queue at:
   ```
   It is not related to a drush issue.
   It means the Drupal setup did not reach the end, and failed to store database
-  credentials in the db_settings.php file. Sometimes it is related to the
+  credentials in the settings.db.php file. Sometimes it is related to the
   docker storage but it needs to be investigated. The GenoRing instance needs to
   be re-installed after a cleaning (ie. `./genoring.pl reset -preserve-env -f`).
   You should try with more simple passwords (with no special characters) that

@@ -759,7 +759,7 @@ is_deeply(
     'genoring-data-volume' => [
       'genoring',
     ],
-    'genoring-volume-db-pgdata' => [
+    'genoring-volume-db-data' => [
       'genoring',
     ],
     'genoring-backups-volume' => [
@@ -803,7 +803,7 @@ is_deeply(
 is_deeply(
   GetModuleVolumes('genoring', 'exposed'),
   [
-    'genoring-volume-db-pgdata',
+    'genoring-volume-db-data',
     'genoring-volume-proxy-nginx-genoring',
     'genoring-volume-proxy-nginx-includes',
   ],
@@ -820,7 +820,7 @@ is_deeply(
     'genoring-backups-volume',
     'genoring-data-volume',
     'genoring-drupal-volume',
-    'genoring-volume-db-pgdata',
+    'genoring-volume-db-data',
     'genoring-volume-proxy-nginx-genoring',
     'genoring-volume-proxy-nginx-includes',
     'genoring-volume-www',
