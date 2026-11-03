@@ -334,6 +334,20 @@ variable and a second one to run GenoRing. For example:
   # perl genoring.pl start
 ```
 
+Each instance uses its own Docker default network. Some services can also join
+additional (shared) Docker networks using the "-network" flag with the "start"
+or "setup" commands. The setting is saved in the instance config and missing
+networks are created automatically:
+```
+  # Adds services flagged "network: auto" (ie. genoring-proxy) to "genoring-hub":
+  # perl genoring.pl start -network genoring-hub
+  # Adds only the given services to "genoring-hub":
+  # perl genoring.pl start -network genoring-hub:genoring-proxy,genoring
+  # Removes "genoring-hub" from the instance:
+  # perl genoring.pl setup -default -network genoring-hub:
+```
+The flag can be used multiple times to manage several networks.
+
 For more commands, just run "perl genoring.pl" or "perl genoring.pl man".
 
 

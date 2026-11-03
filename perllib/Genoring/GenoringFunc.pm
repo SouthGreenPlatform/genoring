@@ -397,6 +397,9 @@ sub StartGenoring {
   }
   if (!$state || ($state !~ m/running/)) {
     ApplyLocalHooks('start');
+    # External networks may have been removed since the Docker Compose file
+    # generation.
+    EnsureNetworks();
     # Not running, start it.
     Run(
       "$Genoring::DOCKER_COMPOSE_COMMAND up -d -y",
@@ -1909,6 +1912,373 @@ sub ApplyServiceOverrides {
 
 =pod
 
+=head2 ParseNetworkFlag
+
+B<Description>: Parses a "-network" flag value.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $value: (string) (R)
+
+The flag value. Either "NETWORK_NAME" to add services that are flagged
+"network: auto" in their module definition to the given network, or
+"NETWORK_NAME:[SERVICE_LIST]" where SERVICE_LIST is a comma-separated list of
+services to add to the given network. An empty SERVICE_LIST (ie.
+"NETWORK_NAME:") means the network must be removed from the instance config.
+
+=back
+
+B<Return>: (list)
+
+The network name followed by either the string 'auto', an array ref of service
+names or undef if the network must be removed.
+
+=cut
+
+sub ParseNetworkFlag {
+  my ($value) = @_;
+
+  if (!defined($value) || ($value !~ m/^([^:]*)(?::(.*))?$/s)) {
+    die "ERROR: ParseNetworkFlag: Invalid network specification!\n";
+  }
+  my ($network, $service_list) = ($1, $2);
+  if ($network !~ m/^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$/) {
+    die "ERROR: ParseNetworkFlag: Invalid network name '$network'! It must only contain alpha-numeric characters, dots, dashes and underscores and must start with an alpha-numeric character.\n";
+  }
+  if ($network =~ m/^(?:default|bridge|host|none)$/) {
+    die "ERROR: ParseNetworkFlag: The network name '$network' is reserved and can not be used!\n";
+  }
+
+  if (!defined($service_list)) {
+    return ($network, 'auto');
+  }
+
+  my %services;
+  foreach my $service (split(/,/, $service_list)) {
+    $service =~ s/^\s+|\s+$//g;
+    next if ('' eq $service);
+    if ($service !~ m/^[a-zA-Z0-9][\w.\-]*$/) {
+      die "ERROR: ParseNetworkFlag: Invalid service name '$service' for network '$network'!\n";
+    }
+    $services{$service} = 1;
+  }
+  if (!%services) {
+    return ($network, undef);
+  }
+  return ($network, [sort keys(%services)]);
+}
+
+
+=pod
+
+=head2 SetNetworks
+
+B<Description>: Updates the Docker networks of the instance config according to
+the given "-network" flag values and saves the config if needed.
+
+B<ArgsCount>: 0-n
+
+=over 4
+
+=item @values: (list of strings) (O)
+
+The "-network" flag values. See ParseNetworkFlag() for the value syntax.
+
+=back
+
+B<Return>: (boolean)
+
+A true value if the network config has been changed, a false value otherwise.
+
+=cut
+
+sub SetNetworks {
+  my (@values) = @_;
+
+  my $config = GetConfig();
+  my $old_networks = $config->{'networks'} || {};
+  my %networks = %$old_networks;
+  my $known_services;
+  foreach my $value (@values) {
+    my ($network, $services) = ParseNetworkFlag($value);
+    if (!defined($services)) {
+      if (exists($networks{$network})) {
+        delete($networks{$network});
+        print "Network '$network' removed from instance config.\n";
+      }
+      else {
+        warn "WARNING: Network '$network' is not set in instance config. Nothing to remove.\n";
+      }
+    }
+    elsif (ref($services)) {
+      if (!$known_services) {
+        $known_services = {};
+        foreach my $module (@{GetModules()}) {
+          $known_services->{$_} = 1 foreach (@{GetModuleServices($module, 'all')});
+        }
+      }
+      foreach my $service (@$services) {
+        if (!$known_services->{$service}) {
+          warn "WARNING: Network '$network': unknown service '$service'. It will be ignored as long as no enabled module provides it.\n";
+        }
+      }
+      $networks{$network} = [@$services];
+    }
+    else {
+      $networks{$network} = $services;
+    }
+  }
+
+  # Check for changes.
+  my $serialize = sub {
+    my ($networks) = @_;
+    return join(
+      ';',
+      map {
+        "$_=" . (ref($networks->{$_}) ? join(',', @{$networks->{$_}}) : $networks->{$_})
+      } sort keys(%$networks)
+    );
+  };
+  if ($serialize->($old_networks) eq $serialize->(\%networks)) {
+    return 0;
+  }
+
+  if (%networks) {
+    $config->{'networks'} = \%networks;
+  }
+  else {
+    delete($config->{'networks'});
+  }
+  SaveConfig();
+  return 1;
+}
+
+
+=pod
+
+=head2 GetServiceNetworkMode
+
+B<Description>: Returns the network mode of a service as defined in its module
+definition file ("network" parameter of the service). Alternative services
+that are not explicitly defined in the module definition file inherit the
+network mode of the service they substitute.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $module: (string) (R)
+
+The module name.
+
+=item $service: (string) (R)
+
+The service name.
+
+=back
+
+B<Return>: (string)
+
+The network mode: 'default' (only use the instance default network) or 'auto'
+(automatically added to the networks of the instance that do not specify a
+service list).
+
+=cut
+
+sub GetServiceNetworkMode {
+  my ($module, $service) = @_;
+
+  if (!defined($module) || !defined($service)) {
+    die "ERROR: GetServiceNetworkMode: Missing module or service name!";
+  }
+
+  my $module_info = GetModuleInfo($module) || {};
+  my $services_info = $module_info->{'services'} || {};
+  my $mode;
+  if (exists($services_info->{$service})) {
+    if ('HASH' eq ref($services_info->{$service})) {
+      $mode = $services_info->{$service}->{'network'};
+    }
+  }
+  else {
+    # Alternative services inherit the mode of the service they substitute.
+    ALTERNATIVE:
+    foreach my $alternative (values(%{$module_info->{'alternatives'} || {}})) {
+      next if (('HASH' ne ref($alternative))
+        || ('HASH' ne ref($alternative->{'substitute'})));
+      foreach my $original (keys(%{$alternative->{'substitute'}})) {
+        if (($alternative->{'substitute'}->{$original} eq $service)
+          && ('HASH' eq ref($services_info->{$original}))
+        ) {
+          $mode = $services_info->{$original}->{'network'};
+          last ALTERNATIVE;
+        }
+      }
+    }
+  }
+
+  if (!defined($mode) || ('' eq $mode)) {
+    $mode = 'default';
+  }
+  elsif ($mode !~ m/^(?:default|auto)$/) {
+    warn "WARNING: Unsupported network mode '$mode' for service '$service' of module '$module'. Using 'default' instead.\n";
+    $mode = 'default';
+  }
+  return $mode;
+}
+
+
+=pod
+
+=head2 GetServiceNetworks
+
+B<Description>: Returns the additional Docker networks each service should
+join according to the given network config.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $services: (hash ref) (R)
+
+The available services. Keys are service names and values are the module names
+they belong to.
+
+=item $networks: (hash ref) (O)
+
+The network config (see "networks" in config.yml). Keys are network names and
+values are either 'auto' or an array of service names.
+
+=back
+
+B<Return>: (hash ref)
+
+Keys are service names and values are sorted arrays of network names. Services
+without additional networks are not included.
+
+=cut
+
+sub GetServiceNetworks {
+  my ($services, $networks) = @_;
+
+  my %service_networks;
+  foreach my $network (sort keys(%{$networks || {}})) {
+    my @members;
+    if ('ARRAY' eq ref($networks->{$network})) {
+      @members = grep { exists($services->{$_}) } @{$networks->{$network}};
+    }
+    else {
+      @members = grep
+        { 'auto' eq GetServiceNetworkMode($services->{$_}, $_) }
+        sort keys(%$services);
+    }
+    if (!@members) {
+      warn "WARNING: No enabled service to add to network '$network'.\n";
+    }
+    push(@{$service_networks{$_}}, $network) foreach (@members);
+  }
+  return \%service_networks;
+}
+
+
+=pod
+
+=head2 _AddServiceNetworks
+
+B<Description>: Adds the given networks to a Docker Compose service definition.
+If the service definition does not specify networks, the "default" network is
+kept as Docker Compose would not add it implicitly anymore.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $definition: (hash ref) (R)
+
+The service definition to update.
+
+=item $networks: (array ref) (R)
+
+The network names to add.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub _AddServiceNetworks {
+  my ($definition, $networks) = @_;
+
+  my $current = $definition->{'networks'};
+  if ('HASH' eq ref($current)) {
+    foreach my $network (@$networks) {
+      $current->{$network} ||= {};
+    }
+  }
+  else {
+    my @service_networks = ('ARRAY' eq ref($current)) ? @$current : ('default');
+    my %seen = map { $_ => 1 } @service_networks;
+    push(@service_networks, grep { !$seen{$_}++ } @$networks);
+    $definition->{'networks'} = [@service_networks];
+  }
+}
+
+
+=pod
+
+=head2 EnsureNetworks
+
+B<Description>: Creates the external Docker networks declared in the Docker
+Compose file (or the given networks) if they do not exist yet.
+
+B<ArgsCount>: 0-n
+
+=over 4
+
+=item @networks: (list of strings) (O)
+
+The network names. If not provided, the external networks declared in the
+Docker Compose file are used.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub EnsureNetworks {
+  my (@networks) = @_;
+
+  if (!@networks && (-f $Genoring::DOCKER_COMPOSE_FILE)) {
+    my $yaml = ReadYaml($Genoring::DOCKER_COMPOSE_FILE);
+    my $compose_networks = $yaml->[0]->{'networks'} || {};
+    foreach my $network (sort keys(%$compose_networks)) {
+      next if (('HASH' ne ref($compose_networks->{$network}))
+        || !$compose_networks->{$network}->{'external'});
+      push(@networks, $compose_networks->{$network}->{'name'} || $network);
+    }
+  }
+
+  foreach my $network (@networks) {
+    qx($Genoring::DOCKER_COMMAND network inspect $network 2>$Genoring::NULL);
+    if ($?) {
+      print "Creating Docker network '$network'...\n";
+      Run(
+        "$Genoring::DOCKER_COMMAND network create $network",
+        "Failed to create Docker network '$network'!",
+        1,
+        $g_debug || $g_flags->{'verbose'}
+      );
+    }
+  }
+}
+
+
+=pod
+
 =head2 GenerateDockerComposeFile
 
 B<Description>: Generates Docker Compose file.
@@ -2298,6 +2668,12 @@ sub GenerateDockerComposeFile {
     }
   }
 
+  # Get additional networks of each service.
+  my $service_networks = GetServiceNetworks(
+    {map { $_ => $services{$_}->{'module'} } keys(%services)},
+    $config->{'networks'}
+  );
+
   my $compose = {
     'services' => {},
   };
@@ -2386,6 +2762,19 @@ sub GenerateDockerComposeFile {
     if (@extra_hosts) {
       $compose->{'services'}->{$service}->{'extra_hosts'} = [@extra_hosts];
     }
+    # Add additional networks if some.
+    if ($service_networks->{$service}) {
+      _AddServiceNetworks(
+        $compose->{'services'}->{$service},
+        $service_networks->{$service}
+      );
+      foreach my $network (@{$service_networks->{$service}}) {
+        $compose->{'networks'}->{$network} ||= {
+          'name' => $network,
+          'external' => 'true',
+        };
+      }
+    }
   }
 
   # For volumes, add the section name, the indented definition and the
@@ -2416,6 +2805,10 @@ sub GenerateDockerComposeFile {
     }
   }
   WriteYaml($Genoring::DOCKER_COMPOSE_FILE, $compose, "# GenoRing docker compose file\n# COMPOSE_PROJECT_NAME=$ENV{'COMPOSE_PROJECT_NAME'}\n# WARNING: This file is auto-generated by genoring.sh script. Any direct\n# modification may be lost when genoring.pl will need to regenerate it.\n");
+  # Make sure external networks exist.
+  if ($compose->{'networks'}) {
+    EnsureNetworks(sort keys(%{$compose->{'networks'}}));
+  }
   # Update config volume lookup.
   $_g_config->{'volume_mapping'} = \%volume_mapping;
   SaveConfig();
@@ -6634,6 +7027,8 @@ sub SaveConfig {
     'volume_mapping' => $_g_config->{'volume_mapping'} // {},
   };
   $config->{'service_overrides'} = $service_overrides if %$service_overrides;
+  $config->{'networks'} = $_g_config->{'networks'}
+    if (('HASH' eq ref($_g_config->{'networks'})) && %{$_g_config->{'networks'}});
   WriteYaml($Genoring::CONFIG_FILE, $config, "# GenoRing config file\n");
 }
 

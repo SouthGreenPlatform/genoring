@@ -27,6 +27,7 @@ genoring.pl - Manages GenoRing platform.
   | version [MODULE] [-all | -latest]
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-health-timeout[=DELAYSEC]]
+  [-network=<NETWORK_NAME>[:[SERVICE_LIST]]]...
   [-yes|-no] [-verbose] [-quiet-build] [-skip-checks]
 
 =head2 Example
@@ -120,6 +121,7 @@ Prints the manual page and exits.
 =head4 Description
 
 Starts GenoRing. For the first start, GenoRing is installed and initialized.
+The "-network" flag can be used to manage the Docker networks of the instance.
 
 
 =head3 stop
@@ -271,6 +273,7 @@ If '-default' flag is used, all current or default settings are used. If
 '-minimal' flag is used, only non-optional environment values will be asked. If
 '-reset' flag is used, current environment files are removed and need to be
 fully regenerated.
+The "-network" flag can be used to manage the Docker networks of the instance.
 
 
 =head3 reset
@@ -570,6 +573,46 @@ installation time to be stored in config and used every time.
 Use this flag to hide missing container compilation details.
 
 
+=head3 -network
+
+=head4 Syntax
+
+  ... -network=<NETWORK_NAME>[:[SERVICE_LIST]] ...
+
+=head4 Description
+
+Adds some GenoRing services to the given additional Docker network (in addition
+to the instance default network) or removes the network from the instance. This
+flag is only supported by the "start" and "setup" commands. The network settings
+are saved in the instance config ("config.yml") and used every time the Docker
+Compose file is generated. Missing Docker networks are automatically created as
+they are managed as external networks. Removed networks are not deleted from
+Docker as they may still be used by other GenoRing instances.
+
+=over 4
+
+=item -network=<NETWORK_NAME>
+
+Adds the services flagged with "network: auto" in their module definition
+(currently "genoring-proxy") to the given network. Services of modules enabled
+later are also added if they are flagged that way.
+
+=item -network=<NETWORK_NAME>:<SERVICE_LIST>
+
+Only adds the given comma-separated list of services to the given network (ex.:
+"-network=genoring-hub:genoring-proxy,genoring").
+
+=item -network=<NETWORK_NAME>:
+
+Removes the given network from the instance config.
+
+=back
+
+This flag can be used multiple times on the same command line to manage several
+networks. If GenoRing is already running, network changes will only be applied
+once GenoRing is restarted.
+
+
 =head3 -no
 
 =head4 Syntax
@@ -717,23 +760,28 @@ while (defined($arg)) {
   if ($arg =~ m/^--?([\w\-]+)(?:=(.*))?$/i) {
     my $flag = $1;
     # Check flag exists.
-    if ($flag !~ m/^(?:all|arm|skip-checks|cmd|debug|default|delete-containers|exposed-volumes|f|help|quiet-build|latest|local|man|minimal|no|no-backups?|no-cache|no-exposed-volumes|platform|port|preserve-env|reset|verbose|health-timeout|yes)$/) {
+    if ($flag !~ m/^(?:all|arm|skip-checks|cmd|debug|default|delete-containers|exposed-volumes|f|help|quiet-build|latest|local|man|minimal|network|no|no-backups?|no-cache|no-exposed-volumes|platform|port|preserve-env|reset|verbose|health-timeout|yes)$/) {
       warn "ERROR: Invalid flag '-$flag'.\n\n";
       pod2usage('-verbose' => 0, '-exitval' => 1);
     }
+    # "-network" can be used multiple times: keep previous values.
+    my @previous_networks = ('network' eq $flag) ? @{$g_flags->{'network'} || []} : ();
     $g_flags->{$flag} = defined($2) ? $2 : 1;
     # Check flags that require a value.
     if (!defined($2)
-      && ($flag =~ m/arm|cmd|platform|port|health-timeout/i)
+      && ($flag =~ m/arm|cmd|platform|port|health-timeout|network/i)
     ) {
       # If no value was provided using the "=" syntax, try to use next argument.
       if (scalar(@argv) && ($argv[0] !~ m/^--?[a-z]/i)) {
         $g_flags->{$flag} = shift(@argv);
       }
-      elsif ($flag =~ m/cmd|platform|port/i) {
+      elsif ($flag =~ m/cmd|platform|port|network/i) {
         warn "ERROR: Invalid flag syntax for flag '-$flag'.\n\n";
         pod2usage('-verbose' => 0, '-exitval' => 1);
       }
+    }
+    if ('network' eq $flag) {
+      $g_flags->{'network'} = [@previous_networks, $g_flags->{'network'}];
     }
   }
   else {
@@ -851,8 +899,8 @@ elsif ($g_flags->{'platform'} && ('1' ne $g_flags->{'platform'})) {
 # }
 
 # Check for exposed file system: forces what is set in config.
-if ($config->{'no-exposed-volumes'}) {
-  $g_flags->{'no-exposed-volumes'} = $config->{'no-exposed-volumes'};
+if ($config->{'no_exposed_volumes'}) {
+  $g_flags->{'no-exposed-volumes'} = $config->{'no_exposed_volumes'};
   delete($g_flags->{'exposed-volumes'});
 }
 # For Windows FS, we can't use exposed shared FS as it crashes so we force set
@@ -884,6 +932,26 @@ CheckGenoringUser();
 # Set waiting time.
 if (!$g_flags->{'health-timeout'} || ($g_flags->{'health-timeout'} !~ m/^\d+/)) {
   $g_flags->{'health-timeout'} = $Genoring::STATE_MAX_TRIES;
+}
+
+# Update instance Docker networks.
+if ($g_flags->{'network'}) {
+  if ($command !~ m/^(?:start|online|offline|backend|setup)$/i) {
+    warn "WARNING: The '-network' flag is only supported by 'start' and 'setup' commands. Ignored.\n";
+  }
+  elsif (SetNetworks(@{$g_flags->{'network'}})
+    && IsInstalled()
+    && ($command !~ m/^setup$/i)
+  ) {
+    # The "setup" command and the first start regenerate the Docker Compose
+    # file anyway.
+    print "Updating Docker Compose file with network changes...\n";
+    GenerateDockerComposeFile();
+    my (undef, $state) = IsContainerRunning($ENV{'COMPOSE_PROJECT_NAME'});
+    if ($state && ($state =~ m/running/)) {
+      print "NOTE: GenoRing is already running. Network changes will only be applied once GenoRing is restarted (stop and start).\n";
+    }
+  }
 }
 
 if ($command =~ m/^(?:start|online|offline|backend)$/i) {

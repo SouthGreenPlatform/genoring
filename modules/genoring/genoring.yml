@@ -23,6 +23,7 @@ services:
     name: "GenoRing proxy service"
     description: "GenoRing proxy service using NGINX HTTP server"
     version: 1.0
+    network: auto
 alternatives:
   httpd:
     description: "Replaces NGINX server with Apache 2 HTTPd."
