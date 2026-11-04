@@ -3765,7 +3765,7 @@ sub GenerateDockerComposeFile {
           if (@higher_services) {
             foreach my $higher_service (@higher_services) {
               if ($Genoring::COMPATIBILITY =~ /\bdc1\b/) {
-                $dependencies->{'services'}->{$service}->{'depends_on'} = $higher_service;
+                push(@{$dependencies->{'services'}->{$service}->{'depends_on'}}, $higher_service);
               }
               else {
                 $dependencies->{'services'}->{$service}->{'depends_on'} ||= {};
@@ -3793,10 +3793,9 @@ sub GenerateDockerComposeFile {
         }
         else {
           foreach my $higher_service (@higher_services) {
-            $compose->{'services'}->{$service}->{'depends_on'} = {
-              $higher_service => {
-                'condition' => 'service_started',
-              },
+            $compose->{'services'}->{$service}->{'depends_on'} ||= {};
+            $compose->{'services'}->{$service}->{'depends_on'}->{$higher_service} = {
+              'condition' => 'service_started',
             };
           }
         }
