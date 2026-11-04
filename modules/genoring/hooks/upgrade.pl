@@ -91,7 +91,7 @@ Run(
 );
 
 Run(
-  "$Genoring::DOCKER_COMMAND run --rm --name pg_upgrade_temp --env-file '$db_env_file' -v '$volumes_dir/data:/data' -v '$new_db_data_dir:/var/lib/postgresql' -d genoring-db",
+  "$Genoring::DOCKER_COMMAND run --rm --name pg_upgrade_temp --env-file '$db_env_file' -v '$volumes_dir/data:/data' -v '$new_db_data_dir:/var/lib/postgresql/data' -d genoring-db",
   "Failed to start migrated PostgreSQL container for import.",
   1,
   1
