@@ -9030,9 +9030,9 @@ The site environment type. Must be one of 'dev', 'staging', 'prod' or 'backend'.
 
 sub GetProfile {
   my $site_env = 'dev';
-  if (-r "$Genoring::MODULES_DIR/env/genoring_genoring.env") {
+  if (-r 'env/genoring_genoring.env') {
     $site_env =
-      GetEnvVariable("$Genoring::MODULES_DIR/genoring/env/genoring.env", 'GENORING_ENVIRONMENT')
+      GetEnvVariable('env/genoring_genoring.env', 'GENORING_ENVIRONMENT')
       || 'dev';
   }
   if ($site_env !~ m/^(?:dev|staging|prod|backend)$/) {
