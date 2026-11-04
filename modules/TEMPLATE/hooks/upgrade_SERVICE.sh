@@ -15,10 +15,10 @@
 set -e
 
 # Some upgrade tasks to perform...
-if [ -z "$3" ] {
+if [ -z "$3" ]; then
   # Framework upgrade...
-}
-elif [ "$3" == "TEMPLATE" ] {
+  :
+elif [ "$3" = "TEMPLATE" ]; then
   # Upgrading this module (TEMPLATE).
-  # Perform the module's upgrade tasks on the local file system.
-}
+  :
+fi
