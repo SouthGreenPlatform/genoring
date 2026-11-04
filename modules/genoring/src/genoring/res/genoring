@@ -462,10 +462,6 @@ start_genoring()
   # Update Drupal and modules.
   if [ "$DRUPAL_UPDATE" -gt 0 ]; then
     update_cms
-    if [ $DRUPAL_UPDATE -eq 2 ]; then
-      # Update and stop.
-      exit 0
-    fi
   fi
 
   log "* Start cron daemon..."
