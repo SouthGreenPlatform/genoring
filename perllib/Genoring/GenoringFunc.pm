@@ -4778,7 +4778,14 @@ sub UpgradeFramework {
   # @todo Add support for Git "dev" qualifier (not tagged).
   # Perform a backup of GenoRing files.
   my $context = PrepareOperations();
-  if (IsGitAvailable()) {
+  # Upgrade operations must be performed in the GenoRing directory, not in the
+  # instance directory.
+  my $original_dir = getcwd();
+  if (!chdir($Genoring::GENORING_DIR)) {
+    $run_hooks = 0;
+    warn "WARNING: Failed to upgrade to $new_version: unable to enter GenoRing directory '$Genoring::GENORING_DIR': $!\n";
+  }
+  elsif (IsGitAvailable()) {
     # Use git.
     eval {
       # Make sure the target version exists and no local changes would be
@@ -4809,6 +4816,7 @@ sub UpgradeFramework {
     unlink $tar_file;
     # @todo In case of failure, restore backups and set $version_comparison to 0.
   }
+  chdir($original_dir);
   if ($run_hooks) {
     # Perform upgrade hooks only if it is an effective upgrade.
     $context->{'local_hooks'} = {
