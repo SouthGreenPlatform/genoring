@@ -1224,7 +1224,7 @@ elsif ($command =~ m/^logs?$/i) {
 elsif ($command =~ m/^status$/i) {
   GetStatus(@arguments);
 }
-elsif ($command =~ m/^reset|reinit(?:ialize)?$/i) {
+elsif ($command =~ m/^(?:reset|reinit(?:ialize)?)$/i) {
   Reinitialize(@arguments);
 }
 elsif ($command =~ m/^update$/i) {
