@@ -17,8 +17,9 @@ if [ "$(id -u)" -eq 0 ]; then
   # If root, re-run as genoring.
   args=""
   for arg in "$@"; do
-    escaped_arg=$(printf '%s' "$arg" | sed "s/\"/\"'\"'\"/g")
-    args="$args \"$escaped_arg\""
+    # Single-quote arguments to prevent any shell expansion.
+    escaped_arg=$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")
+    args="$args '$escaped_arg'"
   done
   exec su genoring -c "exec $0 $args"
   exit $?
@@ -404,21 +405,29 @@ update_cms()
     fi
     log "  ...OK (backup)."
     touch "$disable_healthcheck"
+    update_failed=0
     if composer update --no-interaction --with-all-dependencies && drush -y updb; then
       rm -f "$disable_healthcheck"
       log "...OK (update)."
     else
+      update_failed=1
       # Restore DB backup.
       log "...ERROR!"
       log_error "ERROR: Drupal update failed! Restoring backup..."
-      drush -y archive:restore /backups/preupdate_backup.tar.gz
-      rm -rf /opt/drupal/vendor
-      composer install --no-interaction
+      if drush -y archive:restore /backups/preupdate_backup.tar.gz \
+        && rm -rf /opt/drupal/vendor \
+        && composer install --no-interaction; then
+        log "...OK (restoring)."
+      else
+        log_error "ERROR: Failed to restore Drupal backup!"
+      fi
       rm -f "$disable_healthcheck"
-      log "...OK (restoring)."
     fi
     # Set Drupal back online.
     drush -y state:set system.maintenance_mode 0 --input-format=integer
+    if [ $update_failed -gt 0 ]; then
+      return 1
+    fi
   fi
 }
 
@@ -660,17 +669,14 @@ restore()
   fi
 
   # First we extract backuped source code of Drupal in a different directory to
-  # avoid removing libraries used by Drush for this opeation.
-  drush -y archive:restore --code --overwrite --destination-path /tmp/drupal_res /backups/$1/genoring/archive.tar.gz
-  # Then we copy restored files to current Drupal and remove restore temp dir.
-  cp -R /tmp/drupal_res/* /opt/drupal
-  rm -rf /tmp/drupal_res
-  # We update the composer libraries.
-  composer update --no-interaction
-  # Now we restore the rest (database and files).
-  drush -y archive:restore  --db --files --overwrite /backups/$1/genoring/archive.tar.gz
-
-  if [ $? -gt 0 ]; then
+  # avoid removing libraries used by Drush for this opeation. Then we copy
+  # restored files to current Drupal, remove restore temp dir and update the
+  # composer libraries. Finally, we restore the rest (database and files).
+  if ! drush -y archive:restore --code --overwrite --destination-path /tmp/drupal_res "/backups/$1/genoring/archive.tar.gz" \
+    || ! cp -R /tmp/drupal_res/* /opt/drupal \
+    || ! rm -rf /tmp/drupal_res \
+    || ! composer update --no-interaction \
+    || ! drush -y archive:restore  --db --files --overwrite "/backups/$1/genoring/archive.tar.gz"; then
     log_error "ERROR: Failed to restore site backup!"
     exit 1
   fi

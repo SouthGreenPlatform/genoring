@@ -52,7 +52,12 @@ my $legacy_pgdata_dir = File::Spec->catdir($db_volume_dir, 'pgdata');
 my $legacy_backup_dir = File::Spec->catdir($volumes_dir, 'data', 'pgdata.16');
 my $new_db_data_dir = File::Spec->catdir($db_volume_dir, 'data');
 my $dump_file = File::Spec->catfile($volumes_dir, 'data', 'v16.sql');
-my $db_env_file = File::Spec->catfile($genoring_dir, 'env', 'genoring_db.env');
+# Use the database environment file of the current instance.
+my ($db_env_file) = grep { m/genoring_db\.env$/ } GetEnvironmentFiles('genoring');
+if (!$db_env_file) {
+  die "ERROR: Database environment file 'env/genoring_db.env' not found in the current instance.\n";
+}
+$db_env_file = File::Spec->rel2abs($db_env_file);
 
 if (-d $legacy_pgdata_dir) {
   Run("mkdir -p " . File::Spec->catdir($volumes_dir, 'data'), "Failed to create database upgrade staging directory.", 1, 1);
@@ -66,7 +71,8 @@ if (!-d $new_db_data_dir) {
   Run("mkdir -p '$new_db_data_dir'", "Failed to create '$new_db_data_dir'.", 1, 1);
 }
 
-Run("chown 999 '$db_volume_dir'", "Failed to fix ownership on '$db_volume_dir'.", 1, 1);
+# Change ownership from a container as the current user may not be allowed to.
+Run("$Genoring::DOCKER_COMMAND run --rm -v '$db_volume_dir:/genoring' alpine chown 999 /genoring", "Failed to fix ownership on '$db_volume_dir'.", 1, 1);
 
 Run(
   "$Genoring::DOCKER_COMMAND run --rm --name pg_upgrade_temp --env-file '$db_env_file' -v '$volumes_dir/data:/data' -v '$legacy_backup_dir:/var/lib/postgresql/data/pgdata' -d postgis/postgis:16-3.5",

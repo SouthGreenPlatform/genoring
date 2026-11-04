@@ -20,7 +20,7 @@ This module contains GenoRing test library functions.
 
 package Genoring::GenoringTest;
 
-require 5.8.0;
+require 5.010;
 use strict;
 use warnings;
 use utf8;
@@ -84,9 +84,10 @@ Default maximum external script execution time in seconds.
 our $GENORING_DIR = abs_path(File::Spec->catdir(dirname(__FILE__), '..', '..'));
 our $TEST_DIR = File::Spec->catdir($GENORING_DIR, 'tests');
 our $TEMP_TEST_DIR = 'temptests';
-# Make sure $TEMP_TEST_DIR is available as expected.
+# Make sure $TEMP_TEST_DIR is available as expected. Tests must be launched from
+# a test directory (ie. "tests/") containing a "temptests" sub-directory.
 if (!-d $TEMP_TEST_DIR) {
-  die "ERROR: Test directory '$TEMP_TEST_DIR' not found in current directory.\n";
+  die "ERROR: Test directory '$TEMP_TEST_DIR' not found in current directory. Tests must be launched from a test directory (ie. \"tests/\") containing a '$TEMP_TEST_DIR' sub-directory.\n";
 }
 elsif (!-r $TEMP_TEST_DIR) {
   die "ERROR: Test directory '$TEMP_TEST_DIR' is not readable.\n";
@@ -270,7 +271,7 @@ sub SetEnvironmentVariables {
     for my $variable (keys %$variables) {
       my $value = $variables->{$variable};
       $value = '' unless defined $value;
-      my $replaced = $content =~ s/^(\Q$variable\E\s*=).*\R/$1$value\n/m;
+      my $replaced = $content =~ s/^(\Q$variable\E\s*=).*$/$1$value/m;
       die "ERROR: $variable not found in '$env_file'.\n" unless $replaced;
     }
 

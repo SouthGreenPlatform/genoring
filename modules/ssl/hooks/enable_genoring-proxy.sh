@@ -2,8 +2,8 @@
 
 CERT_FILE="/etc/ssl/certs/${GENORING_HOST}.crt"
 KEY_FILE="/etc/ssl/private/${GENORING_HOST}.key"
-if [ ! -f "$CERT_FILE" ] || [ ! openssl x509 -checkend 0 -noout -in "$CERT_FILE" 2>/dev/null ]; then
-  rm -f $KEY_FILE
+if [ ! -f "$CERT_FILE" ] || ! openssl x509 -checkend 0 -noout -in "$CERT_FILE" >/dev/null 2>&1; then
+  rm -f "$KEY_FILE"
   openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
     -keyout "$KEY_FILE" \
     -out "$CERT_FILE" \
@@ -18,6 +18,7 @@ fi
 # Generate SSL config if missing.
 CONF_FILE="/etc/nginx/genoring/ssl.conf"
 if [ ! -f "$CONF_FILE" ]; then
-  . /genoring/modules/ssl/env/ssl.env
+  # SSL_PORT is provided by the instance environment (env/ssl_ssl.env).
+  export SSL_PORT="${SSL_PORT:-443}"
   envsubst < /genoring/modules/ssl/res/nginx/ssl.template > $CONF_FILE
 fi

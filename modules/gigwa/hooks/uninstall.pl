@@ -12,7 +12,7 @@ if (!$ENV{'GENORING_NO_EXPOSED_VOLUMES'}) {
   my $output = qx(
     $Genoring::DOCKER_COMMAND run --rm -v $Genoring::VOLUMES_DIR:/genoring -w / alpine rm -rf /genoring/gigwa
   );
-  HandleShellExecutionError();
+  HandleShellExecutionError() or exit(1);
 }
 
 # Returns 1 when called by "require".

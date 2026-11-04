@@ -25,7 +25,7 @@ use Genoring;
 my $output = qx(
   $Genoring::DOCKER_COMMAND run --rm -v $ENV{'GENORING_VOLUMES_DIR'}:/genoring -w / alpine rm -rf /genoring/my_module 2>&1
 );
-HandleShellExecutionError();
+HandleShellExecutionError() or exit(1);
 
 # Returns 1 when called by "require".
 1;

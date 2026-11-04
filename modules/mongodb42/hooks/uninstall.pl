@@ -13,7 +13,7 @@ use Genoring;
 my $output = qx(
   $Genoring::DOCKER_COMMAND run --rm -v $Genoring::VOLUMES_DIR:/genoring -w / alpine rm -rf /genoring/mongodb42
 );
-HandleShellExecutionError();
+HandleShellExecutionError() or exit(1);
 
 # Returns 1 when called by "require".
 1;

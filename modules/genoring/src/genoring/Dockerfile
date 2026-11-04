@@ -17,7 +17,6 @@ ENV POSTGRES_USER=postgres
 ENV DRUPAL_VERSION=11
 ENV DRUPAL_TRUSTED_HOST=""
 ENV DRUPAL_USER=genoring
-ENV DRUPAL_AUTO_UPDATE=1
 ENV COMPOSER_HOME=/home/genoring/.composer
 ENV HOME=/home/genoring
 ENV PATH=${PATH}:/opt/genoring:/opt/drupal/vendor/bin

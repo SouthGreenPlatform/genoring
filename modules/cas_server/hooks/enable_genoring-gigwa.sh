@@ -7,14 +7,14 @@ CONFIG_FILE="/usr/local/tomcat/config/config.properties"
 
 # Function to update a given Gigwa config file setting.
 update_property() {
-  local key="$1"
-  local value="$2"
+  key="$1"
+  value="$2"
   # Uncomment line if there, and set value.
   if grep -q "^#* *${key} *=" "$CONFIG_FILE"; then
     sed -i -E "s~^#* *${key} *=.*~${key} = ${value}~" "$CONFIG_FILE"
   else
     # Otherwise, append value.
-    printf "\n${key} = ${value}\n" >> "$CONFIG_FILE"
+    printf '\n%s = %s\n' "$key" "$value" >> "$CONFIG_FILE"
   fi
 }
 
@@ -30,6 +30,7 @@ openssl s_client -connect ${GENORING_HOST}:443 -showcerts </dev/null 2>/dev/null
   > /usr/local/share/ca-certificates/genoring.crt
 # - Update OpenSSL registry.
 update-ca-certificates
-# - Update Java certificates.
+# - Update Java certificates (replace any previous GenoRing certificate).
+keytool -delete -cacerts -alias genoring_ca -storepass changeit -noprompt >/dev/null 2>&1 || true
 keytool -import -cacerts -alias genoring_ca -file /usr/local/share/ca-certificates/genoring.crt -storepass changeit -noprompt
 

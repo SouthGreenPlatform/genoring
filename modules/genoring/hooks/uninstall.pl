@@ -14,5 +14,5 @@ if (-e $ENV{'GENORING_VOLUMES_DIR'}) {
   my $output = qx(
     $Genoring::DOCKER_COMMAND run --rm -v $ENV{'GENORING_VOLUMES_DIR'}:/genoring -w / alpine rm -rf /genoring/drupal /genoring/db /genoring/proxy /genoring/www /genoring/data
   );
-  HandleShellExecutionError();
+  HandleShellExecutionError() or exit(1);
 }

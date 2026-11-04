@@ -18,7 +18,7 @@ This module contains GenoRing global constants.
 
 =cut
 
-require 5.8.0;
+require 5.010;
 use strict;
 use warnings;
 use utf8;
@@ -66,7 +66,7 @@ of managed instances served under that site (see AttachInstance()).
 B<$CONSTRAINT_TYPE_REGEX>: (string)
 
 Regular expression used to match a dependency constraint. One of "REQUIRES",
-"CONFLICTS", "BEFORE" and "AFTER".
+"CONFLICTS", "BEFORE" and "AFTER" (case insensitive).
 
 B<$DEBUG>: (boolean)
 
@@ -199,7 +199,7 @@ our @RESERVED_BASE_PATHS = qw(
   libraries media modules node profiles rest search sites system taxonomy
   themes user vendor
 );
-our $CONSTRAINT_TYPE_REGEX = '(REQUIRES|CONFLICTS|BEFORE|AFTER)';
+our $CONSTRAINT_TYPE_REGEX = '((?i:REQUIRES|CONFLICTS|BEFORE|AFTER))';
 our $DEBUG = 0;
 our $DEFAULT_ARCHITECTURE = 'linux/amd64';
 our $DEFAULT_ARM_ARCHITECTURE = 'linux/arm64';

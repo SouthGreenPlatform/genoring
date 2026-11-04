@@ -11,5 +11,5 @@ set -e
 # See Genoring::ApplyContainerHooks() GenoRing Perl library function.
 
 # To test a recipe:
-genoring install_recipe modules/YOUR_MODULE_NAME/res/recipes/YOUR_MODULE_NAME_recipe GENORING_HOST GENORING_PORT
+genoring install_recipe modules/YOUR_MODULE_NAME/res/recipes/YOUR_MODULE_NAME_recipe GENORING_HOST,GENORING_PORT
 genoring uninstall_recipe modules/YOUR_MODULE_NAME/res/recipes/YOUR_MODULE_NAME_recipe

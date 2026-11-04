@@ -10,7 +10,7 @@ use Genoring;
 
 =head1 REQUIRES
 
-Perl5
+Perl 5.10
 
 =head1 EXPORTS
 
@@ -34,7 +34,8 @@ Restore Run RunShell SaveConfig SetEnvVariable SetModuleConf SetupGenoring
 SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
 ToExternalService UninstallModule Update Upgrade UpgradeFrameworkAlpha8
 WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
-GetVolumeMapping IsInstalled ParseNetworkFlag SetNetworks GetServiceNetworkMode
+GetVolumeMapping IsInstalled WriteBackupManifest ReadBackupManifest
+ValidateBackupManifest ParseNetworkFlag SetNetworks GetServiceNetworkMode
 GetServiceNetworks EnsureNetworks SetExposedPorts GetReverseProxyAddresses
 GetInstanceProxyConfig AttachInstance DetachInstance RefreshManagedInstances
 ListManagedInstances RunManagedInstances GetBasePath SetBasePath
@@ -47,12 +48,14 @@ This module contains GenoRing library.
 
 package Genoring;
 
-require 5.8.0;
+require 5.010;
 use strict;
 use warnings;
 use utf8;
-use Genoring::GenoringFunc;
+# Note: constants must be loaded first as GenoringFunc initializes some of its
+# global variables from them (ie. $g_debug from $Genoring::DEBUG).
 use Genoring::GenoringConst;
+use Genoring::GenoringFunc;
 use Genoring::GenoringEnv;
 
 use base qw(Exporter);
@@ -77,8 +80,8 @@ our @EXPORT = qw(
   SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
   ToExternalService UninstallModule Update Upgrade UpgradeFrameworkAlpha8
   WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
-GetVolumeMapping IsInstalled WriteBackupManifest ReadBackupManifest
-ValidateBackupManifest ParseNetworkFlag SetNetworks GetServiceNetworkMode
+  GetVolumeMapping IsInstalled WriteBackupManifest ReadBackupManifest
+  ValidateBackupManifest ParseNetworkFlag SetNetworks GetServiceNetworkMode
   GetServiceNetworks EnsureNetworks SetExposedPorts GetReverseProxyAddresses
   GetInstanceProxyConfig AttachInstance DetachInstance RefreshManagedInstances
   ListManagedInstances RunManagedInstances GetBasePath SetBasePath

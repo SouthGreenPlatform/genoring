@@ -18,7 +18,7 @@ This module contains GenoRing library functions.
 
 =cut
 
-require 5.8.0;
+require 5.010;
 use strict;
 use warnings;
 use utf8;
@@ -460,7 +460,15 @@ sub StopGenoring {
 
 B<Description>: Runs a shell in the given service.
 
-B<ArgsCount>: 0
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $service: (string) (O)
+
+The service name. Default: "genoring".
+
+=back
 
 B<Return>: (nothing)
 
@@ -682,7 +690,11 @@ sub GetStatus {
   my ($module) = @_;
   if ($module) {
     my $module_state = GetModuleRealState($module);
-    if ($module_state && ($module_state !~ m/running/)) {
+    if (!$module_state) {
+      print "$module state is unknown (no state available for this module).\n";
+      return;
+    }
+    elsif ($module_state !~ m/running/) {
       print "$module is not running.\n";
       return;
     }
@@ -771,7 +783,8 @@ sub GetState {
     foreach my $line (@lines) {
       if ($line !~ m/\s(?:running)\b/) {
         # Only keep the first non-running status.
-        ($state) = ($line =~ m/^\S+\s+(\S+)/) // '';
+        ($state) = ($line =~ m/^\S+\s+(\S+)/);
+        $state //= '';
         last;
       }
     }
@@ -863,13 +876,18 @@ string is returned and can not be considered as a running or a
 non-running state: it is just not available and the module might be running or
 not, depending on the existing services it relies on.
 
-B<ArgsCount>: 0-1
+B<ArgsCount>: 1-2
 
 =over 4
 
-=item $module: (string) (O)
+=item $module: (string) (R)
 
 Module name.
+
+=item $progress: (boolean) (O)
+
+If set, waits for the module to be running and displays its services logs
+meanwhile.
 
 =back
 
@@ -891,7 +909,7 @@ sub GetModuleRealState {
   my $state_hook = File::Spec->catfile($Genoring::MODULES_DIR, $module, 'hooks', 'state.pl');
   if (-e $state_hook) {
     my $tries = $g_flags->{'health-timeout'};
-    $state = Run("perl $state_hook 2>&1", "ERROR: StartGenoring: Failed to get $module module state!", 1);
+    $state = Run("perl $state_hook 2>&1", "Failed to get $module module state!", 1);
     print "Checking if $module module is ready (see logs below for errors)...\n\n" if $progress;
     my $logs = '';
     # Does not work on Windows.
@@ -976,7 +994,7 @@ sub GetModuleRealState {
         }
       }
       sleep(1);
-      $state = Run("$g_exec_prefix perl $state_hook 2>&1", "ERROR: StartGenoring: Failed to get $module module state!", 1);
+      $state = Run("perl $state_hook 2>&1", "Failed to get $module module state!", 1);
     }
   }
   else {
@@ -1101,7 +1119,7 @@ sub Reinitialize {
       my $module_info = GetModuleInfo($module);
       my @module_volumes;
       foreach my $module_volume (keys(%{$module_info->{'volumes'}})) {
-        if (!grep(/$module_volume/, @$volumes)) {
+        if (!grep { $_ eq $module_volume } @$volumes) {
           push(@module_volumes, $module_volume);
         }
       }
@@ -1315,7 +1333,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
             if ($is_setting || $is_optional) {
               my ($name, $value) = ($1, $2);
               # Special case to manage GENORING_UID, GENORING_GID and GENORING_HOST.
-              if (('genoring' eq $module) && ('genoring' eq $env_file) && ($value !~ m/\w/)) {
+              if (('genoring' eq $module) && ('genoring.env' eq $env_file) && ($value !~ m/\w/)) {
                 if ('GENORING_UID' eq $name) {
                   $value = $ENV{'GENORING_UID'};
                 }
@@ -1383,7 +1401,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
               }
               $next_envvar = 1;
             }
-            elsif (defined($g_flags->{'auto'})) {
+            elsif (defined($g_flags->{'default'})) {
               if (!defined($envvar->{'current'})) {
                 $envvar->{'current'} = $envvar->{'default'};
               }
@@ -1424,7 +1442,7 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
             foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
                print "* " . ($envvar->{'name'} || $envvar->{'var'}) . ": " . $envvar->{'current'} . "\n";
             }
-            if ($g_flags->{'auto'} || Confirm('Validate these settings?')) {
+            if ($g_flags->{'default'} || Confirm('Validate these settings?')) {
               # Save changes.
               if (open($env_fh, '>:utf8', "env/${module}_$env_file")) {
                 foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
@@ -2261,7 +2279,7 @@ sub EnsureNetworks {
   }
 
   foreach my $network (@networks) {
-    qx($Genoring::DOCKER_COMMAND network inspect $network 2>$Genoring::NULL);
+    qx($g_exec_prefix$Genoring::DOCKER_COMMAND network inspect $network 2>$Genoring::NULL);
     if ($?) {
       print "Creating Docker network '$network'...\n";
       Run(
@@ -2392,7 +2410,7 @@ sub GetReverseProxyAddresses {
   }
   my @subnets;
   foreach my $network (@{_GetComposeExternalNetworks()}) {
-    my $output = qx($Genoring::DOCKER_COMMAND network inspect --format "{{range .IPAM.Config}}{{.Subnet}} {{end}}" $network 2>$Genoring::NULL);
+    my $output = qx($g_exec_prefix$Genoring::DOCKER_COMMAND network inspect --format "{{range .IPAM.Config}}{{.Subnet}} {{end}}" $network 2>$Genoring::NULL);
     if ($?) {
       warn "WARNING: Failed to get the subnet of Docker network '$network'.\n";
       next;
@@ -2795,11 +2813,11 @@ A true value on success and the NGINX output.
 sub _ReloadProxy {
   my ($container) = @_;
 
-  my $output = qx($Genoring::DOCKER_COMMAND exec $container nginx -t 2>&1);
+  my $output = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $container nginx -t 2>&1);
   if ($?) {
     return (0, $output);
   }
-  $output = qx($Genoring::DOCKER_COMMAND exec $container nginx -s reload 2>&1);
+  $output = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $container nginx -s reload 2>&1);
   return (!$?, $output);
 }
 
@@ -2847,7 +2865,7 @@ sub _UpdateInstanceProxy {
   if (!$base_path && (grep { 'ssl' eq $_ } @{GetModules(1)})) {
     if ($running) {
       my $script = File::Spec->catfile($Genoring::MODULES_DIR, 'ssl', 'res', 'instance-certificate.sh');
-      my $output = qx($Genoring::DOCKER_COMMAND exec -i -u 0 -e INSTANCE_HOST=$host $proxy sh -s < "$script" 2>&1);
+      my $output = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec -i -u 0 -e INSTANCE_HOST=$host $proxy sh -s < "$script" 2>&1);
       if ($?) {
         warn "WARNING: Failed to get a certificate for '$host'. HTTPS will not be available for instance '$project'.\n$output\n";
       }
@@ -3594,7 +3612,7 @@ sub GenerateDockerComposeFile {
     foreach my $volume_dep (@{$volume_dependencies->{$module}}) {
       # Check if the requirement is on a whole module (ie. no volume name).
       if (!$volume_dep->{'element'}) {
-        if (grep($volume_dep->{'module'}, @$modules)) {
+        if (grep { $_ eq $volume_dep->{'module'} } @$modules) {
           $volume_ok = 1;
         }
         # else warn "WARNING: module '$module' requires volumes from module '$module' but that module is not enabled! GenoRing may fail to start.\n";
@@ -3604,7 +3622,7 @@ sub GenerateDockerComposeFile {
       ) {
         # Check for version constraints.
         if ($volume_dep->{'major_version'}) {
-          my $module_info = GetModuleInfo($module);
+          my $module_info = GetModuleInfo($volume_dep->{'module'});
           my $version_constraint = $volume_dep->{'version_constraint'} || '=';
           # @todo Code to test.
           my $dep_version = $volume_dep->{'major_version'} . '.' . ($volume_dep->{'minor_version'} || '0');
@@ -3660,10 +3678,16 @@ sub GenerateDockerComposeFile {
   # Docker system.
   if (-f $Genoring::DOCKER_COMPOSE_FILE) {
     my $yaml = ReadYaml($Genoring::DOCKER_COMPOSE_FILE);
-    if (exists($yaml->[0]{'volume'})) {
-      my @existing_volumes = keys(%{$yaml->[0]{'volume'}});
+    if ('HASH' eq ref($yaml->[0]{'volumes'})) {
+      my @existing_volumes = keys(%{$yaml->[0]{'volumes'}});
       # Remove unused volumes.
       foreach my $unused_volume (@existing_volumes) {
+        # Never remove external volumes: they are not managed by Docker Compose
+        # and may hold data (non-exposed volumes).
+        my $volume_definition = $yaml->[0]{'volumes'}{$unused_volume};
+        next if (('HASH' eq ref($volume_definition))
+          && $volume_definition->{'external'}
+          && ('false' ne $volume_definition->{'external'}));
         if (!exists($volumes{$unused_volume})) {
           my $unused_volume_name = GetVolumeName($unused_volume);
           Run(
@@ -4359,7 +4383,7 @@ A sorted list of version strings, the first one being the most recent one.
 sub GetAvailableVersions {
   my ($module, $stability) = @_;
   if ($module) {
-    die "EROR: Not implemented yet!\n";
+    die "ERROR: Not implemented yet!\n";
   }
   my @versions;
   # Try with git first.
@@ -4570,17 +4594,17 @@ sub Upgrade {
 
 B<Description>: Upgrades a given module.
 
-B<ArgsCount>: 2
+B<ArgsCount>: 3
 
 =over 4
-
-=item $new_version: (string) (R)
-
-A version string of the module to use.
 
 =item $current_version: (string) (R)
 
 A version string of the current module in use.
+
+=item $new_version: (string) (R)
+
+A version string of the module to use.
 
 =item $module: (string) (R)
 
@@ -4622,23 +4646,14 @@ sub UpgradeModule {
 
 =pod
 
-=head2 UpgradeFramework
+=head2 UpgradeFrameworkAlpha8
 
-B<Description>: Upgrades the GenoRing framework.
+B<Description>: Migrates module configurations from GenoRing 1.0-alpha8 (and
+earlier) format: legacy disabled services ("*.yml.dis") and alternative services
+("alt/*.yml.alt") files are renamed to "*.yml" and services status are stored
+in the module configuration instead.
 
-B<ArgsCount>: 2
-
-=over 4
-
-=item $current_version: (string) (R)
-
-=item $new_version: (string) (R)
-
-A version string of the new framework to use.
-
-A version string of the current framework in use.
-
-=back
+B<ArgsCount>: 0
 
 B<Return>: (nothing)
 
@@ -4730,11 +4745,11 @@ B<ArgsCount>: 2
 
 =item $current_version: (string) (R)
 
+A version string of the current framework in use.
+
 =item $new_version: (string) (R)
 
 A version string of the new framework to use.
-
-A version string of the current framework in use.
 
 =back
 
@@ -4911,9 +4926,9 @@ B<ArgsCount>: 4
 
 A parsed dependency constraint as returned by ParseDependencies().
 
-=item $candidate: (hash ref) (R)
+=item $candidate: (string) (R)
 
-The candidate dependency declaration to check.
+The candidate module name to check.
 
 =item $installed: (hash ref) (R)
 
@@ -5390,9 +5405,9 @@ sub EnableModule {
 B<Description>: Finds, among installed modules, those that transitively
 require (i.e. "REQUIRES" dependency) at least one of the given root modules
 and would be left with an unsatisfied dependency. Depending on $uninstall,
-only enabled or all installed modules are considered. Modules are ordered so
-that dependents appear after the modules they depend on (i.e. suitable for a
-disable/uninstall order).
+only enabled or all installed modules are considered. Modules are ordered by
+decreasing dependency depth, so that dependents appear before the modules they
+depend on (i.e. suitable for a disable/uninstall order).
 
 B<ArgsCount>: 2
 
@@ -5412,7 +5427,8 @@ enabled modules are (disable case).
 B<Return>: (list)
 
 Two array refs: the ordered list of all affected modules (roots and
-dependents, dependents last) and the list of dependent modules only.
+dependents, deepest dependents first) and the list of dependent modules only
+(same order).
 
 =cut
 
@@ -5607,13 +5623,17 @@ sub _DisableModuleSet {
 
 B<Description>: Disables the given module.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1-2
 
 =over 4
 
 =item $module: (string) (R)
 
 The module name.
+
+=item $non_interactive: (boolean) (O)
+
+If 1 (TRUE), no confirmation is asked before disabling.
 
 =back
 
@@ -6284,7 +6304,7 @@ sub ToGenoringService {
   my $module;
   foreach my $candidate (@{GetModules(1)}) {
     my $module_conf = GetModuleConf($candidate);
-    if (exists($module_conf->{'external_services'}->{$service})) {
+    if ($module_conf->{'external_services'} && exists($module_conf->{'external_services'}->{$service})) {
       $module = $candidate;
       last;
     }
@@ -6497,7 +6517,7 @@ sub ValidateBackupManifest {
 
 =head2 CreateVolumeArchive
 
-=B<Description>: Creates a backup archive of the specified Docker volumes and environment files.
+B<Description>: Creates a backup archive of the specified Docker volumes and environment files.
 
 B<ArgsCount>: 4
 
@@ -6578,7 +6598,7 @@ sub CreateVolumeArchive {
     if ($storage && exists($storage->{'path'})) {
       die "ERROR: Exposed volume '$volume' is missing its mapped directory '$storage->{'path'}'.\n"
         if !-d $storage->{'path'};
-      $source_mount = $storage->{'path'} . ':/source:ro';
+      $source_mount = File::Spec->rel2abs($storage->{'path'}) . ':/source:ro';
     }
     elsif ($storage && exists($storage->{'volume'})) {
       $source_mount = $storage->{'volume'} . ':/source:ro';
@@ -6591,7 +6611,7 @@ sub CreateVolumeArchive {
       "$Genoring::DOCKER_COMMAND run --rm -u 0 -v "
         . _ShellQuote($source_mount)
         . " -v "
-        . _ShellQuote("$volume_dir:/dest")
+        . _ShellQuote(File::Spec->rel2abs($volume_dir) . ':/dest')
         . " alpine sh -c "
         . _ShellQuote('cp -a "$1/." /dest/')
         . " sh "
@@ -6895,7 +6915,7 @@ sub Backup {
 
   if (!$backup_name) {
     # No name provided, use a default one.
-    $backup_name = localtime->strftime('backup_%Y%d%mT%H%M');
+    $backup_name = localtime->strftime('backup_%Y%m%dT%H%M');
   }
   elsif ($backup_name !~ m/^[a-z][\w._\-]*$/i) {
     die "ERROR: Backup: Invalid back name '$backup_name'. Only letters, numbers, dots, underscores and dashes are allowed and the name must begin with a letter.\n";
@@ -7161,9 +7181,7 @@ sub Restore {
     print "Restore done.\n";
   };
 
-  if ($@) {
-    print "ERROR: Restore failed!\n$@\n";
-  }
+  my $restore_error = $@;
 
   # Restart as needed.
   if (('running' eq $current_mode) || ('backend' eq $current_mode) || ('offline' eq $current_mode)) {
@@ -7176,6 +7194,10 @@ sub Restore {
     print "- Stopping Genoring...\n";
     StopGenoring();
     print "  ...OK.\n";
+  }
+
+  if ($restore_error) {
+    die "ERROR: Restore failed!\n$restore_error\n";
   }
 }
 
@@ -7198,6 +7220,8 @@ List of supported local hooks:
 - init: called just before a module is enabled, in order to setup the file
   system (ie. create local data directories, generate, download or copy files,
   etc.).
+- enable: called when a module is enabled (after "init" for newly installed
+  modules) to perform actions on the file system.
 - disable: perform actions on file system to disable the module.
 - uninstall: cleanup local file system and remove data files and directories
   generated by the module.
@@ -7313,7 +7337,7 @@ sub ApplyLocalHooks {
           print "DEBUG: Using environment variables:\n" . Dumper([\%ENV]);
         }
         $output = Run(
-          "perl $hook_script $args",
+          "perl " . _ShellQuote($hook_script) . " $args",
           "Failed to process $module module hook $hook_name!",
           1,
           $g_debug || $g_flags->{'verbose'}
@@ -7371,8 +7395,10 @@ instance).
 List of supported container hooks:
 - enable: called for a module on services when one of them is enabled.
 - disable: called for a module on services when one of them is disabled.
-- offline: called for GenoRing is set offline.
-- online: called for is set online.
+- uninstall: called for a module on services when it is uninstalled.
+- offline: called when GenoRing is set offline.
+- online: called when GenoRing is set online.
+- backend: called when GenoRing is set in backend mode.
 - update: called for a module on services when one of them is updated.
 - upgrade: upgrade local file system for the given module. First argument is
   current version and second argument is the new version to upgrade to.
@@ -7497,7 +7523,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Check if container is running.
           my $service_name = GetContainerName($service);
           my ($id, $state, $name, $image) = IsContainerRunning($service_name);
-          if ($state && ($state !~ m/running/)) {
+          if (!$state || ($state !~ m/running/)) {
             $state ||= 'not running';
             warn "WARNING: Failed to run $module module hook in $service (hook $hook): $service_name is $state.";
             next APPLYCONTAINERHOOKS_HOOKS;
@@ -7513,7 +7539,7 @@ APPLYCONTAINERHOOKS_HOOKS:
             );
             # Copy GenoRing module files as root.
             Run(
-              "$Genoring::DOCKER_COMMAND cp $Genoring::MODULES_DIR/ $service_name:/genoring/modules",
+              "$Genoring::DOCKER_COMMAND cp " . _ShellQuote("$Genoring::MODULES_DIR/") . " $service_name:/genoring/modules",
               "Failed to copy module files in $service_name ($module $hook hook)",
               0,
               $g_debug || $g_flags->{'verbose'}
@@ -7523,13 +7549,12 @@ APPLYCONTAINERHOOKS_HOOKS:
           # Make sure script is executable and run as root.
           # Note: we trust hook scripts as they are stored outside GenoRing
           # Docker containers.
-          my $env_data = join(' --env-file ', GetEnvironmentFiles($services->{$service}), GetEnvironmentFiles($module));
-          if ($env_data) {
-            $env_data = ' --env-file ' . $env_data;
-          }
-          $env_data .= ' -e COMPOSE_PROJECT_NAME=' . $ENV{'COMPOSE_PROJECT_NAME'} . ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
+          my $env_data = join('', map { ' --env-file ' . _ShellQuote($_) } (GetEnvironmentFiles($services->{$service}), GetEnvironmentFiles($module)));
+          $env_data .= ' -e ' . _ShellQuote('COMPOSE_PROJECT_NAME=' . ($ENV{'COMPOSE_PROJECT_NAME'} // ''))
+            . ' -e ' . _ShellQuote('GENORING_HOST=' . ($ENV{'GENORING_HOST'} // ''))
+            . ' -e ' . _ShellQuote('GENORING_PORT=' . ($ENV{'GENORING_PORT'} // '')) . ' ';
           if ($ENV{'GENORING_REVERSE_PROXY_ADDRESSES'}) {
-            $env_data .= '-e GENORING_REVERSE_PROXY_ADDRESSES=' . $ENV{'GENORING_REVERSE_PROXY_ADDRESSES'} . ' ';
+            $env_data .= '-e ' . _ShellQuote('GENORING_REVERSE_PROXY_ADDRESSES=' . $ENV{'GENORING_REVERSE_PROXY_ADDRESSES'}) . ' ';
           }
           my $output = Run(
             "$Genoring::DOCKER_COMMAND exec " . $env_data . "-u 0 $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
@@ -7539,7 +7564,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           );
           if ($?) {
             print "  Failed.\n$output\n";
-            $errors->{$hook} = $output;
+            $errors->{"$module/$hook"} = $output;
           }
           else {
             print "  OK.\n";
@@ -7667,7 +7692,7 @@ sub Build {
     if (open($dockerfile_fh, '<:utf8', "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile.default")) {
       my $docker_source = do { local $/; <$dockerfile_fh> };
       close($dockerfile_fh);
-      $docker_source =~ s~^FROM\s+(?:--platform=\S+\s+)?([a-z0-9][a-z0-9\._-]*)((?:[:@][a-z0-9][a-z0-9\._-]*)?)(\s|$)~FROM --platform=$platform_arch $1$2$3~mg;
+      $docker_source =~ s~^([ \t]*)FROM[ \t]+(?:--platform=\S+[ \t]+)?(\S+)~$1FROM --platform=$platform_arch $2~mg;
       if (open($dockerfile_fh, '>:utf8', "$Genoring::MODULES_DIR/$module/src/$service/Dockerfile")) {
         print {$dockerfile_fh} $docker_source;
         close($dockerfile_fh);
@@ -7952,7 +7977,7 @@ sub BuildMissingContainers {
 
   # Check missing containers.
   foreach my $service (keys(%$services)) {
-    my $image_id = Run("$g_exec_prefix $Genoring::DOCKER_COMMAND images -q $service:latest 2>&1");
+    my $image_id = Run("$Genoring::DOCKER_COMMAND images -q $service:latest 2>&1");
     if (!$image_id) {
       # Check if we got sources
       my $module = $services->{$service};
@@ -7992,7 +8017,7 @@ sub DeleteAllContainers {
 
   # Check missing containers.
   foreach my $service (keys(%services)) {
-    my $image_id = Run("$g_exec_prefix $Genoring::DOCKER_COMMAND images -q $service:latest 2>&1");
+    my $image_id = Run("$Genoring::DOCKER_COMMAND images -q $service:latest 2>&1");
     if ($image_id) {
       print "  - Removing container '$service'...\n";
       # Check if container is running and stop it unless it is not running the
@@ -8788,7 +8813,7 @@ sub SetEnvVariable {
     die "ERROR: SetEnvVariable: No environment variable name provided!";
   }
 
-  $value ||= '';
+  $value //= '';
 
   my $env_fh;
   my $new_content = '';
@@ -9646,7 +9671,7 @@ sub ParseDependencies {
   return {
     'profiles' => [split(/\s*,\s*/, $profiles || '')],
     'service' => $service,
-    'constraint' => $constraint,
+    'constraint' => uc($constraint),
     'dependencies' => \@module_dependencies,
   };
 }
@@ -9869,11 +9894,13 @@ nothing is displayed. This function should be called after each shell command.
 
 B<ArgsCount>: 0
 
-B<Return>: (nothing)
+B<Return>: (boolean)
+
+1 if the last shell command succeeded, 0 otherwise.
 
 B<Example>:
 
-    HandleShellExecutionError();
+    HandleShellExecutionError() or exit(1);
 
 =cut
 
@@ -9894,7 +9921,9 @@ sub HandleShellExecutionError
       $error_message = sprintf("ERROR %d\n", $? >> 8);
     }
     warn($error_message);
+    return 0;
   }
+  return 1;
 }
 
 
@@ -10170,7 +10199,7 @@ sub CopyFiles
             );
           }
           else {
-            warn "WARNING: Genoring::CopyFiles(): Cannot copy file '$source_base$files' to non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
+            warn "WARNING: Genoring::CopyFiles(%): Cannot copy file '$source_base$source' to non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
           }
         }
         else {
@@ -10313,15 +10342,20 @@ B<Example>:
 sub RemoveVolumeDirectories
 {
   my ($subpaths) = @_;
-  return if (!$subpaths);
+  return 0 if (!$subpaths);
   my $config = GetConfig();
+  my $error = 0;
   if ('ARRAY' ne ref($subpaths)) {
     $subpaths = [$subpaths];
   }
   foreach my $subpath (@$subpaths) {
     # Try to remove local directory if it exists.
     if (-d $ENV{'GENORING_VOLUMES_DIR'} . "/$subpath") {
-      remove_tree($ENV{'GENORING_VOLUMES_DIR'} . "/$subpath");
+      remove_tree($ENV{'GENORING_VOLUMES_DIR'} . "/$subpath", {'error' => \my $remove_errors});
+      if ($remove_errors && @$remove_errors) {
+        warn "WARNING: Genoring::RemoveVolumeDirectories(): Failed to remove directory '$subpath'.\n";
+        $error = 1;
+      }
     }
     # Try to remove file on no exposed volumes.
     if ($config->{'no_exposed_volumes'}) {
@@ -10334,13 +10368,15 @@ sub RemoveVolumeDirectories
           0,
           0
         );
+        $error = 1 if $?;
       }
       else {
         warn "WARNING: Genoring::RemoveVolumeDirectories(): Cannot remove directory '$subpath' from non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
+        $error = 1;
       }
     }
   }
-  return 0;
+  return $error;
 }
 
 
@@ -10411,13 +10447,18 @@ sub RemoveVolumeFiles
 
 B<Description>: Exports a Docker named volume to a tar.gz file.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1-2
 
 =over 4
 
 =item $volume: (string) (R)
 
   The name of the Docker volume to export.
+
+=item $backup_name: (string) (O)
+
+  The name of the tar.gz file to create in the GenoRing volumes directory.
+  Default: "<volume>_<YYYYmmddTHHMM>.tar.gz".
 
 =back
 
@@ -10430,7 +10471,7 @@ sub ExportVolume
   my ($volume, $backup_name) = @_;
   my $available_volumes = GetVolumes();
   if ($volume && exists($available_volumes->{$volume})) {
-    $backup_name ||= localtime->strftime($volume . '_%Y%d%mT%H%M.tar.gz');
+    $backup_name ||= localtime->strftime($volume . '_%Y%m%dT%H%M.tar.gz');
     print "Exporting volume '$volume' to '$ENV{'GENORING_VOLUMES_DIR'}/$backup_name'. Please wait, it may take some time...\n";
     my $real_volume = GetVolumeName($volume);
     # Note: we double-quote docker container sh command for DOS compatibility.
@@ -10438,7 +10479,7 @@ sub ExportVolume
       # "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $ENV{'GENORING_VOLUMES_DIR'}:/backup alpine sh -c \"tar -czvf /backup/$backup_name -C /volume/ . && chown \\$(stat -c '%u:%g' /backup) /backup/$backup_name\"",
       "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $ENV{'GENORING_VOLUMES_DIR'}:/backup alpine sh -c \"tar -czvf /backup/$backup_name -C /volume/ .\"",
       "Failed to export Docker volume '$volume'.",
-      0,
+      1,
       0
     );
     # @todo For Linux systems, adjust file permissions.
@@ -10464,7 +10505,7 @@ B<ArgsCount>: 2
 
   The name of the Docker volume.
 
-=item $volume: (string) (R)
+=item $source: (string) (R)
 
   The name of the tar.gz file or the directory to import in the volume.
 
@@ -10499,7 +10540,7 @@ sub ImportIntoVolume
         Run(
           "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $abs_source:/import alpine sh -c \"cp -rfT /import/ /volume/\"",
           "Failed to import directory '$source' into Docker volume '$volume'.",
-          0,
+          1,
           0
         );
       }
@@ -10508,7 +10549,7 @@ sub ImportIntoVolume
         Run(
           "$Genoring::DOCKER_COMMAND run --rm -v $real_volume:/volume -v $abs_source:/import/backup.tar.gz alpine sh -c \"tar -xzvf /import/backup.tar.gz -C /volume/\"",
           "Failed to import archive '$source' into Docker volume '$volume'.",
-          0,
+          1,
           0
         );
       }

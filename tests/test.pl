@@ -9,7 +9,7 @@ test.pl - Run GenoRing framework regression test runner.
 =head1 SYNOPSIS
 
     perl test.pl [TEST_NAME] [OPTIONS]
-    perl test.pl --clean [TEST_NAME] [--force]
+    perl test.pl --clean [INSTANCE_NAME] [--force]
 
 =head1 DESCRIPTION
 
@@ -17,6 +17,8 @@ Manages regression tests. It can be used to run all or a set of regression
 tests, as well as to clean up tests artifacts.
 
 Tests are defined in the "t" subdirectory.
+The script must be launched from the "tests" directory (which contains the
+"temptests" subdirectory).
 
 GenoRing test instances are generated into the "temptests" subdirectory. Each
 instance has its own sub-directory starting with "test" followed by a random
@@ -117,22 +119,23 @@ sub usage {
     my ($code, $message) = @_;
     print STDERR "$message\n" if $message;
     print <<'___USAGE___';
-Usage: perl tests/test.pl [CATEGORY | TEST[,TEST...]] [OPTIONS]
+Usage: perl test.pl [CATEGORY | TEST[,TEST...]] [OPTIONS]
 
 Options:
-  --clean              Remove old test instances (all, or an instance name).
+  --clean              Remove old test instances (all, or an instance name
+                       such as "testXXXXXXXX").
     --force            Do not ask for confirmation with --clean.
   --dry-run            Show the prove command without running it.
   --list               List tests grouped by category and their descriptions.
   --help               Show this help.
 
 Examples:
-  perl tests/test.pl
-  perl tests/test.pl base
-  perl tests/test.pl base/default_install
-  perl tests/test.pl base/default_install,other/test
-  perl tests/test.pl --list
-  perl tests/test.pl --clean --force
+  perl test.pl
+  perl test.pl base
+  perl test.pl base/default_install
+  perl test.pl base/default_install,other/test
+  perl test.pl --list
+  perl test.pl --clean --force
 ___USAGE___
     exit($code);
 }

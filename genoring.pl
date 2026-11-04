@@ -22,10 +22,11 @@ genoring.pl - Manages GenoRing platform.
   | attach <DIRECTORY> | detach <PROJECT> | instances
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | clearcache | build <MODULE> <SERVICE> [-no-cache]
-  | shell [SERVICE] [-cmd=<COMMAND>] ]
+  | shell [SERVICE] [-cmd=<COMMAND>] [-local]
   | exportvolume <VOLUME> [ARCHIVE.tar.gz]
   | importvolume <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
   | version [MODULE] [-all | -latest]
+  | diag | localhooks <HOOK> [MODULE] | containerhooks <HOOK> [MODULE]
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-health-timeout[=DELAYSEC]]
   [-network=<NETWORK_NAME>[:[SERVICE_LIST]]]...
@@ -61,7 +62,7 @@ GenoRing module containers.
 
 =cut
 
-require 5.8.0;
+require 5.010;
 use strict;
 use warnings;
 use utf8;
@@ -549,13 +550,54 @@ complete (re)build is done instead.
 
 =head4 Syntax
 
-  perl genoring.pl shell [SERVICE] [-cmd=<COMMAND>]
+  perl genoring.pl shell [SERVICE] [-cmd=<COMMAND>] [-local]
 
 =head4 Description
 
 Launches a bash shell in the main GenoRing container (the CMS container). If
 SERVICE is specified, the corresponding service container will be used instead.
 If COMMAND is specified, that command will be used instead of "bash".
+If the "-local" flag is used, the shell (or COMMAND) is run on the local host
+with the GenoRing environment variables instead of a container.
+
+
+=head3 diag
+
+=head4 Syntax
+
+  perl genoring.pl diag
+
+=head4 Description
+
+Displays diagnostic information: Docker and Docker Compose versions, running
+containers, Docker volumes, instance config file, Docker Compose file and
+GenoRing setup logs.
+
+
+=head3 localhooks
+
+=head4 Syntax
+
+  perl genoring.pl localhooks <HOOK> [MODULE]
+
+=head4 Description
+
+Runs the given local hook (ie. "init", "update", "clearcache") of all enabled
+modules implementing it, or only of the given MODULE. Development and debugging
+command.
+
+
+=head3 containerhooks
+
+=head4 Syntax
+
+  perl genoring.pl containerhooks <HOOK> [MODULE]
+
+=head4 Description
+
+Runs the given container hook (ie. "enable", "update", "clearcache") in the
+running containers of all enabled modules implementing it, or only of the given
+MODULE. Development and debugging command.
 
 
 =head3 exportvolume
@@ -669,6 +711,19 @@ commands.
 =head4 Description
 
 Use this flag to hide missing container compilation details.
+
+
+=head3 -local
+
+=head4 Syntax
+
+  ... -local ...
+
+=head4 Description
+
+Only used by the "shell" command: runs the shell (or the command given by
+"-cmd") on the local host with the GenoRing environment variables instead of
+running it in a container.
 
 
 =head3 -managed
@@ -875,25 +930,6 @@ my $config = GetConfig();
 
 print "GenoRing script $Genoring::GENORING_VERSION (project instance: " . GetProjectName() . ")\n\n";
 
-# Test license agreement.
-if (!-e "$Genoring::GENORING_DIR/agreed.txt") {
-  my $message = "License Agreement\n=================\nGenoRing is under *MIT License*. It is free and open-source software that will *always remain free to use*. Please read the provided LICENSE file for details.\nDo you agree with those conditions?";
-  if (Confirm($message)) {
-    my $agreed_fh;
-    if (open($agreed_fh, '>:utf8', "$Genoring::GENORING_DIR/agreed.txt")) {
-      print {$agreed_fh} "License agreed on the " . localtime->strftime('%Y-%m-%d') . "\n";
-      close($agreed_fh);
-    }
-    else {
-      print "WARNING: Unable to create 'agreed.txt' file.\n$!\n";
-    }
-    print "\n";
-  }
-  else {
-    die "You must agree to the MIT License conditions to use GenoRing.\n";
-  }
-}
-
 # Options processing.
 my ($man, $help) = (0, 0);
 
@@ -905,7 +941,7 @@ if (!$command || ($command =~ m/^-?-?help$|^[-\/]-?\?$/i)) {
 elsif ($command =~ m/^-?-?man$/i) {
   $man = 1;
 }
-elsif ($command =~ m/^-?-?v(?:ersion)$/i) {
+elsif ($command =~ m/^-?-?v(?:ersion)?$/i) {
   $command = 'version';
 }
 
@@ -922,18 +958,23 @@ while (defined($arg)) {
     # "-network" can be used multiple times: keep previous values.
     my @previous_networks = ('network' eq $flag) ? @{$g_flags->{'network'} || []} : ();
     $g_flags->{$flag} = defined($2) ? $2 : 1;
-    # Check flags that require a value.
+    # Check flags that require a value. Flags with an optional value ("-arm" and
+    # "-health-timeout") only support the "-flag=value" syntax.
     if (!defined($2)
-      && ($flag =~ m/^(?:arm|cmd|path|platform|port|health-timeout|network)$/i)
+      && ($flag =~ m/^(?:cmd|path|platform|port|network)$/i)
     ) {
       # If no value was provided using the "=" syntax, try to use next argument.
       if (scalar(@argv) && ($argv[0] !~ m/^--?[a-z]/i)) {
         $g_flags->{$flag} = shift(@argv);
       }
-      elsif ($flag =~ m/^(?:cmd|path|platform|port|network)$/i) {
+      else {
         warn "ERROR: Invalid flag syntax for flag '-$flag'.\n\n";
         pod2usage('-verbose' => 0, '-exitval' => 1);
       }
+    }
+    elsif (!defined($2) && ('health-timeout' eq $flag)) {
+      # No value provided: use default delay.
+      $g_flags->{$flag} = '';
     }
     if ('network' eq $flag) {
       $g_flags->{'network'} = [@previous_networks, $g_flags->{'network'}];
@@ -971,6 +1012,29 @@ if ($help) {
   }
 }
 if ($man) {pod2usage('-verbose' => 1, '-exitval' => 0);}
+
+if (exists($g_flags->{'yes'}) && exists($g_flags->{'no'})) {
+  die "ERROR: '-yes' and '-no' flags are mutually exclusive!\n";
+}
+
+# Test license agreement.
+if (!-e "$Genoring::GENORING_DIR/agreed.txt") {
+  my $message = "License Agreement\n=================\nGenoRing is under *MIT License*. It is free and open-source software that will *always remain free to use*. Please read the provided LICENSE file for details.\nDo you agree with those conditions?";
+  if (Confirm($message)) {
+    my $agreed_fh;
+    if (open($agreed_fh, '>:utf8', "$Genoring::GENORING_DIR/agreed.txt")) {
+      print {$agreed_fh} "License agreed on the " . localtime->strftime('%Y-%m-%d') . "\n";
+      close($agreed_fh);
+    }
+    else {
+      print "WARNING: Unable to create 'agreed.txt' file.\n$!\n";
+    }
+    print "\n";
+  }
+  else {
+    die "You must agree to the MIT License conditions to use GenoRing.\n";
+  }
+}
 
 # Change debug mode if requested/forced.
 $g_debug ||= exists($g_flags->{'debug'}) ? $g_flags->{'debug'} : 0;
@@ -1037,7 +1101,7 @@ elsif ((-r "env/genoring_genoring.env") && $ENV{'GENORING_PORT'}) {
 # Check for a specific platform architecture.
 if (exists($g_flags->{'arm'})) {
   # Use a default ARM platform if needed.
-  if ((!$g_flags->{'arm'}) || (1 == $g_flags->{'arm'})) {
+  if ((!$g_flags->{'arm'}) || ('1' eq $g_flags->{'arm'})) {
     $g_flags->{'arm'} = $Genoring::DEFAULT_ARM_ARCHITECTURE;
   }
   # Set platform to ARM.
@@ -1085,7 +1149,7 @@ InitGenoringUser();
 CheckGenoringUser();
 
 # Set waiting time.
-if (!$g_flags->{'health-timeout'} || ($g_flags->{'health-timeout'} !~ m/^\d+/)) {
+if (!$g_flags->{'health-timeout'} || ($g_flags->{'health-timeout'} !~ m/^\d+$/)) {
   $g_flags->{'health-timeout'} = $Genoring::STATE_MAX_TRIES;
 }
 
@@ -1301,6 +1365,9 @@ elsif ($command =~ m/^(?:moduledetails|moduleinfo)$/i) {
     die "ERROR: ModuleDetails: Missing module name!\n";
   }
   my $module_info = GetModuleInfo($module);
+  if (!$module_info || !%$module_info) {
+    die "ERROR: ModuleDetails: Unknown module '$module'!\n";
+  }
   print "Module: " . ($module_info->{'name'} || '!NAME MISSING!') . "\n";
   print "Machine name: $module\n";
   my $description = $module_info->{'description'} || '';
@@ -1374,6 +1441,9 @@ elsif ($command =~ m/^importvolume$/i) {
 }
 elsif ($command =~ m/^version$/i) {
   my ($module) = (@arguments);
+  if ($module && ($g_flags->{'all'} || $g_flags->{'latest'})) {
+    die "ERROR: '-all' and '-latest' flags are not supported for modules yet.\n";
+  }
   if ($module) {
     my $info = GetModuleInfo($module);
     if (exists($info->{'version'})) {

@@ -28,4 +28,4 @@ dependencies:
   services:
     - "backend,offline:genoring-genoringtools BEFORE genoring genoring-proxy"
   volumes:
-    - "requires genoring genoring-data-volume"
+    - "REQUIRES genoring genoring-data-volume"

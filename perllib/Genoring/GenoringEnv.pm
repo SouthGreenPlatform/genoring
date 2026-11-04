@@ -19,7 +19,7 @@ environment variable are passed to any script (hooks) run by GenoRing.
 
 =cut
 
-require 5.8.0;
+require 5.010;
 use strict;
 use warnings;
 use utf8;
@@ -95,6 +95,20 @@ if (-e $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE) {
 }
 else {
   $ENV{'COMPOSE_FILE'} = $Genoring::DOCKER_COMPOSE_FILE;
+}
+
+# Pre-parse "-yes" and "-no" flags of genoring.pl so they also apply to the
+# confirmations asked before the script processes its arguments.
+if ($ENV{'GENORING_RUNNING'}) {
+  foreach my $arg (@ARGV) {
+    if ($arg =~ m/^--?(yes|no)$/) {
+      $Genoring::g_flags->{$1} = 1;
+    }
+  }
+  if ($Genoring::g_flags->{'yes'} && $Genoring::g_flags->{'no'}) {
+    warn "ERROR: '-yes' and '-no' flags are mutually exclusive!\n";
+    exit(1);
+  }
 }
 
 # Initializes current project name (ie. instance name).
