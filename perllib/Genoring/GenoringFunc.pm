@@ -7491,7 +7491,7 @@ APPLYCONTAINERHOOKS_HOOKS:
           if (!exists($initialized_containers{$service})) {
             # Remove previous copy of GenoRing module files.
             Run(
-              "$Genoring::DOCKER_COMMAND exec " . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
+              "$Genoring::DOCKER_COMMAND exec -u 0 $service_name sh -c \"mkdir -p /genoring && rm -rf /genoring/modules\"",
               "Failed to prepare module file copy in $service_name ($module $hook hook)",
               0,
               $g_debug || $g_flags->{'verbose'}
@@ -7517,7 +7517,7 @@ APPLYCONTAINERHOOKS_HOOKS:
             $env_data .= '-e GENORING_REVERSE_PROXY_ADDRESSES=' . $ENV{'GENORING_REVERSE_PROXY_ADDRESSES'} . ' ';
           }
           my $output = Run(
-            "$Genoring::DOCKER_COMMAND exec " . $env_data . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
+            "$Genoring::DOCKER_COMMAND exec " . $env_data . "-u 0 $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
             "Failed to run hook of $module in $service_name (hook $hook)",
             0,
             $g_debug || $g_flags->{'verbose'}
