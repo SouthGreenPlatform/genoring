@@ -580,8 +580,9 @@ install_recipe()
     # Apply recipe.
     cd web
     php core/scripts/drupal recipe "../recipes/$recipe"
+    recipe_status=$?
     cd ..
-    if [ $? -gt 0 ]; then
+    if [ $recipe_status -gt 0 ]; then
       log_error "ERROR: Failed to install recipe '$recipe_path'!"
       exit 1
     fi
