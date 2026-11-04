@@ -3678,35 +3678,10 @@ sub GenerateDockerComposeFile {
   }
 
   # Check for extra hosts to add.
-  my @extra_hosts = ();
-  if (-f $Genoring::EXTRA_HOSTS) {
-    my $yaml = ReadYaml($Genoring::EXTRA_HOSTS);
-    # Only add extra hosts if there are some.
-    if ($yaml && ('ARRAY' eq ref($yaml)) && @$yaml) {
-      # We need to replace ref elements by scalars to avoid
-      # "circular reference" detection in CPAN::Meta::YAML->write_string().
-      foreach my $extra_host (@$yaml) {
-        if ('HASH' eq ref($extra_host)) {
-          my @sub_extra_hosts =  map { "$_:$extra_host->{$_}"; } (keys(%$extra_host));
-          push(@extra_hosts, @sub_extra_hosts);
-        }
-        elsif ('ARRAY' eq ref($extra_host)) {
-          foreach my $sub_extra_host (@$extra_host) {
-            if ('HASH' eq ref($sub_extra_host)) {
-              my @sub_extra_hosts =  map { "$_:$sub_extra_host->{$_}"; } (keys(%$sub_extra_host));
-              push(@extra_hosts, @sub_extra_hosts);
-            }
-            else {
-              push(@extra_hosts, $sub_extra_host);
-            }
-          }
-        }
-        else {
-          push(@extra_hosts, $extra_host);
-        }
-      }
-    }
-  }
+  # Use scalars ("host:ip") to avoid "circular reference" detection in
+  # CPAN::Meta::YAML->write_string().
+  my $extra_hosts = _ReadExtraHosts();
+  my @extra_hosts = map { "$_:$extra_hosts->{$_}" } sort keys(%$extra_hosts);
 
   # Get additional networks of each service.
   my $service_networks = GetServiceNetworks(
@@ -6131,6 +6106,78 @@ sub _ChangeAlternative {
 
 =pod
 
+=head2 _ReadExtraHosts
+
+B<Description>: Reads the extra hosts file into a hash of host names to IPs.
+Legacy formats (YAML lists of mappings or of "host:ip" strings) are also
+supported.
+
+B<ArgsCount>: 0
+
+B<Return>: (hash ref)
+
+Keys are host (service) names and values are their IPs. The hash is empty if
+the extra hosts file does not exist.
+
+=cut
+
+sub _ReadExtraHosts {
+  my %extra_hosts;
+  return \%extra_hosts if !-f $Genoring::EXTRA_HOSTS;
+
+  my $yaml = ReadYaml($Genoring::EXTRA_HOSTS);
+  my @items = ('ARRAY' eq ref($yaml)) ? @$yaml : ();
+  while (@items) {
+    my $item = shift(@items);
+    if ('HASH' eq ref($item)) {
+      @extra_hosts{keys(%$item)} = values(%$item);
+    }
+    elsif ('ARRAY' eq ref($item)) {
+      unshift(@items, @$item);
+    }
+    elsif (defined($item) && ($item =~ m/^\s*([^:\s]+)\s*:\s*(.+?)\s*$/)) {
+      $extra_hosts{$1} = $2;
+    }
+  }
+  return \%extra_hosts;
+}
+
+
+=pod
+
+=head2 _WriteExtraHosts
+
+B<Description>: Writes the extra hosts file as a YAML mapping of host names to
+IPs. The file is removed if there are no extra hosts.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $extra_hosts: (hash ref) (R)
+
+Keys are host (service) names and values are their IPs.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub _WriteExtraHosts {
+  my ($extra_hosts) = @_;
+  if (%$extra_hosts) {
+    WriteYaml($Genoring::EXTRA_HOSTS, $extra_hosts, "");
+  }
+  elsif (-e $Genoring::EXTRA_HOSTS) {
+    unlink($Genoring::EXTRA_HOSTS)
+      or die "ERROR: Failed to remove extra hosts file '$Genoring::EXTRA_HOSTS'!\n$!\n";
+  }
+}
+
+
+=pod
+
 =head2 ToExternalService
 
 B<Description>: Turns a docker service into a local service.
@@ -6195,16 +6242,11 @@ sub ToExternalService {
   $module_config->{'external_services'}->{$service} = $ip;
   SetModuleConf($module, $module_config);
 
-  # Append replacing host to "extra_hosts".
-  my $extra_fh;
-  if (open($extra_fh, '>>:utf8', $Genoring::EXTRA_HOSTS)) {
-    # @todo "$service" should use the COMPOSE_PROJECT_NAME.
-    print {$extra_fh} "$service: \"$ip\"\n";
-    close($extra_fh);
-  }
-  else {
-    die "ERROR: failed to open extra hosts file '$Genoring::EXTRA_HOSTS' to add replacing host ($service: \"$ip\")\n$!\n";
-  }
+  # Add replacing host to "extra_hosts".
+  # @todo "$service" should use the COMPOSE_PROJECT_NAME.
+  my $extra_hosts = _ReadExtraHosts();
+  $extra_hosts->{$service} = $ip;
+  _WriteExtraHosts($extra_hosts);
   GenerateDockerComposeFile();
 }
 
@@ -6259,36 +6301,9 @@ sub ToGenoringService {
   SetModuleConf($module, $module_config);
 
   if (-f $Genoring::EXTRA_HOSTS) {
-    my $yaml = ReadYaml($Genoring::EXTRA_HOSTS);
-    my @extra_hosts;
-    if ($yaml && ('ARRAY' eq ref($yaml)) && @$yaml) {
-      foreach my $extra_host (@$yaml) {
-        if ('HASH' eq ref($extra_host)) {
-          my %filtered = %$extra_host;
-          delete($filtered{$service});
-          if (%filtered) {
-            push(@extra_hosts, \%filtered);
-          }
-        }
-        elsif ('ARRAY' eq ref($extra_host)) {
-          my @filtered = grep { !ref($_) || !($_ =~ m/^\Q$service\E:/) } @$extra_host;
-          if (@filtered) {
-            push(@extra_hosts, \@filtered);
-          }
-        }
-        else {
-          if ($extra_host !~ m/^\Q$service\E:/) {
-            push(@extra_hosts, $extra_host);
-          }
-        }
-      }
-    }
-    if (@extra_hosts) {
-      WriteYaml($Genoring::EXTRA_HOSTS, \@extra_hosts, "");
-    }
-    else {
-      unlink($Genoring::EXTRA_HOSTS);
-    }
+    my $extra_hosts = _ReadExtraHosts();
+    delete($extra_hosts->{$service});
+    _WriteExtraHosts($extra_hosts);
   }
 
   if ($alternative_name) {
