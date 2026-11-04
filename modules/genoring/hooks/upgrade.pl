@@ -26,17 +26,17 @@ my ($current_version, $new_version, $module) = @ARGV;
 
 if (!$module) {
   print "INFO: No module specified; skipping framework upgrade hook.\n";
-  return 1;
+  exit 0;
 }
 
 if ('genoring' ne $module) {
   print "INFO: No action required for module '$module'.\n";
-  return 1;
+  exit 0;
 }
 
 if ('1.0' ne ($current_version || '')) {
   print "INFO: Module '$module' is not on version 1.0; no 1.0->1.1 migration is required for '$current_version'.\n";
-  return 1;
+  exit 0;
 }
 
 if ('1.1' ne ($new_version || '')) {
