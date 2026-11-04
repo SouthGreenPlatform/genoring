@@ -292,6 +292,15 @@ EOF
     perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:\s*\n|    [^\n]+\n|    #[^\n]*\n)*)    allowedHeaders:[^\n]*/$1    allowedHeaders: ['"'"'authorization'"'"','"'"'content-type'"'"','"'"'accept'"'"','"'"'origin'"'"','"'"'access-control-allow-origin'"'"','"'"'x-allowed-header'"'"']/smig' /opt/drupal/web/sites/default/services.yml
     # - allowedMethods: ['*']
     perl -pi -e 'BEGIN{undef $/;} s/^(  cors.config:\s*\n(?:    [^\n]+\n|\s*\n|\s*#[^\n]*\n)*)    allowedMethods:[^\n]*/$1    allowedMethods: ['"'"'*'"'"']/smig' /opt/drupal/web/sites/default/services.yml
+    # Use a session cookie name unique to this installation (ie. for instances
+    # sharing the same host name under different base paths).
+    # - name_suffix: <random string>
+    name_suffix=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+    if grep -q "^    name_suffix:" /opt/drupal/web/sites/default/services.yml; then
+      perl -pi -e "s/^    name_suffix:[^\n]*/    name_suffix: '$name_suffix'/" /opt/drupal/web/sites/default/services.yml
+    else
+      log_error "WARNING: 'name_suffix' setting not found in services.yml: session cookie name not customized."
+    fi
     # Log services.
     printf -- "--------------------------------------------------------------------------------\nservices.yml:\n-------------\n" >>"$setup_log"
     cat /opt/drupal/web/sites/default/services.yml >>"$setup_log"

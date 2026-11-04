@@ -19,7 +19,7 @@ genoring.pl - Manages GenoRing platform.
   | enable <MODULE>... | disable <MODULE> | uninstall <MODULE> [-preserve-env]
   | enablealt <MODULE> <SERVICE> | disablealt <MODULE> <SERVICE>
   | toexternal <SERVICE> <IP> | togenoring <SERVICE> [ALTERNATIVE]
-  | attach <PROJECT> <HOST> | detach <PROJECT> | instances
+  | attach <DIRECTORY> | detach <PROJECT> | instances
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | clearcache | build <MODULE> <SERVICE> [-no-cache]
   | shell [SERVICE] [-cmd=<COMMAND>] ]
@@ -29,7 +29,7 @@ genoring.pl - Manages GenoRing platform.
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-health-timeout[=DELAYSEC]]
   [-network=<NETWORK_NAME>[:[SERVICE_LIST]]]...
-  [-no-exposed-ports | -exposed-ports]
+  [-no-exposed-ports | -exposed-ports] [-path=<BASE_PATH>] [-managed]
   [-yes|-no] [-verbose] [-quiet-build] [-skip-checks]
 
 =head2 Example
@@ -381,26 +381,56 @@ ALTERNATIVE is specified, the given service alternative will be used.
 
 =head4 Syntax
 
-  perl genoring.pl attach <PROJECT> <HOST>
+  perl genoring.pl attach <DIRECTORY>
 
 =head4 Description
 
 Serves another GenoRing instance (managed instance) through the proxy of current
-(master) instance. PROJECT is the managed instance project name
-(COMPOSE_PROJECT_NAME) and HOST is the public host name used to reach it (it
-should be the GENORING_HOST of the managed instance). The managed instance
-should be started with the "-no-exposed-ports" flag and both instances must
-share a Docker network (see "-network" flag). If the "ssl" module is enabled on
-current instance, HTTPS is also configured (a self-signed certificate is
-generated for HOST if missing). Running the command again updates the managed
-instance configuration.
+(master) instance. DIRECTORY is the managed instance directory. It must be an
+initialized GenoRing instance directory (with a "volumes" sub-directory, a
+"config.yml" file and an "env" directory): the managed instance must have been
+started at least once. The managed instance project name (COMPOSE_PROJECT_NAME,
+used by "detach"), host name (GENORING_HOST) and base path (GENORING_BASE_PATH,
+see "-path" flag) are read from that directory:
+
+=over 4
+
+=item * without base path, the managed instance is served with its own virtual
+host: its host name must differ from current instance one (ie.
+"https://itc.example.org/");
+
+=item * with a base path, the managed instance is served under that path of
+current instance virtual host: its host name must be current instance one (ie.
+"https://example.org/itc/"). SECURITY WARNING: the managed instance then shares
+the web origin of current site (same cookies domain, no browser isolation): an
+administrator, a module or a security issue of the managed instance may affect
+current site and its users. Using such a configuration means this risk is
+accepted. Other GenoRing modules (ie. Gigwa, JBrowse) are not adapted to base
+paths yet.
+
+=back
+
+The directory also allows current instance to start, stop or get the status of
+its managed instances (see "-managed" flag). The managed instance should be
+started with the "-no-exposed-ports" flag and both instances must share a
+Docker network (see "-network" flag). If the "ssl" module is enabled on current
+instance, HTTPS is also configured for managed instances with their own virtual
+host (a self-signed certificate is generated for their host if missing), while
+managed instances served under a base path use current site HTTPS settings.
+Running the command again updates the managed instance configuration (ie. after
+changing its host name or base path).
 
 Ex.:
-  # On the managed instance:
-  COMPOSE_PROJECT_NAME=slave1 perl genoring.pl start -network genoring-hub -no-exposed-ports
-  # On the master instance:
+  # Managed instance with its own host (GENORING_HOST=itc.example.org):
+  cd /srv/genoring/instances/itc
+  COMPOSE_PROJECT_NAME=itc perl /opt/genoring/genoring.pl start -network genoring-hub -no-exposed-ports
+  # Managed instance under a base path (GENORING_HOST=example.org):
+  cd /srv/genoring/instances/abc
+  COMPOSE_PROJECT_NAME=abc perl /opt/genoring/genoring.pl start -network genoring-hub -no-exposed-ports -path=/abc
+  # On the master instance (GENORING_HOST=example.org):
   perl genoring.pl start -network genoring-hub
-  perl genoring.pl attach slave1 slave1.example.org
+  perl genoring.pl attach /srv/genoring/instances/itc
+  perl genoring.pl attach /srv/genoring/instances/abc
 
 
 =head3 detach
@@ -422,7 +452,8 @@ Stops serving the given managed instance through the proxy of current instance.
 
 =head4 Description
 
-Lists the instances managed by current instance with their URL and state.
+Lists the instances managed by current instance with their URL, state and
+directory.
 
 
 =head3 backup
@@ -640,6 +671,29 @@ commands.
 Use this flag to hide missing container compilation details.
 
 
+=head3 -managed
+
+=head4 Syntax
+
+  ... -managed ...
+
+=head4 Description
+
+Also applies the command to all the instances managed by current (master)
+instance (see "attach" command). Supported by "start", "online", "offline",
+"backend", "stop" and "status" commands. Managed instances are started (or
+their status displayed) after current instance and stopped before it. The
+"-yes", "-no", "-verbose", "-debug", "-quiet-build", "-skip-checks" and
+"-health-timeout" flags are passed to managed instance commands. A failure on a
+managed instance does not prevent processing the other ones but the command
+exits with an error.
+
+Ex.:
+  perl genoring.pl start -managed
+  perl genoring.pl status -managed
+  perl genoring.pl stop -managed
+
+
 =head3 -network
 
 =head4 Syntax
@@ -729,6 +783,25 @@ by "start" and "setup" commands.
 
 Disables Docker exposed named (shared) volumes. Must be used at installation
 time to be stored in config and used every time.
+
+
+=head3 -path
+
+=head4 Syntax
+
+  ... -path=<BASE_PATH> ...
+
+=head4 Description
+
+Sets the base path under which current instance is served (ie. "/itc" for
+"https://example.org/itc/") when it is managed by a master instance using the
+same host name (see "attach" command). The value is saved in the instance
+environment (GENORING_BASE_PATH) and an empty value ("-path=") serves the
+instance at the root of its host. Only supported by "start" and "setup"
+commands. The master instance must run "attach" again after a change.
+SECURITY WARNING: an instance served under a base path of a master instance
+shares the web origin of the master site and may introduce security issues on
+the master site (see "attach" command).
 
 
 =head3 -platform
@@ -842,7 +915,7 @@ while (defined($arg)) {
   if ($arg =~ m/^--?([\w\-]+)(?:=(.*))?$/i) {
     my $flag = $1;
     # Check flag exists.
-    if ($flag !~ m/^(?:all|arm|skip-checks|cmd|debug|default|delete-containers|exposed-ports|exposed-volumes|f|help|quiet-build|latest|local|man|minimal|network|no|no-backups?|no-cache|no-exposed-ports|no-exposed-volumes|platform|port|preserve-env|reset|verbose|health-timeout|yes)$/) {
+    if ($flag !~ m/^(?:all|arm|skip-checks|cmd|debug|default|delete-containers|exposed-ports|exposed-volumes|f|help|quiet-build|latest|local|man|managed|minimal|network|no|no-backups?|no-cache|no-exposed-ports|no-exposed-volumes|path|platform|port|preserve-env|reset|verbose|health-timeout|yes)$/) {
       warn "ERROR: Invalid flag '-$flag'.\n\n";
       pod2usage('-verbose' => 0, '-exitval' => 1);
     }
@@ -851,13 +924,13 @@ while (defined($arg)) {
     $g_flags->{$flag} = defined($2) ? $2 : 1;
     # Check flags that require a value.
     if (!defined($2)
-      && ($flag =~ m/^(?:arm|cmd|platform|port|health-timeout|network)$/i)
+      && ($flag =~ m/^(?:arm|cmd|path|platform|port|health-timeout|network)$/i)
     ) {
       # If no value was provided using the "=" syntax, try to use next argument.
       if (scalar(@argv) && ($argv[0] !~ m/^--?[a-z]/i)) {
         $g_flags->{$flag} = shift(@argv);
       }
-      elsif ($flag =~ m/^(?:cmd|platform|port|network)$/i) {
+      elsif ($flag =~ m/^(?:cmd|path|platform|port|network)$/i) {
         warn "ERROR: Invalid flag syntax for flag '-$flag'.\n\n";
         pod2usage('-verbose' => 0, '-exitval' => 1);
       }
@@ -1016,13 +1089,16 @@ if (!$g_flags->{'health-timeout'} || ($g_flags->{'health-timeout'} !~ m/^\d+/)) 
   $g_flags->{'health-timeout'} = $Genoring::STATE_MAX_TRIES;
 }
 
-# Update instance Docker networks and port exposition.
+# Update instance Docker networks, port exposition and base path.
+# Base path to set once the environment is set up (first start).
+my $pending_base_path;
 if ($g_flags->{'network'}
   || exists($g_flags->{'no-exposed-ports'})
   || exists($g_flags->{'exposed-ports'})
+  || exists($g_flags->{'path'})
 ) {
   if ($command !~ m/^(?:start|online|offline|backend|setup)$/i) {
-    warn "WARNING: The '-network', '-no-exposed-ports' and '-exposed-ports' flags are only supported by 'start' and 'setup' commands. Ignored.\n";
+    warn "WARNING: The '-network', '-no-exposed-ports', '-exposed-ports' and '-path' flags are only supported by 'start' and 'setup' commands. Ignored.\n";
   }
   else {
     if (exists($g_flags->{'no-exposed-ports'}) && exists($g_flags->{'exposed-ports'})) {
@@ -1035,6 +1111,15 @@ if ($g_flags->{'network'}
     if ($g_flags->{'network'}) {
       $changed = SetNetworks(@{$g_flags->{'network'}}) || $changed;
     }
+    if (exists($g_flags->{'path'})) {
+      my $base_path = Genoring::_NormalizeBasePath($g_flags->{'path'});
+      if (-r 'env/genoring_genoring.env') {
+        $changed = SetBasePath($base_path) || $changed;
+      }
+      else {
+        $pending_base_path = $base_path;
+      }
+    }
     if ($changed && IsInstalled() && ($command !~ m/^setup$/i)) {
       # The "setup" command and the first start regenerate the Docker Compose
       # file anyway.
@@ -1044,6 +1129,28 @@ if ($g_flags->{'network'}
       if ($state && ($state =~ m/running/)) {
         print "NOTE: GenoRing is already running. Changes will only be applied once GenoRing is restarted (stop and start).\n";
       }
+    }
+  }
+}
+
+# Managed instances processing.
+my $managed_failures = 0;
+my @managed_flags;
+if (exists($g_flags->{'managed'})) {
+  if ($command !~ m/^(?:start|online|offline|backend|stop|status)$/i) {
+    warn "WARNING: The '-managed' flag is only supported by 'start', 'online', 'offline', 'backend', 'stop' and 'status' commands. Ignored.\n";
+    delete($g_flags->{'managed'});
+  }
+  else {
+    # Flags passed to managed instances.
+    foreach my $flag ('yes', 'no', 'verbose', 'debug', 'quiet-build', 'skip-checks') {
+      push(@managed_flags, "-$flag") if (exists($g_flags->{$flag}));
+    }
+    push(@managed_flags, '-health-timeout=' . $g_flags->{'health-timeout'});
+    if ($command =~ m/^stop$/i) {
+      # Stop managed instances before current instance.
+      $managed_failures = RunManagedInstances('stop', @managed_flags);
+      print "\n=== Current instance ===\n";
     }
   }
 }
@@ -1068,6 +1175,10 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
     # Needs first-time initialization.
     print "GenoRing needs to be setup...\n";
     SetupGenoring();
+    if (defined($pending_base_path)) {
+      # Applied by the next (online) start.
+      SetBasePath($pending_base_path);
+    }
   }
   # Add requested mode.
   if ($command !~ m/^start$/i) {
@@ -1135,6 +1246,9 @@ elsif ($command =~ m/^upgrade$/i) {
 elsif ($command =~ m/^setup$/i) {
   # (Re)run environment setup and docker-compose.yml generation.
   SetupGenoringEnvironment($g_flags->{'reset'}, @arguments);
+  if (defined($pending_base_path)) {
+    SetBasePath($pending_base_path);
+  }
   GenerateDockerComposeFile();
 }
 elsif ($command =~ m/^enable$/i) {
@@ -1290,6 +1404,15 @@ elsif ($command =~ m/^version$/i) {
 else {
   warn "ERROR: Invalid command '$command'.\n\n" if $command;
   pod2usage('-verbose' => 0, '-exitval' => 1);
+}
+
+# Start managed instances or get their status after current instance.
+if (exists($g_flags->{'managed'}) && ($command !~ m/^stop$/i)) {
+  $managed_failures = RunManagedInstances(lc($command), @managed_flags);
+}
+if ($managed_failures) {
+  warn "ERROR: Command '$command' failed on $managed_failures managed instance(s).\n";
+  exit(1);
 }
 
 exit(0);

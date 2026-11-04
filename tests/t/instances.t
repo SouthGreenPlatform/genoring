@@ -18,7 +18,7 @@ use File::Temp qw(tempdir);
 use FindBin;
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
-use Test::More tests => 43;
+use Test::More tests => 101;
 
 sub write_file {
   my ($path, $content) = @_;
@@ -165,9 +165,96 @@ open($null_fh, '>', File::Spec->devnull()) or die "Cannot open null device: $!";
   ClearInternalCache();
 }
 
+# Base path management.
+{
+  is(Genoring::_NormalizeBasePath(''), '', 'Empty base path is the root');
+  is(Genoring::_NormalizeBasePath(undef), '', 'Undefined base path is the root');
+  is(Genoring::_NormalizeBasePath('/'), '', 'Slash base path is the root');
+  is(Genoring::_NormalizeBasePath('itc/'), '/itc', 'Base path is normalized');
+  is(Genoring::_NormalizeBasePath('"/a/b.c/"'), '/a/b.c', 'Quoted multi-segment base path is normalized');
+  foreach my $invalid ('/a b', '/../x', '/a//b', '/-x', '/x$y') {
+    eval { Genoring::_NormalizeBasePath($invalid); };
+    ok($@, "Invalid base path '$invalid' is rejected");
+  }
+
+  local *STDOUT = $null_fh;
+  eval { SetBasePath('/itc'); };
+  ok($@, 'Base path can not be set before the environment is set up');
+  write_file('env/genoring_genoring.env', "GENORING_HOST=example.org\nGENORING_BASE_PATH=\n");
+  is(GetBasePath(), '', 'No base path by default');
+  ok(SetBasePath('itc/'), 'Setting a base path changes the environment');
+  is(GetBasePath(), '/itc', 'Base path stored in the environment');
+  ok(!SetBasePath('/itc'), 'Same base path does not change the environment');
+
+  my %written;
+  my @removed;
+  local *Genoring::CopyFiles = sub {
+    my ($source, $target) = @_;
+    open(my $fh, '<', $source) or die "Cannot read '$source': $!";
+    $written{$target} = do { local $/; <$fh> };
+    close($fh);
+  };
+  local *Genoring::RemoveVolumeFiles = sub { push(@removed, @_); };
+  local $Genoring::VOLUMES_DIR = File::Spec->catdir($work_dir, 'volumes');
+  write_file(File::Spec->catfile($Genoring::VOLUMES_DIR, 'proxy', 'nginx', 'genoring-fpm.conf'), "server {}\n");
+  {
+    my @warnings;
+    local $SIG{__WARN__} = sub { push(@warnings, @_); };
+    Genoring::_UpdateBasePathConfig();
+    ok((grep { m/does not support base paths/ } @warnings), 'Outdated main proxy config raises a warning');
+  }
+  my $conf = $written{'proxy/nginx/genoring/base-path.conf'} || '';
+  like($conf, qr{set \$genoring_base_path /itc;}, 'Base path config sets the base path variable');
+  like($conf, qr{location \^~ /itc/ \{\s*rewrite \^/itc\(/\.\*\)\$ \$1 last;}, 'Base path config removes the base path');
+  like($conf, qr#location = /itc \{[^}]*return 301 /itc/;#s, 'Base path without trailing slash is redirected');
+  ok(SetBasePath(''), 'Removing the base path changes the environment');
+  Genoring::_UpdateBasePathConfig();
+  is_deeply(\@removed, ['proxy/nginx/genoring/base-path.conf'], 'Base path config removed without base path');
+  unlink('env/genoring_genoring.env');
+}
+
+# Managed instance directories.
+my $instances_dir = File::Spec->catdir($work_dir, 'instances');
+sub make_instance {
+  my ($name, $config, $env) = @_;
+  my $dir = File::Spec->catdir($instances_dir, $name);
+  make_path(File::Spec->catdir($dir, 'volumes'));
+  write_file(File::Spec->catfile($dir, 'config.yml'), $config // "project: $name\nno_exposed_ports: 1\nnetworks:\n  hub: auto\n");
+  write_file(File::Spec->catfile($dir, 'env', 'genoring_genoring.env'), $env // "GENORING_HOST=$name.example.org\nGENORING_BASE_PATH=\n");
+  return $dir;
+}
+my $slave1_dir = make_instance('slave1');
+my $slave2_dir = make_instance('slave2');
+my $noproject_dir = make_instance('noproject', "no_exposed_ports: 1\n");
+my $badproject_dir = make_instance('badproject', "project: Bad Name\n");
+my $sameproject_dir = make_instance('sameproject', "project: master\n");
+my $nohost_dir = make_instance('nohost', undef, "GENORING_HOST=\n");
+my $badhost_dir = make_instance('badhost', undef, "GENORING_HOST=bad_host!\n");
+my $masterhost_dir = make_instance('masterhost', undef, "GENORING_HOST=MASTER.example.org\n");
+my $badpath_dir = make_instance('badpath', undef, "GENORING_HOST=master.example.org\nGENORING_BASE_PATH=/a b\n");
+my $otherhostpath_dir = make_instance('otherhostpath', undef, "GENORING_HOST=other.example.org\nGENORING_BASE_PATH=/other\n");
+my $reservedpath_dir = make_instance('reservedpath', undef, "GENORING_HOST=master.example.org\nGENORING_BASE_PATH=/sites/x\n");
+my $itc_dir = make_instance('itc', undef, "GENORING_HOST=\"master.example.org\"\nGENORING_BASE_PATH=/itc/\n");
+my $itcsub_dir = make_instance('itcsub', undef, "GENORING_HOST=master.example.org\nGENORING_BASE_PATH=/itc/sub\n");
+my $noenv_dir = File::Spec->catdir($instances_dir, 'noenv');
+make_path(File::Spec->catdir($noenv_dir, 'volumes'));
+write_file(File::Spec->catfile($noenv_dir, 'config.yml'), "project: noenv\n");
+make_path(File::Spec->catdir($instances_dir, 'empty'));
+
+# _CheckInstanceDirectory.
+{
+  my ($dir, $instance_config) = Genoring::_CheckInstanceDirectory($slave1_dir . '/');
+  is($dir, Cwd::abs_path($slave1_dir), 'Instance directory is normalized');
+  is($instance_config->{'project'}, 'slave1', 'Instance config is read');
+  eval { Genoring::_CheckInstanceDirectory(File::Spec->catdir($instances_dir, 'missing')); };
+  like($@, qr/not found/, 'Missing directory is rejected');
+  eval { Genoring::_CheckInstanceDirectory(File::Spec->catdir($instances_dir, 'empty')); };
+  like($@, qr/not an initialized GenoRing instance/, 'Uninitialized directory is rejected');
+}
+
 # AttachInstance and DetachInstance.
 {
-  my $config = {};
+  my $config = {'networks' => {'hub' => 'auto'}};
   my %copied;
   my @removed;
   local $ENV{'COMPOSE_PROJECT_NAME'} = 'master';
@@ -182,33 +269,154 @@ open($null_fh, '>', File::Spec->devnull()) or die "Cannot open null device: $!";
     $copied{$target} = do { local $/; <$fh> };
     close($fh);
   };
-  local *Genoring::RemoveVolumeFiles = sub { push(@removed, @_); };
+  local *Genoring::RemoveVolumeFiles = sub { push(@removed, ref($_[0]) ? @{$_[0]} : @_); };
   my @warnings;
   local $SIG{__WARN__} = sub { push(@warnings, @_); };
   local *STDOUT = $null_fh;
 
-  foreach my $invalid (['', 'slave.example.org'], ['Bad Name', 'slave.example.org'], ['slave1', ''], ['slave1', 'bad_host!'], ['master', 'slave.example.org'], ['slave1', 'MASTER.example.org']) {
-    eval { AttachInstance(@$invalid); };
-    ok($@, "Invalid attach parameters rejected ('" . join("', '", @$invalid) . "')");
+  foreach my $invalid (
+    undef,
+    File::Spec->catdir($instances_dir, 'empty'),
+    $work_dir,
+    $noproject_dir,
+    $badproject_dir,
+    $sameproject_dir,
+    $noenv_dir,
+    $nohost_dir,
+    $badhost_dir,
+    $masterhost_dir,
+    $badpath_dir,
+    $otherhostpath_dir,
+    $reservedpath_dir,
+  ) {
+    eval { AttachInstance($invalid); };
+    ok($@, "Invalid instance rejected ('" . ($invalid // '') . "')");
   }
 
-  AttachInstance('slave1', 'slave1.example.org');
-  is_deeply($config->{'managed_instances'}, {'slave1' => {'host' => 'slave1.example.org'}}, 'Managed instance stored in config');
-  like($copied{'proxy/nginx/includes/instance-slave1.conf'} || '', qr/server_name slave1\.example\.org;/, 'Managed instance proxy config written');
+  # Virtual host.
+  @warnings = ();
+  AttachInstance($slave1_dir);
+  is_deeply(
+    $config->{'managed_instances'},
+    {'slave1' => {'host' => 'slave1.example.org', 'path' => Cwd::abs_path($slave1_dir)}},
+    'Managed instance stored in config with its host and directory'
+  );
+  like($copied{'proxy/nginx/includes/instance-slave1.conf'} || '', qr/server_name slave1\.example\.org;/, 'Managed instance virtual host config written');
   ok((grep { m/not running/ } @warnings), 'Not running managed instance raises a warning');
+  ok(!(grep { m/exposes its ports|does not share|SECURITY/ } @warnings), 'No warning for a properly configured managed instance');
 
-  eval { AttachInstance('slave2', 'slave1.example.org'); };
+  write_file(File::Spec->catfile($slave2_dir, 'env', 'genoring_genoring.env'), "GENORING_HOST=slave1.example.org\n");
+  eval { AttachInstance($slave2_dir); };
   ok($@, 'Host already used by another managed instance is rejected');
+  write_file(File::Spec->catfile($slave1_dir, 'env', 'genoring_genoring.env'), "GENORING_HOST=slave1-new.example.org\n");
+  AttachInstance($slave1_dir);
+  is($config->{'managed_instances'}->{'slave1'}->{'host'}, 'slave1-new.example.org', 'Attaching again updates the managed instance host');
 
+  my $exposed_dir = make_instance('exposed', "project: exposed\n");
+  @warnings = ();
+  AttachInstance($exposed_dir);
+  ok((grep { m/exposes its ports/ } @warnings), 'Managed instance exposing its ports raises a warning');
+  ok((grep { m/does not share any Docker network/ } @warnings), 'Managed instance without shared network raises a warning');
+  DetachInstance('exposed');
+
+  # Base path.
+  @warnings = ();
+  %copied = ();
+  @removed = ();
+  AttachInstance($itc_dir);
+  is_deeply(
+    $config->{'managed_instances'}->{'itc'},
+    {'host' => 'master.example.org', 'path' => Cwd::abs_path($itc_dir), 'base_path' => '/itc'},
+    'Managed instance stored in config with its base path'
+  );
+  my $conf = $copied{'proxy/nginx/genoring/instance-itc.conf'} || '';
+  like($conf, qr{location \^~ /itc/ \{}, 'Base path location has priority over regular expression locations');
+  like($conf, qr{set \$genoring_instance_upstream http://itc-proxy:80;}, 'Base path location targets the managed instance proxy');
+  like($conf, qr#location = /itc \{[^}]*return 301 /itc/;#s, 'Base path without trailing slash is redirected');
+  like($conf, qr{location \@genoring_instance_unavailable_itc \{}, 'Unavailable page location is specific to the managed instance');
+  unlike($conf, qr/server_name|\$\{\w+\}/, 'No virtual host and no remaining placeholder');
+  ok((grep { m{includes/instance-itc\.conf} } @removed), 'Virtual host config of the managed instance removed');
+  ok((grep { m/SECURITY WARNING/ } @warnings), 'Base path raises a security warning');
+  eval { AttachInstance($itcsub_dir); };
+  like($@ || '', qr/overlaps/, 'Overlapping base path is rejected');
+
+  @removed = ();
+  DetachInstance('itc');
+  is_deeply(
+    [sort @removed],
+    ['proxy/nginx/genoring/instance-itc.conf', 'proxy/nginx/includes/instance-itc.conf'],
+    'Both managed instance config kinds removed on detach'
+  );
   DetachInstance('slave1');
   ok(!exists($config->{'managed_instances'}), 'Managed instance removed from config');
-  is_deeply(\@removed, ['proxy/nginx/includes/instance-slave1.conf'], 'Managed instance proxy config removed');
   eval { DetachInstance('slave1'); };
   ok($@, 'Detaching an unknown instance fails');
 
   $config->{'no_exposed_ports'} = 1;
-  eval { AttachInstance('slave1', 'slave1.example.org'); };
+  eval { AttachInstance($slave1_dir); };
   ok($@, 'An instance without exposed ports can not manage other instances');
+}
+
+# RunManagedInstances.
+{
+  my $config = {
+    'managed_instances' => {
+      'slave2' => {'host' => 'slave2.example.org', 'path' => $slave2_dir},
+      'slave1' => {'host' => 'slave1.example.org', 'path' => $slave1_dir},
+      'legacy' => {'host' => 'legacy.example.org'},
+      'gone' => {'host' => 'gone.example.org', 'path' => File::Spec->catdir($instances_dir, 'gone')},
+    },
+  };
+  my @runs;
+  local *Genoring::GetConfig = sub { return $config; };
+  local *Genoring::_RunInstanceCommand = sub {
+    my ($project, $path, @args) = @_;
+    push(@runs, [$project, $path, @args]);
+    return ('slave2' ne $project);
+  };
+  my @warnings;
+  local $SIG{__WARN__} = sub { push(@warnings, @_); };
+  local *STDOUT = $null_fh;
+  is(RunManagedInstances('start', '-yes'), 3, 'Failures are counted (no path, missing directory, failed command)');
+  is_deeply(
+    \@runs,
+    [['slave1', $slave1_dir, 'start', '-yes'], ['slave2', $slave2_dir, 'start', '-yes']],
+    'Valid managed instances are processed in order with the given command and flags'
+  );
+  ok((grep { m/legacy.*attach/ } @warnings), 'Managed instance without directory raises a warning');
+  ok((grep { m/gone/ } @warnings), 'Managed instance with missing directory raises a warning');
+}
+
+# _RunInstanceCommand runs genoring.pl in the instance directory with a
+# cleaned environment.
+{
+  my $fake_genoring_dir = File::Spec->catdir($work_dir, 'fake_genoring');
+  my $report = File::Spec->catfile($work_dir, 'run_report.txt');
+  write_file(
+    File::Spec->catfile($fake_genoring_dir, 'genoring.pl'),
+    "use Cwd; open(my \$fh, '>', '$report') or die; print {\$fh} join(\"\\n\", 'cwd=' . getcwd(), 'args=' . join(' ', \@ARGV), map { \"\$_=\" . (\$ENV{\$_} // 'UNSET') } qw(COMPOSE_PROJECT_NAME PWD GENORING_VOLUMES_DIR GENORING_PORT COMPOSE_PROFILES)); close(\$fh); exit(\$ARGV[0] eq 'fail' ? 1 : 0);\n"
+  );
+  local $Genoring::GENORING_DIR = $fake_genoring_dir;
+  local $ENV{'GENORING_VOLUMES_DIR'} = '/master/volumes';
+  local $ENV{'GENORING_PORT'} = '8080';
+  local $ENV{'COMPOSE_PROFILES'} = 'dev';
+  my $cwd = getcwd();
+  ok(Genoring::_RunInstanceCommand('slave1', $slave1_dir, 'status', '-yes'), 'Successful command');
+  open(my $fh, '<', $report) or die "Cannot read '$report': $!";
+  my %report = map { chomp; split(/=/, $_, 2) } <$fh>;
+  close($fh);
+  is(Cwd::abs_path($report{'cwd'}), Cwd::abs_path($slave1_dir), 'Command run in the instance directory');
+  is($report{'args'}, 'status -yes', 'Command arguments passed');
+  is($report{'COMPOSE_PROJECT_NAME'}, 'slave1', 'Instance project name set');
+  is($report{'PWD'}, $slave1_dir, 'PWD set to the instance directory');
+  is_deeply(
+    [@report{qw(GENORING_VOLUMES_DIR GENORING_PORT COMPOSE_PROFILES)}],
+    ['UNSET', 'UNSET', 'UNSET'],
+    'Current instance specific variables are not passed'
+  );
+  is(getcwd(), $cwd, 'Current directory restored');
+  is($ENV{'GENORING_VOLUMES_DIR'}, '/master/volumes', 'Current environment restored');
+  ok(!Genoring::_RunInstanceCommand('slave1', $slave1_dir, 'fail'), 'Failed command');
 }
 
 chdir($previous_dir);

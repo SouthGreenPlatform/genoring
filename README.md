@@ -340,33 +340,81 @@ or "setup" commands. The setting is saved in the instance config and missing
 networks are created automatically:
 ```
   # Adds services flagged "network: auto" (ie. genoring-proxy) to "genoring-hub":
-  # perl genoring.pl start -network genoring-hub
+  perl genoring.pl start -network genoring-hub
+
   # Adds only the given services to "genoring-hub":
-  # perl genoring.pl start -network genoring-hub:genoring-proxy,genoring
+  perl genoring.pl start -network genoring-hub:genoring-proxy,genoring
+
   # Removes "genoring-hub" from the instance:
-  # perl genoring.pl setup -default -network genoring-hub:
+  perl genoring.pl setup -default -network genoring-hub:
 ```
 The flag can be used multiple times to manage several networks.
 
 To avoid port conflicts between instances, a "master" instance can serve other
-("managed") instances through its own proxy, using one virtual host per managed
-instance. Managed instances do not expose any port on the host and their proxy
-must share a Docker network with the master instance proxy:
+("managed") instances through its own proxy. Each managed instance is served
+either with its own host name (virtual host, ie. https://itc.example.org/) or
+under a base path of the master instance host (ie. https://example.org/abc/, see
+the security warning below). Managed instances do not expose any port on the
+host and their proxy must share a Docker network with the master instance
+proxy:
 ```
-  # Managed instance (its GENORING_HOST should be slave1.example.org):
-  # COMPOSE_PROJECT_NAME=slave1 perl genoring.pl start -network genoring-hub -no-exposed-ports
-  # Master instance:
-  # perl genoring.pl start -network genoring-hub
-  # perl genoring.pl attach slave1 slave1.example.org
-  # List managed instances or stop serving one:
-  # perl genoring.pl instances
-  # perl genoring.pl detach slave1
+  # Managed instance with its own host name, initialized in its own directory
+  # (its GENORING_HOST is itc.example.org):
+  cd /srv/genoring/instances/itc
+  COMPOSE_PROJECT_NAME=itc perl /path/to/genoring.pl start -network genoring-hub -no-exposed-ports
+
+  # Managed instance served under a base path of the master instance host (its
+  # GENORING_HOST is example.org, like the master instance):
+  cd /srv/genoring/instances/abc
+  COMPOSE_PROJECT_NAME=abc perl /path/to/genoring.pl start -network genoring-hub -no-exposed-ports -path=/abc
+
+  # Master instance (its GENORING_HOST is example.org):
+  perl genoring.pl start -network genoring-hub
+  perl genoring.pl attach /srv/genoring/instances/itc
+  perl genoring.pl attach /srv/genoring/instances/abc
+
+  # List managed instances:
+  perl genoring.pl instances
+
+  # Start, get the status of or stop the master instance and all its managed
+  # instances:
+  perl genoring.pl start -managed
+  perl genoring.pl status -managed
+  perl genoring.pl stop -managed
+
+  # Stop serving an instance:
+  perl genoring.pl detach itc
 ```
+The managed instance directory given to "attach" must be an initialized
+GenoRing instance directory (containing a "volumes" sub-directory, a
+"config.yml" file and an "env" directory), so the managed instance must have
+been started at least once. Its project name (used by "detach"), host name
+(GENORING_HOST) and base path (GENORING_BASE_PATH, set with the "-path" flag)
+are read from that directory: run "attach" again after changing them. With the
+"-managed" flag, managed instances are started after the master instance and
+stopped before it.
 Drupal of managed instances is automatically configured to trust the master
 proxy (see DRUPAL_REVERSE_PROXY_ADDRESSES in the genoring module environment).
 If the "ssl" module is enabled on the master instance, HTTPS is also configured
-for managed instances (run "attach" again after enabling the module). The
-master instance can be started before or after its managed instances.
+for managed instances with their own host name (run "attach" again after
+enabling the module), while managed instances served under a base path use the
+master instance HTTPS settings. The master instance can be started before or
+after its managed instances.
+
+**SECURITY WARNING: managed instances served under a base path.** Such a managed
+instance shares the web origin (scheme, host name and port) of the master site:
+the browser does not isolate it from the master site. Drupal keeps separate
+sessions for each site, but any JavaScript served by the managed instance (added
+by one of its administrators or editors, by one of its modules, or through a
+security issue such as a cross-site scripting flaw) runs with the same origin as
+the master site: it can read master site pages and act on the master site on
+behalf of the users logged in there. A compromised or less trusted managed
+instance can therefore compromise the master site and its users. By serving an
+instance under a base path, you accept this risk: only use it for instances
+managed by the same trusted administrators as the master site, otherwise use a
+dedicated host name. Note also that other GenoRing modules (ie. Gigwa, JBrowse,
+BrAPI Mapper) are not adapted to base paths yet and some base paths used by the
+master site (ie. "/core", "/sites", "/user", "/gigwa") are rejected.
 
 For more commands, just run "perl genoring.pl" or "perl genoring.pl man".
 

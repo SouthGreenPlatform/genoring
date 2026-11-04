@@ -58,6 +58,11 @@ For MS-DOS compatibility (Windows).
 
 =back
 
+B<@RESERVED_BASE_PATHS>: (list of strings)
+
+First path segments used by a GenoRing site that can not be used as base path
+of managed instances served under that site (see AttachInstance()).
+
 B<$CONSTRAINT_TYPE_REGEX>: (string)
 
 Regular expression used to match a dependency constraint. One of "REQUIRES",
@@ -187,6 +192,13 @@ Regular expression used to match valid volume names.
 =cut
 
 our $COMPATIBILITY = '';
+# First path segments used by a GenoRing site that can not be used as base path
+# of managed instances served under current site.
+our @RESERVED_BASE_PATHS = qw(
+  admin batch brapi cas contextual core filter genoring gigwa jbrowse jsonapi
+  libraries media modules node profiles rest search sites system taxonomy
+  themes user vendor
+);
 our $CONSTRAINT_TYPE_REGEX = '(REQUIRES|CONFLICTS|BEFORE|AFTER)';
 our $DEBUG = 0;
 our $DEFAULT_ARCHITECTURE = 'linux/amd64';

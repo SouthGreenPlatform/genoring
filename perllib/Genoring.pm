@@ -37,7 +37,7 @@ WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
 GetVolumeMapping IsInstalled ParseNetworkFlag SetNetworks GetServiceNetworkMode
 GetServiceNetworks EnsureNetworks SetExposedPorts GetReverseProxyAddresses
 GetInstanceProxyConfig AttachInstance DetachInstance RefreshManagedInstances
-ListManagedInstances
+ListManagedInstances RunManagedInstances GetBasePath SetBasePath
 
 =head1 DESCRIPTION
 
@@ -81,7 +81,7 @@ GetVolumeMapping IsInstalled WriteBackupManifest ReadBackupManifest
 ValidateBackupManifest ParseNetworkFlag SetNetworks GetServiceNetworkMode
   GetServiceNetworks EnsureNetworks SetExposedPorts GetReverseProxyAddresses
   GetInstanceProxyConfig AttachInstance DetachInstance RefreshManagedInstances
-  ListManagedInstances
+  ListManagedInstances RunManagedInstances GetBasePath SetBasePath
 );
 # Init $NULL.
 $Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';

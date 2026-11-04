@@ -400,6 +400,8 @@ sub StartGenoring {
     # External networks may have been removed since the Docker Compose file
     # generation.
     EnsureNetworks();
+    # Serve the site under its base path if needed.
+    _UpdateBasePathConfig();
     # Not running, start it.
     Run(
       "$Genoring::DOCKER_COMPOSE_COMMAND up -d -y",
@@ -2403,12 +2405,220 @@ sub GetReverseProxyAddresses {
 
 =pod
 
+=head2 _NormalizeBasePath
+
+B<Description>: Validates and normalizes a site base path.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $base_path: (string) (O)
+
+The base path (ie. "/itc", "itc/" or "/a/b/"). Surrounding quotes are removed.
+
+=back
+
+B<Return>: (string)
+
+The normalized base path, with a leading slash and without trailing slash (ie.
+"/itc"), or an empty string for the root path. Dies if the path is invalid.
+
+=cut
+
+sub _NormalizeBasePath {
+  my ($base_path) = @_;
+
+  $base_path //= '';
+  $base_path =~ s/^\s*["']?|["']?\s*$//g;
+  $base_path =~ s~^/+|/+$~~g;
+  if ('' eq $base_path) {
+    return '';
+  }
+  if ($base_path !~ m~^[A-Za-z0-9][A-Za-z0-9._\-]*(?:/[A-Za-z0-9][A-Za-z0-9._\-]*)*$~) {
+    die "ERROR: Invalid base path '$base_path'! It must only contain path segments made of alpha-numeric characters, dots, dashes and underscores and starting with an alpha-numeric character (ie. '/itc').\n";
+  }
+  return "/$base_path";
+}
+
+
+=pod
+
+=head2 GetBasePath
+
+B<Description>: Returns the site base path of an instance (GENORING_BASE_PATH
+environment variable of the genoring module).
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $instance_dir: (string) (O)
+
+The instance directory. Default: current instance.
+
+=back
+
+B<Return>: (string)
+
+The normalized base path (ie. "/itc") or an empty string. An invalid value is
+reported and ignored.
+
+=cut
+
+sub GetBasePath {
+  my ($instance_dir) = @_;
+
+  my $env_file = File::Spec->catfile($instance_dir // '', 'env', 'genoring_genoring.env');
+  if (!defined($instance_dir)) {
+    $env_file = File::Spec->catfile('env', 'genoring_genoring.env');
+  }
+  if (!-r $env_file) {
+    return '';
+  }
+  my $base_path = eval {
+    _NormalizeBasePath(GetEnvVariable($env_file, 'GENORING_BASE_PATH'));
+  };
+  if ($@) {
+    warn "WARNING: $env_file: $@";
+    return '';
+  }
+  return $base_path;
+}
+
+
+=pod
+
+=head2 SetBasePath
+
+B<Description>: Sets the site base path of current instance (GENORING_BASE_PATH
+environment variable of the genoring module).
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $base_path: (string) (R)
+
+The base path (ie. "/itc"). An empty value serves the site at the root of its
+host.
+
+=back
+
+B<Return>: (boolean)
+
+A true value if the base path has been changed, a false value otherwise. Dies if
+the base path is invalid or if the instance environment is not set up yet.
+
+=cut
+
+sub SetBasePath {
+  my ($base_path) = @_;
+
+  $base_path = _NormalizeBasePath($base_path);
+  my $env_file = File::Spec->catfile('env', 'genoring_genoring.env');
+  if (!-r $env_file) {
+    die "ERROR: SetBasePath: GenoRing environment is not set up yet!\n";
+  }
+  if (GetBasePath() eq $base_path) {
+    return 0;
+  }
+  SetEnvVariable($env_file, 'GENORING_BASE_PATH', $base_path);
+  if ($base_path) {
+    print "The site will be served under '$base_path/'.\n";
+  }
+  else {
+    print "The site will be served at the root of its host.\n";
+  }
+  return 1;
+}
+
+
+=pod
+
+=head2 _WriteVolumeFile
+
+B<Description>: Writes the given content to a file of the GenoRing "volumes"
+directory (exposed or not).
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $subpath: (string) (R)
+
+The file sub-path relative to the GenoRing "volumes" directory.
+
+=item $content: (string) (R)
+
+The file content.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub _WriteVolumeFile {
+  my ($subpath, $content) = @_;
+
+  my ($tmp_fh, $tmp_file) = tempfile('genoring-XXXXXX', 'TMPDIR' => 1, 'UNLINK' => 1);
+  binmode($tmp_fh, ':utf8');
+  print {$tmp_fh} $content;
+  close($tmp_fh);
+  chmod(0644, $tmp_file);
+  CopyFiles($tmp_file, $subpath, '', $Genoring::VOLUMES_DIR, 1);
+  unlink($tmp_file);
+}
+
+
+=pod
+
+=head2 _UpdateBasePathConfig
+
+B<Description>: Generates (or removes) the proxy configuration that serves
+current instance under its base path (see GetBasePath()).
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub _UpdateBasePathConfig {
+  my $base_path = GetBasePath();
+  my $config_path = 'proxy/nginx/genoring/base-path.conf';
+  if (!$base_path) {
+    RemoveVolumeFiles($config_path);
+    return;
+  }
+  _WriteVolumeFile(
+    $config_path,
+    _ReadTemplate(
+      File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'nginx', 'base-path.template'),
+      {'BASE_PATH' => $base_path}
+    )
+  );
+  # Check the main proxy config supports base paths.
+  my $main_config = File::Spec->catfile($Genoring::VOLUMES_DIR, 'proxy', 'nginx', 'genoring-fpm.conf');
+  if (open(my $fh, '<:utf8', $main_config)) {
+    my $content = do { local $/; <$fh> };
+    close($fh);
+    if ($content !~ m/\$genoring_base_path/) {
+      warn "WARNING: '$main_config' does not support base paths: Drupal will not generate correct URLs under '$base_path/'. Update it from '$Genoring::MODULES_DIR/genoring/res/nginx/genoring-fpm.conf'.\n";
+    }
+  }
+}
+
+
+=pod
+
 =head2 GetInstanceProxyConfig
 
 B<Description>: Returns the NGINX configuration used by the proxy of current
 (master) instance to serve a managed instance.
 
-B<ArgsCount>: 2-3
+B<ArgsCount>: 2-4
 
 =over 4
 
@@ -2423,7 +2633,14 @@ The managed instance public host name.
 =item $ssl: (boolean) (O)
 
 If true, HTTPS is also configured (requires the "ssl" module and a certificate
-for the host).
+for the host). Not used for managed instances served under a base path as they
+use current site virtual host (and its HTTPS settings).
+
+=item $base_path: (string) (O)
+
+The managed instance base path (ie. "/itc"). If set, the managed instance is
+served under that path of current site virtual host, otherwise it is served
+with its own virtual host.
 
 =back
 
@@ -2434,20 +2651,28 @@ The NGINX configuration.
 =cut
 
 sub GetInstanceProxyConfig {
-  my ($project, $host, $ssl) = @_;
+  my ($project, $host, $ssl, $base_path) = @_;
 
-  my $nginx_port;
-  if (-r 'env/genoring_nginx.env') {
-    $nginx_port = GetEnvVariable('env/genoring_nginx.env', 'NGINX_PORT');
-  }
   my %values = (
     'INSTANCE_PROJECT' => $project,
     'INSTANCE_HOST' => $host,
     'INSTANCE_PROXY' => "$project-proxy",
     'INSTANCE_PORT' => 80,
-    'NGINX_PORT' => ($nginx_port && ($nginx_port =~ m/^\d+$/)) ? $nginx_port : 80,
-    'INSTANCE_SSL' => '',
+    'INSTANCE_BASE_PATH' => $base_path // '',
   );
+  if ($base_path) {
+    return _ReadTemplate(
+      File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'nginx', 'instance-path.template'),
+      \%values
+    );
+  }
+
+  my $nginx_port;
+  if (-r 'env/genoring_nginx.env') {
+    $nginx_port = GetEnvVariable('env/genoring_nginx.env', 'NGINX_PORT');
+  }
+  $values{'NGINX_PORT'} = ($nginx_port && ($nginx_port =~ m/^\d+$/)) ? $nginx_port : 80;
+  $values{'INSTANCE_SSL'} = '';
   if ($ssl) {
     my $ssl_port;
     if (-r 'env/ssl_ssl.env') {
@@ -2510,15 +2735,22 @@ sub _ReadTemplate {
 =head2 _GetInstanceProxyConfigPath
 
 B<Description>: Returns the volume sub-path of the NGINX configuration file of a
-managed instance.
+managed instance. Managed instances with their own virtual host are configured
+in the "includes" directory (HTTP level) while managed instances served under a
+base path are configured in the "genoring" directory (included in current site
+virtual host).
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1-2
 
 =over 4
 
 =item $project: (string) (R)
 
 The managed instance project name.
+
+=item $base_path: (string) (O)
+
+The managed instance base path.
 
 =back
 
@@ -2529,7 +2761,10 @@ The sub-path relative to the GenoRing "volumes" directory.
 =cut
 
 sub _GetInstanceProxyConfigPath {
-  my ($project) = @_;
+  my ($project, $base_path) = @_;
+  if ($base_path) {
+    return "proxy/nginx/genoring/instance-$project.conf";
+  }
   return "proxy/nginx/includes/instance-$project.conf";
 }
 
@@ -2577,7 +2812,7 @@ B<Description>: Generates the proxy configuration of a managed instance and
 reloads the proxy if it is running. If the new configuration is invalid, it is
 removed and the proxy keeps working without it.
 
-B<ArgsCount>: 2
+B<ArgsCount>: 2-3
 
 =over 4
 
@@ -2589,6 +2824,10 @@ The managed instance project name.
 
 The managed instance public host name.
 
+=item $base_path: (string) (O)
+
+The managed instance base path.
+
 =back
 
 B<Return>: (nothing)
@@ -2596,15 +2835,16 @@ B<Return>: (nothing)
 =cut
 
 sub _UpdateInstanceProxy {
-  my ($project, $host) = @_;
+  my ($project, $host, $base_path) = @_;
 
   my $proxy = GetContainerName('genoring-proxy');
   my (undef, $state) = IsContainerRunning($proxy);
   my $running = ($state && ($state =~ m/running/));
 
-  # Check if HTTPS can be configured.
+  # Check if HTTPS can be configured (instances served under a base path use
+  # current site HTTPS settings).
   my $ssl = 0;
-  if (grep { 'ssl' eq $_ } @{GetModules(1)}) {
+  if (!$base_path && (grep { 'ssl' eq $_ } @{GetModules(1)})) {
     if ($running) {
       my $script = File::Spec->catfile($Genoring::MODULES_DIR, 'ssl', 'res', 'instance-certificate.sh');
       my $output = qx($Genoring::DOCKER_COMMAND exec -i -u 0 -e INSTANCE_HOST=$host $proxy sh -s < "$script" 2>&1);
@@ -2620,15 +2860,12 @@ sub _UpdateInstanceProxy {
     }
   }
 
+  # Remove a previous configuration of the other kind (virtual host or path).
+  RemoveVolumeFiles(_GetInstanceProxyConfigPath($project, $base_path ? '' : '/'));
+
   # Write configuration.
-  my ($tmp_fh, $tmp_file) = tempfile('genoring-instance-XXXXXX', 'TMPDIR' => 1, 'UNLINK' => 1);
-  binmode($tmp_fh, ':utf8');
-  print {$tmp_fh} GetInstanceProxyConfig($project, $host, $ssl);
-  close($tmp_fh);
-  chmod(0644, $tmp_file);
-  my $config_path = _GetInstanceProxyConfigPath($project);
-  CopyFiles($tmp_file, $config_path, '', $Genoring::VOLUMES_DIR, 1);
-  unlink($tmp_file);
+  my $config_path = _GetInstanceProxyConfigPath($project, $base_path);
+  _WriteVolumeFile($config_path, GetInstanceProxyConfig($project, $host, $ssl, $base_path));
 
   if ($running) {
     my ($ok, $output) = _ReloadProxy($proxy);
@@ -2647,26 +2884,78 @@ sub _UpdateInstanceProxy {
 
 =pod
 
-=head2 AttachInstance
+=head2 _CheckInstanceDirectory
 
-B<Description>: Serves another GenoRing instance (managed instance) through the
-proxy of current (master) instance, using a dedicated virtual host. The managed
-instance should not expose its ports ("-no-exposed-ports" flag) and its proxy
-must share a Docker network with current instance proxy ("-network" flag).
-Calling it again on an already managed instance updates its configuration.
+B<Description>: Checks the given directory is an initialized GenoRing instance
+directory (ie. it contains a "volumes" sub-directory and a "config.yml" file)
+and returns its absolute path and its config.
 
-B<ArgsCount>: 2
+B<ArgsCount>: 1
 
 =over 4
 
-=item $project: (string) (R)
+=item $path: (string) (R)
 
-The managed instance project name (COMPOSE_PROJECT_NAME).
+The instance directory path (absolute or relative to current directory).
 
-=item $host: (string) (R)
+=back
 
-The managed instance public host name. It should also be the GENORING_HOST of
-the managed instance.
+B<Return>: (list)
+
+The absolute instance directory path and the instance config (hash ref). Dies
+if the directory is not a valid instance directory.
+
+=cut
+
+sub _CheckInstanceDirectory {
+  my ($path) = @_;
+
+  if (!defined($path) || ('' eq $path)) {
+    die "ERROR: Missing instance directory!\n";
+  }
+  my $abs_path = abs_path(File::Spec->rel2abs($path));
+  if (!$abs_path || !-d $abs_path) {
+    die "ERROR: Instance directory '$path' not found!\n";
+  }
+  if (!-d File::Spec->catdir($abs_path, 'volumes')
+    || !-f File::Spec->catfile($abs_path, $Genoring::CONFIG_FILE)
+  ) {
+    die "ERROR: '$abs_path' is not an initialized GenoRing instance directory (missing 'volumes' directory or '$Genoring::CONFIG_FILE' file)! Start the instance at least once first.\n";
+  }
+  my $yaml = ReadYaml(File::Spec->catfile($abs_path, $Genoring::CONFIG_FILE));
+  my $instance_config = ('HASH' eq ref($yaml->[0])) ? $yaml->[0] : {};
+  return ($abs_path, $instance_config);
+}
+
+
+=pod
+
+=head2 AttachInstance
+
+B<Description>: Serves another GenoRing instance (managed instance) through the
+proxy of current (master) instance. The managed instance project name, host
+name (GENORING_HOST) and base path (GENORING_BASE_PATH) are read from its
+directory:
+- without base path, the managed instance is served with its own virtual host
+  (its host must differ from current instance host);
+- with a base path, the managed instance is served under that path of current
+  instance virtual host (its host must be current instance host). WARNING: the
+  managed instance then shares the web origin of current site, which may
+  introduce security issues on current site.
+The managed instance should not expose its ports ("-no-exposed-ports" flag)
+and its proxy must share a Docker network with current instance proxy
+("-network" flag). Calling it again on an already managed instance updates its
+configuration.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $path: (string) (R)
+
+The managed instance directory. It must be an initialized GenoRing instance
+directory. It is also used to manage the instance from current instance (see
+RunManagedInstances()).
 
 =back
 
@@ -2675,59 +2964,118 @@ B<Return>: (nothing)
 =cut
 
 sub AttachInstance {
-  my ($project, $host) = @_;
+  my ($path) = @_;
 
-  if (!$project || ($project !~ m/^[a-z0-9][a-z0-9_\-]*$/)) {
-    die "ERROR: AttachInstance: Invalid or missing instance project name!\n";
+  my ($instance_dir, $instance_config) = eval { _CheckInstanceDirectory($path) };
+  if ($@) {
+    (my $message = $@) =~ s/^ERROR: //;
+    die "ERROR: AttachInstance: $message";
   }
+  my $current_dir = abs_path(getcwd());
+  if ($current_dir && ($instance_dir eq $current_dir)) {
+    die "ERROR: AttachInstance: An instance can not manage itself!\n";
+  }
+  my $project = $instance_config->{'project'};
+  if (!$project) {
+    die "ERROR: AttachInstance: The instance in '$instance_dir' does not specify its project name in its config!\n";
+  }
+  if ($project !~ m/^[a-z0-9][a-z0-9_\-]*$/) {
+    die "ERROR: AttachInstance: Invalid project name '$project' in the config of the instance in '$instance_dir'!\n";
+  }
+  if ($project eq $ENV{'COMPOSE_PROJECT_NAME'}) {
+    die "ERROR: AttachInstance: The instance in '$instance_dir' has the same project name as current instance ('$project')!\n";
+  }
+
+  # Get managed instance host and base path.
+  my $instance_env = File::Spec->catfile($instance_dir, 'env', 'genoring_genoring.env');
+  if (!-r $instance_env) {
+    die "ERROR: AttachInstance: Missing environment file '$instance_env'!\n";
+  }
+  my $host = GetEnvVariable($instance_env, 'GENORING_HOST') // '';
+  $host =~ s/^\s*["']?|["']?\s*$//g;
   if (!$host
     || ($host !~ m/^[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$/)
   ) {
-    die "ERROR: AttachInstance: Invalid or missing instance host name!\n";
+    die "ERROR: AttachInstance: Invalid or missing GENORING_HOST in '$instance_env'!\n";
   }
-  if ($project eq $ENV{'COMPOSE_PROJECT_NAME'}) {
-    die "ERROR: AttachInstance: An instance can not manage itself!\n";
+  my $base_path = eval {
+    _NormalizeBasePath(GetEnvVariable($instance_env, 'GENORING_BASE_PATH'));
+  };
+  if ($@) {
+    (my $message = $@) =~ s/^ERROR: //;
+    die "ERROR: AttachInstance: $instance_env: $message";
   }
+
   my $config = GetConfig();
   if ($config->{'no_exposed_ports'}) {
     die "ERROR: AttachInstance: Current instance does not expose its ports and can not serve other instances!\n";
   }
-  if ($ENV{'GENORING_HOST'} && (lc($host) eq lc($ENV{'GENORING_HOST'}))) {
-    die "ERROR: AttachInstance: The host '$host' is already used by current instance!\n";
-  }
+  my $current_host = lc($ENV{'GENORING_HOST'} || '');
   my $instances = $config->{'managed_instances'} || {};
+  if ($base_path) {
+    if (lc($host) ne $current_host) {
+      die "ERROR: AttachInstance: Instance '$project' is served under the base path '$base_path' but its host '$host' is not current instance host '$current_host'! Set its GENORING_HOST to '$current_host' or remove its base path.\n";
+    }
+    if (GetBasePath()) {
+      die "ERROR: AttachInstance: Current instance is itself served under a base path and can not serve other instances under a base path!\n";
+    }
+    # Check reserved paths of current site.
+    my ($first_segment) = ($base_path =~ m~^/([^/]+)~);
+    if (grep { lc($first_segment) eq $_ } @Genoring::RESERVED_BASE_PATHS) {
+      die "ERROR: AttachInstance: The base path '$base_path' conflicts with a path used by current site ('/$first_segment')!\n";
+    }
+  }
+  elsif (lc($host) eq $current_host) {
+    die "ERROR: AttachInstance: The host '$host' of instance '$project' is already used by current instance! Use another host name or set a base path on instance '$project' (see '-path' flag).\n";
+  }
   foreach my $other (keys(%$instances)) {
-    if (($other ne $project) && (lc($instances->{$other}->{'host'} || '') eq lc($host))) {
+    next if ($other eq $project);
+    my $other_path = $instances->{$other}->{'base_path'} || '';
+    if (!$base_path && !$other_path
+      && (lc($instances->{$other}->{'host'} || '') eq lc($host))
+    ) {
       die "ERROR: AttachInstance: The host '$host' is already used by managed instance '$other'!\n";
     }
-  }
-
-  # Check the managed instance proxy is reachable.
-  my $proxy = GetContainerName('genoring-proxy');
-  my $instance_proxy = "$project-proxy";
-  my (undef, $instance_state) = IsContainerRunning($instance_proxy);
-  if ($instance_state && ($instance_state =~ m/running/)) {
-    my $get_networks = sub {
-      my ($container) = @_;
-      my $json = qx($Genoring::DOCKER_COMMAND inspect --format "{{json .NetworkSettings.Networks}}" $container 2>$Genoring::NULL);
-      my $networks = eval { decode_json($json) };
-      return ('HASH' eq ref($networks)) ? [keys(%$networks)] : [];
-    };
-    my %proxy_networks = map { $_ => 1 } @{$get_networks->($proxy)};
-    my @shared = grep { $proxy_networks{$_} } @{$get_networks->($instance_proxy)};
-    if (%proxy_networks && !@shared) {
-      warn "WARNING: '$instance_proxy' does not share any Docker network with '$proxy'. Use the same '-network' flag on both instances.\n";
+    if ($base_path && $other_path
+      && (($base_path eq $other_path)
+        || (0 == index("$base_path/", "$other_path/"))
+        || (0 == index("$other_path/", "$base_path/")))
+    ) {
+      die "ERROR: AttachInstance: The base path '$base_path' overlaps the base path '$other_path' of managed instance '$other'!\n";
+    }
+    if (($instances->{$other}->{'path'} || '') eq $instance_dir) {
+      die "ERROR: AttachInstance: The directory '$instance_dir' is already used by managed instance '$other'!\n";
     }
   }
-  else {
-    warn "WARNING: The proxy of instance '$project' ('$instance_proxy') is not running. It will be reachable once started.\n";
+
+  # Check the managed instance settings.
+  if (!$instance_config->{'no_exposed_ports'}) {
+    warn "WARNING: Instance '$project' exposes its ports. Start it with the '-no-exposed-ports' flag to avoid port conflicts.\n";
+  }
+  my %networks = map { $_ => 1 } keys(%{$config->{'networks'} || {}});
+  my @shared = grep { $networks{$_} } keys(%{$instance_config->{'networks'} || {}});
+  if (!@shared) {
+    warn "WARNING: Instance '$project' does not share any Docker network with current instance. Use the same '-network' flag on both instances.\n";
+  }
+  my (undef, $instance_state) = IsContainerRunning("$project-proxy");
+  if (!$instance_state || ($instance_state !~ m/running/)) {
+    warn "WARNING: The proxy of instance '$project' is not running. It will be reachable once started.\n";
+  }
+  if ($base_path) {
+    warn "SECURITY WARNING: Instance '$project' is served under '$base_path/' of current site and shares its web origin: an administrator, a module or a security issue of instance '$project' may affect current site and its users (see README.md).\n";
   }
 
-  _UpdateInstanceProxy($project, $host);
+  _UpdateInstanceProxy($project, $host, $base_path);
   $config->{'managed_instances'} ||= {};
-  $config->{'managed_instances'}->{$project} = {'host' => $host};
+  $config->{'managed_instances'}->{$project} = {
+    'host' => $host,
+    'path' => $instance_dir,
+  };
+  if ($base_path) {
+    $config->{'managed_instances'}->{$project}->{'base_path'} = $base_path;
+  }
   SaveConfig();
-  print "Instance '$project' is served on host '$host'.\n";
+  print "Instance '$project' ($instance_dir) is served on '$host$base_path/'.\n";
 }
 
 
@@ -2759,7 +3107,11 @@ sub DetachInstance {
   if (!$project || !exists($config->{'managed_instances'}->{$project})) {
     die "ERROR: DetachInstance: '" . ($project // '') . "' is not a managed instance!\n";
   }
-  RemoveVolumeFiles(_GetInstanceProxyConfigPath($project));
+  # Remove both kinds of configuration (virtual host and base path).
+  RemoveVolumeFiles([
+    _GetInstanceProxyConfigPath($project),
+    _GetInstanceProxyConfigPath($project, '/'),
+  ]);
   delete($config->{'managed_instances'}->{$project});
   if (!%{$config->{'managed_instances'}}) {
     delete($config->{'managed_instances'});
@@ -2795,7 +3147,11 @@ sub RefreshManagedInstances {
   my $instances = GetConfig()->{'managed_instances'} || {};
   foreach my $project (sort keys(%$instances)) {
     eval {
-      _UpdateInstanceProxy($project, $instances->{$project}->{'host'});
+      _UpdateInstanceProxy(
+        $project,
+        $instances->{$project}->{'host'},
+        $instances->{$project}->{'base_path'}
+      );
     };
     if ($@) {
       warn $@;
@@ -2827,13 +3183,137 @@ sub ListManagedInstances {
   foreach my $project (sort keys(%$instances)) {
     my (undef, $state) = IsContainerRunning("$project-proxy");
     printf(
-      "  - %s: http://%s%s/ (%s)\n",
+      "  - %s: http://%s%s%s/ (%s) in %s\n",
       $project,
       $instances->{$project}->{'host'},
       $port,
-      $state || 'not running'
+      $instances->{$project}->{'base_path'} || '',
+      $state || 'not running',
+      $instances->{$project}->{'path'} || "unknown directory, run 'attach' again"
     );
   }
+}
+
+
+=pod
+
+=head2 _RunInstanceCommand
+
+B<Description>: Runs genoring.pl with the given arguments for another instance,
+from its directory and with an environment cleared from current instance
+specific variables.
+
+B<ArgsCount>: 2-n
+
+=over 4
+
+=item $project: (string) (R)
+
+The instance project name.
+
+=item $path: (string) (R)
+
+The instance directory.
+
+=item @args: (list of strings) (O)
+
+The genoring.pl arguments (command and flags).
+
+=back
+
+B<Return>: (boolean)
+
+A true value if the command succeeded, a false value otherwise.
+
+=cut
+
+sub _RunInstanceCommand {
+  my ($project, $path, @args) = @_;
+
+  my $current_dir = getcwd();
+  if (!chdir($path)) {
+    warn "WARNING: Unable to enter instance '$project' directory '$path': $!\n";
+    return 0;
+  }
+  my $status;
+  {
+    # Remove current instance specific environment variables.
+    local %ENV = %ENV;
+    delete(@ENV{qw(
+      COMPOSE_FILE COMPOSE_PROFILES GENORING_HOST GENORING_PORT
+      GENORING_VOLUMES_DIR GENORING_NO_EXPOSED_VOLUMES GENORING_UID GENORING_GID
+      GENORING_REVERSE_PROXY_ADDRESSES GENORING_RUNNING
+    )});
+    $ENV{'PWD'} = $path;
+    $ENV{'COMPOSE_PROJECT_NAME'} = $project;
+    $status = system(
+      $^X,
+      File::Spec->catfile($Genoring::GENORING_DIR, 'genoring.pl'),
+      @args
+    );
+  }
+  chdir($current_dir);
+  return (0 == $status);
+}
+
+
+=pod
+
+=head2 RunManagedInstances
+
+B<Description>: Runs a genoring.pl command on all the instances managed by
+current instance. Instances are processed by project name order and a failure
+on one instance does not prevent processing the others.
+
+B<ArgsCount>: 1-n
+
+=over 4
+
+=item $command: (string) (R)
+
+The genoring.pl command to run (ie. 'start', 'stop', 'status', 'online',
+'offline' or 'backend').
+
+=item @flags: (list of strings) (O)
+
+Additional genoring.pl flags to pass (ie. '-yes').
+
+=back
+
+B<Return>: (integer)
+
+The number of instances on which the command failed.
+
+=cut
+
+sub RunManagedInstances {
+  my ($command, @flags) = @_;
+
+  my $instances = GetConfig()->{'managed_instances'} || {};
+  if (!%$instances) {
+    print "No managed instance.\n";
+    return 0;
+  }
+  my $failures = 0;
+  foreach my $project (sort keys(%$instances)) {
+    my $path = $instances->{$project}->{'path'};
+    print "\n=== Managed instance '$project' ($command) ===\n";
+    if (!$path) {
+      warn "WARNING: Unknown directory for managed instance '$project'. Run the 'attach' command again with its directory. Skipped.\n";
+      ++$failures;
+      next;
+    }
+    if (!eval { _CheckInstanceDirectory($path); 1; }) {
+      warn "WARNING: Managed instance '$project': $@Skipped.\n";
+      ++$failures;
+      next;
+    }
+    if (!_RunInstanceCommand($project, $path, $command, @flags)) {
+      warn "WARNING: Command '$command' failed on managed instance '$project'.\n";
+      ++$failures;
+    }
+  }
+  return $failures;
 }
 
 
