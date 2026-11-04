@@ -4781,14 +4781,17 @@ sub UpgradeFramework {
   if (IsGitAvailable()) {
     # Use git.
     eval {
-      Run("git checkout --dry-run $new_version", '', 1);
+      # Make sure the target version exists and no local changes would be
+      # overwritten or prevent the checkout.
+      Run("git rev-parse --verify --quiet \"$new_version^{commit}\"", "Unknown version '$new_version'.", 1);
+      Run("git diff --quiet HEAD", "Local modifications prevent the upgrade.", 1);
       Run("git checkout $new_version", '', 1);
       # @todo Check for issues (conflicts, checkout failure, etc.).
     };
     if ($@) {
         # In case of failure, avoid upgrade hooks.
       $run_hooks = 0;
-      warn "WARNING: Failed to upgrade to $new_version.\n";
+      warn "WARNING: Failed to upgrade to $new_version.\n$@";
     }
   }
   else {
