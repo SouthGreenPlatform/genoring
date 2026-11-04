@@ -9035,6 +9035,7 @@ sub GetProfile {
       GetEnvVariable('env/genoring_genoring.env', 'GENORING_ENVIRONMENT')
       || 'dev';
   }
+  $site_env =~ s/^\s*["']\s*|\s*['"]\s*$//g;
   if ($site_env !~ m/^(?:dev|staging|prod|backend)$/) {
     die "ERROR: GetProfile: Invalid site environment : '$site_env' in '$Genoring::MODULES_DIR/genoring/env/genoring.env'! Valid profile should be one of 'dev', 'staging', 'prod' or 'backend'.\n";
   }
