@@ -19,6 +19,7 @@ genoring.pl - Manages GenoRing platform.
   | enable <MODULE>... | disable <MODULE> | uninstall <MODULE> [-preserve-env]
   | enablealt <MODULE> <SERVICE> | disablealt <MODULE> <SERVICE>
   | toexternal <SERVICE> <IP> | togenoring <SERVICE> [ALTERNATIVE]
+  | attach <PROJECT> <HOST> | detach <PROJECT> | instances
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | clearcache | build <MODULE> <SERVICE> [-no-cache]
   | shell [SERVICE] [-cmd=<COMMAND>] ]
@@ -28,6 +29,7 @@ genoring.pl - Manages GenoRing platform.
   | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-health-timeout[=DELAYSEC]]
   [-network=<NETWORK_NAME>[:[SERVICE_LIST]]]...
+  [-no-exposed-ports | -exposed-ports]
   [-yes|-no] [-verbose] [-quiet-build] [-skip-checks]
 
 =head2 Example
@@ -121,7 +123,9 @@ Prints the manual page and exits.
 =head4 Description
 
 Starts GenoRing. For the first start, GenoRing is installed and initialized.
-The "-network" flag can be used to manage the Docker networks of the instance.
+The "-network" flag can be used to manage the Docker networks of the instance
+and the "-no-exposed-ports" and "-exposed-ports" flags to manage port
+exposition.
 
 
 =head3 stop
@@ -273,7 +277,9 @@ If '-default' flag is used, all current or default settings are used. If
 '-minimal' flag is used, only non-optional environment values will be asked. If
 '-reset' flag is used, current environment files are removed and need to be
 fully regenerated.
-The "-network" flag can be used to manage the Docker networks of the instance.
+The "-network" flag can be used to manage the Docker networks of the instance
+and the "-no-exposed-ports" and "-exposed-ports" flags to manage port
+exposition.
 
 
 =head3 reset
@@ -369,6 +375,54 @@ Turns a Docker service SERVICE into a local service provided by the given IP.
 
 Puts back the given Docker service that was replaced by a local service. If
 ALTERNATIVE is specified, the given service alternative will be used.
+
+
+=head3 attach
+
+=head4 Syntax
+
+  perl genoring.pl attach <PROJECT> <HOST>
+
+=head4 Description
+
+Serves another GenoRing instance (managed instance) through the proxy of current
+(master) instance. PROJECT is the managed instance project name
+(COMPOSE_PROJECT_NAME) and HOST is the public host name used to reach it (it
+should be the GENORING_HOST of the managed instance). The managed instance
+should be started with the "-no-exposed-ports" flag and both instances must
+share a Docker network (see "-network" flag). If the "ssl" module is enabled on
+current instance, HTTPS is also configured (a self-signed certificate is
+generated for HOST if missing). Running the command again updates the managed
+instance configuration.
+
+Ex.:
+  # On the managed instance:
+  COMPOSE_PROJECT_NAME=slave1 perl genoring.pl start -network genoring-hub -no-exposed-ports
+  # On the master instance:
+  perl genoring.pl start -network genoring-hub
+  perl genoring.pl attach slave1 slave1.example.org
+
+
+=head3 detach
+
+=head4 Syntax
+
+  perl genoring.pl detach <PROJECT>
+
+=head4 Description
+
+Stops serving the given managed instance through the proxy of current instance.
+
+
+=head3 instances
+
+=head4 Syntax
+
+  perl genoring.pl instances
+
+=head4 Description
+
+Lists the instances managed by current instance with their URL and state.
 
 
 =head3 backup
@@ -562,6 +616,19 @@ Forces Docker to use exposed named (shared) volumes. Must be used at
 installation time to be stored in config and used every time.
 
 
+=head3 -exposed-ports
+
+=head4 Syntax
+
+  ... -exposed-ports ...
+
+=head4 Description
+
+Exposes service ports on the host again (default behavior) when they have been
+disabled using "-no-exposed-ports". Only supported by "start" and "setup"
+commands.
+
+
 =head3 -quiet-build
 
 =head4 Syntax
@@ -635,6 +702,21 @@ exclusive flags.
 
 Disables the use of automatic backups when performing site operations such as
 modifying modules.
+
+
+=head3 -no-exposed-ports
+
+=head4 Syntax
+
+  ... -no-exposed-ports ...
+
+=head4 Description
+
+Removes service ports exposed on the host (including the proxy HTTP and HTTPS
+ports). The setting is saved in the instance config. The instance can then only
+be reached through the proxy of a master GenoRing instance (see "attach"
+command) and Drupal is configured to trust that reverse proxy. Only supported
+by "start" and "setup" commands.
 
 
 =head3 -no-exposed-volumes
@@ -760,7 +842,7 @@ while (defined($arg)) {
   if ($arg =~ m/^--?([\w\-]+)(?:=(.*))?$/i) {
     my $flag = $1;
     # Check flag exists.
-    if ($flag !~ m/^(?:all|arm|skip-checks|cmd|debug|default|delete-containers|exposed-volumes|f|help|quiet-build|latest|local|man|minimal|network|no|no-backups?|no-cache|no-exposed-volumes|platform|port|preserve-env|reset|verbose|health-timeout|yes)$/) {
+    if ($flag !~ m/^(?:all|arm|skip-checks|cmd|debug|default|delete-containers|exposed-ports|exposed-volumes|f|help|quiet-build|latest|local|man|minimal|network|no|no-backups?|no-cache|no-exposed-ports|no-exposed-volumes|platform|port|preserve-env|reset|verbose|health-timeout|yes)$/) {
       warn "ERROR: Invalid flag '-$flag'.\n\n";
       pod2usage('-verbose' => 0, '-exitval' => 1);
     }
@@ -769,13 +851,13 @@ while (defined($arg)) {
     $g_flags->{$flag} = defined($2) ? $2 : 1;
     # Check flags that require a value.
     if (!defined($2)
-      && ($flag =~ m/arm|cmd|platform|port|health-timeout|network/i)
+      && ($flag =~ m/^(?:arm|cmd|platform|port|health-timeout|network)$/i)
     ) {
       # If no value was provided using the "=" syntax, try to use next argument.
       if (scalar(@argv) && ($argv[0] !~ m/^--?[a-z]/i)) {
         $g_flags->{$flag} = shift(@argv);
       }
-      elsif ($flag =~ m/cmd|platform|port|network/i) {
+      elsif ($flag =~ m/^(?:cmd|platform|port|network)$/i) {
         warn "ERROR: Invalid flag syntax for flag '-$flag'.\n\n";
         pod2usage('-verbose' => 0, '-exitval' => 1);
       }
@@ -934,22 +1016,34 @@ if (!$g_flags->{'health-timeout'} || ($g_flags->{'health-timeout'} !~ m/^\d+/)) 
   $g_flags->{'health-timeout'} = $Genoring::STATE_MAX_TRIES;
 }
 
-# Update instance Docker networks.
-if ($g_flags->{'network'}) {
+# Update instance Docker networks and port exposition.
+if ($g_flags->{'network'}
+  || exists($g_flags->{'no-exposed-ports'})
+  || exists($g_flags->{'exposed-ports'})
+) {
   if ($command !~ m/^(?:start|online|offline|backend|setup)$/i) {
-    warn "WARNING: The '-network' flag is only supported by 'start' and 'setup' commands. Ignored.\n";
+    warn "WARNING: The '-network', '-no-exposed-ports' and '-exposed-ports' flags are only supported by 'start' and 'setup' commands. Ignored.\n";
   }
-  elsif (SetNetworks(@{$g_flags->{'network'}})
-    && IsInstalled()
-    && ($command !~ m/^setup$/i)
-  ) {
-    # The "setup" command and the first start regenerate the Docker Compose
-    # file anyway.
-    print "Updating Docker Compose file with network changes...\n";
-    GenerateDockerComposeFile();
-    my (undef, $state) = IsContainerRunning($ENV{'COMPOSE_PROJECT_NAME'});
-    if ($state && ($state =~ m/running/)) {
-      print "NOTE: GenoRing is already running. Network changes will only be applied once GenoRing is restarted (stop and start).\n";
+  else {
+    if (exists($g_flags->{'no-exposed-ports'}) && exists($g_flags->{'exposed-ports'})) {
+      die "ERROR: '-no-exposed-ports' and '-exposed-ports' flags are mutually exclusive!\n";
+    }
+    my $changed = 0;
+    if (exists($g_flags->{'no-exposed-ports'}) || exists($g_flags->{'exposed-ports'})) {
+      $changed = SetExposedPorts(exists($g_flags->{'exposed-ports'}));
+    }
+    if ($g_flags->{'network'}) {
+      $changed = SetNetworks(@{$g_flags->{'network'}}) || $changed;
+    }
+    if ($changed && IsInstalled() && ($command !~ m/^setup$/i)) {
+      # The "setup" command and the first start regenerate the Docker Compose
+      # file anyway.
+      print "Updating Docker Compose file...\n";
+      GenerateDockerComposeFile();
+      my (undef, $state) = IsContainerRunning($ENV{'COMPOSE_PROJECT_NAME'});
+      if ($state && ($state =~ m/running/)) {
+        print "NOTE: GenoRing is already running. Changes will only be applied once GenoRing is restarted (stop and start).\n";
+      }
     }
   }
 }
@@ -993,7 +1087,15 @@ if ($command =~ m/^(?:start|online|offline|backend)$/i) {
     die $@ . "\nIt might be possible GenoRing needs more time to get ready. You may check GenoRing logs using 'perl genoring.pl logs -f' to watch for errors.";
   }
   print "...GenoRing is ready to accept client connections.\n";
-  print "\n  --> http://" . $ENV{'GENORING_HOST'} . ":" . $ENV{'GENORING_PORT'} . "/\n";
+  if (GetConfig()->{'no_exposed_ports'}) {
+    print "\n  --> No port exposed: this instance is only reachable through the proxy of a master GenoRing instance (see 'attach' command) using the host '" . $ENV{'GENORING_HOST'} . "'.\n";
+  }
+  else {
+    print "\n  --> http://" . $ENV{'GENORING_HOST'} . ":" . $ENV{'GENORING_PORT'} . "/\n";
+    if (GetConfig()->{'managed_instances'}) {
+      ListManagedInstances();
+    }
+  }
 }
 elsif ($command =~ m/^stop$/i) {
   # Check if installed.
@@ -1124,6 +1226,20 @@ elsif ($command =~ m/^(?:toexternal|tolocal)$/i) {
 elsif ($command =~ m/^(?:togenoring|todocker)$/i) {
   ToGenoringService(@arguments);
 }
+elsif ($command =~ m/^attach$/i) {
+  # Check if installed.
+  if (!IsInstalled()) {
+    warn "GenoRing needs to be setup first.\n";
+    exit(1);
+  }
+  AttachInstance(@arguments);
+}
+elsif ($command =~ m/^detach$/i) {
+  DetachInstance(@arguments);
+}
+elsif ($command =~ m/^instances$/i) {
+  ListManagedInstances();
+}
 elsif ($command =~ m/^shell$/i) {
   RunShell(@arguments);
 }
@@ -1137,7 +1253,7 @@ elsif ($command =~ m/^containerhooks$/i) {
   ApplyContainerHooks(@arguments);
 }
 elsif ($command =~ m/^exportvolume$/i) {
-  exportvolumeume(@arguments);
+  ExportVolume(@arguments);
 }
 elsif ($command =~ m/^importvolume$/i) {
   ImportIntoVolume(@arguments);

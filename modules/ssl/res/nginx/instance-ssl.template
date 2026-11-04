@@ -1,0 +1,4 @@
+  listen ${SSL_PORT} ssl;
+
+  ssl_certificate     /etc/ssl/certs/${INSTANCE_HOST}.crt;
+  ssl_certificate_key /etc/ssl/private/${INSTANCE_HOST}.key;

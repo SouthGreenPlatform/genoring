@@ -348,6 +348,26 @@ networks are created automatically:
 ```
 The flag can be used multiple times to manage several networks.
 
+To avoid port conflicts between instances, a "master" instance can serve other
+("managed") instances through its own proxy, using one virtual host per managed
+instance. Managed instances do not expose any port on the host and their proxy
+must share a Docker network with the master instance proxy:
+```
+  # Managed instance (its GENORING_HOST should be slave1.example.org):
+  # COMPOSE_PROJECT_NAME=slave1 perl genoring.pl start -network genoring-hub -no-exposed-ports
+  # Master instance:
+  # perl genoring.pl start -network genoring-hub
+  # perl genoring.pl attach slave1 slave1.example.org
+  # List managed instances or stop serving one:
+  # perl genoring.pl instances
+  # perl genoring.pl detach slave1
+```
+Drupal of managed instances is automatically configured to trust the master
+proxy (see DRUPAL_REVERSE_PROXY_ADDRESSES in the genoring module environment).
+If the "ssl" module is enabled on the master instance, HTTPS is also configured
+for managed instances (run "attach" again after enabling the module). The
+master instance can be started before or after its managed instances.
+
 For more commands, just run "perl genoring.pl" or "perl genoring.pl man".
 
 

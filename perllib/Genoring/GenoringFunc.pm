@@ -414,6 +414,8 @@ sub StartGenoring {
     warn "$@\nWARNING: GenoRing does not seem to have been initialized in allowed time. Applying container hooks may failed...\n";
   }
   if (!$mode || ($mode eq 'online')) {
+    # Provide reverse proxy addresses to the online hooks.
+    $ENV{'GENORING_REVERSE_PROXY_ADDRESSES'} = GetReverseProxyAddresses();
     ApplyContainerHooks('online');
   }
   elsif ($mode eq 'backend') {
@@ -2252,14 +2254,8 @@ B<Return>: (nothing)
 sub EnsureNetworks {
   my (@networks) = @_;
 
-  if (!@networks && (-f $Genoring::DOCKER_COMPOSE_FILE)) {
-    my $yaml = ReadYaml($Genoring::DOCKER_COMPOSE_FILE);
-    my $compose_networks = $yaml->[0]->{'networks'} || {};
-    foreach my $network (sort keys(%$compose_networks)) {
-      next if (('HASH' ne ref($compose_networks->{$network}))
-        || !$compose_networks->{$network}->{'external'});
-      push(@networks, $compose_networks->{$network}->{'name'} || $network);
-    }
+  if (!@networks) {
+    @networks = @{_GetComposeExternalNetworks()};
   }
 
   foreach my $network (@networks) {
@@ -2273,6 +2269,570 @@ sub EnsureNetworks {
         $g_debug || $g_flags->{'verbose'}
       );
     }
+  }
+}
+
+
+=pod
+
+=head2 _GetComposeExternalNetworks
+
+B<Description>: Returns the external Docker networks declared in the Docker
+Compose file.
+
+B<ArgsCount>: 0
+
+B<Return>: (array ref)
+
+The sorted list of Docker network names.
+
+=cut
+
+sub _GetComposeExternalNetworks {
+  my @networks;
+  if (-f $Genoring::DOCKER_COMPOSE_FILE) {
+    my $yaml = ReadYaml($Genoring::DOCKER_COMPOSE_FILE);
+    my $compose_networks = $yaml->[0]->{'networks'} || {};
+    foreach my $network (sort keys(%$compose_networks)) {
+      next if (('HASH' ne ref($compose_networks->{$network}))
+        || !$compose_networks->{$network}->{'external'});
+      push(@networks, $compose_networks->{$network}->{'name'} || $network);
+    }
+  }
+  return \@networks;
+}
+
+
+=pod
+
+=head2 SetExposedPorts
+
+B<Description>: Enables or disables the exposition of service ports on the host
+(instance config "no_exposed_ports") and saves the config if needed. An instance
+without exposed ports can only be reached through the proxy of another GenoRing
+instance (see AttachInstance()).
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $expose: (boolean) (R)
+
+If true, service ports are exposed (default behavior), otherwise they are not.
+
+=back
+
+B<Return>: (boolean)
+
+A true value if the config has been changed, a false value otherwise.
+
+=cut
+
+sub SetExposedPorts {
+  my ($expose) = @_;
+
+  my $config = GetConfig();
+  my $no_exposed_ports = $expose ? '' : 1;
+  if (($config->{'no_exposed_ports'} ? 1 : '') eq $no_exposed_ports) {
+    return 0;
+  }
+  if ($no_exposed_ports) {
+    $config->{'no_exposed_ports'} = 1;
+    print "Service ports will not be exposed on the host anymore.\n";
+  }
+  else {
+    delete($config->{'no_exposed_ports'});
+    print "Service ports will be exposed on the host.\n";
+  }
+  SaveConfig();
+  return 1;
+}
+
+
+=pod
+
+=head2 GetReverseProxyAddresses
+
+B<Description>: Returns the addresses of the reverse proxies Drupal must trust.
+The "DRUPAL_REVERSE_PROXY_ADDRESSES" environment variable of the genoring module
+is used if set. Otherwise, for instances without exposed ports, the subnets of
+the additional (external) Docker networks of the instance are used.
+
+B<ArgsCount>: 0
+
+B<Return>: (string)
+
+A comma-separated list of IP addresses or subnets (CIDR notation). An empty
+string means Drupal is not behind a reverse proxy.
+
+=cut
+
+sub GetReverseProxyAddresses {
+  my $addresses;
+  if (-r 'env/genoring_genoring.env') {
+    $addresses = GetEnvVariable('env/genoring_genoring.env', 'DRUPAL_REVERSE_PROXY_ADDRESSES');
+  }
+  if (defined($addresses)) {
+    $addresses =~ s/^\s*["']?|["']?\s*$//g;
+  }
+  if (defined($addresses) && ('' ne $addresses)) {
+    if ($addresses !~ m/^[0-9a-fA-F:.\/]+(?:\s*,\s*[0-9a-fA-F:.\/]+)*$/) {
+      warn "WARNING: Invalid DRUPAL_REVERSE_PROXY_ADDRESSES value '$addresses'. Ignored.\n";
+      return '';
+    }
+    $addresses =~ s/\s+//g;
+    return $addresses;
+  }
+
+  my $config = GetConfig();
+  if (!$config->{'no_exposed_ports'}) {
+    return '';
+  }
+  my @subnets;
+  foreach my $network (@{_GetComposeExternalNetworks()}) {
+    my $output = qx($Genoring::DOCKER_COMMAND network inspect --format "{{range .IPAM.Config}}{{.Subnet}} {{end}}" $network 2>$Genoring::NULL);
+    if ($?) {
+      warn "WARNING: Failed to get the subnet of Docker network '$network'.\n";
+      next;
+    }
+    push(@subnets, grep { m/^[0-9a-fA-F:.\/]+$/ } split(/\s+/, $output));
+  }
+  return join(',', @subnets);
+}
+
+
+=pod
+
+=head2 GetInstanceProxyConfig
+
+B<Description>: Returns the NGINX configuration used by the proxy of current
+(master) instance to serve a managed instance.
+
+B<ArgsCount>: 2-3
+
+=over 4
+
+=item $project: (string) (R)
+
+The managed instance project name (COMPOSE_PROJECT_NAME).
+
+=item $host: (string) (R)
+
+The managed instance public host name.
+
+=item $ssl: (boolean) (O)
+
+If true, HTTPS is also configured (requires the "ssl" module and a certificate
+for the host).
+
+=back
+
+B<Return>: (string)
+
+The NGINX configuration.
+
+=cut
+
+sub GetInstanceProxyConfig {
+  my ($project, $host, $ssl) = @_;
+
+  my $nginx_port;
+  if (-r 'env/genoring_nginx.env') {
+    $nginx_port = GetEnvVariable('env/genoring_nginx.env', 'NGINX_PORT');
+  }
+  my %values = (
+    'INSTANCE_PROJECT' => $project,
+    'INSTANCE_HOST' => $host,
+    'INSTANCE_PROXY' => "$project-proxy",
+    'INSTANCE_PORT' => 80,
+    'NGINX_PORT' => ($nginx_port && ($nginx_port =~ m/^\d+$/)) ? $nginx_port : 80,
+    'INSTANCE_SSL' => '',
+  );
+  if ($ssl) {
+    my $ssl_port;
+    if (-r 'env/ssl_ssl.env') {
+      $ssl_port = GetEnvVariable('env/ssl_ssl.env', 'SSL_PORT');
+    }
+    $values{'SSL_PORT'} = ($ssl_port && ($ssl_port =~ m/^\d+$/)) ? $ssl_port : 443;
+    $values{'INSTANCE_SSL'} = _ReadTemplate(
+      File::Spec->catfile($Genoring::MODULES_DIR, 'ssl', 'res', 'nginx', 'instance-ssl.template'),
+      \%values
+    );
+  }
+  return _ReadTemplate(
+    File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'nginx', 'instance.template'),
+    \%values
+  );
+}
+
+
+=pod
+
+=head2 _ReadTemplate
+
+B<Description>: Reads a template file and replaces the given "${NAME}"
+placeholders. Other placeholders are left unchanged.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $template: (string) (R)
+
+The template file path.
+
+=item $values: (hash ref) (R)
+
+The placeholder values keyed by placeholder names.
+
+=back
+
+B<Return>: (string)
+
+The processed template content.
+
+=cut
+
+sub _ReadTemplate {
+  my ($template, $values) = @_;
+
+  open(my $fh, '<:utf8', $template)
+    or die "ERROR: _ReadTemplate: Failed to read template '$template'!\n$!\n";
+  my $content = do { local $/; <$fh> };
+  close($fh);
+  $content =~ s/\$\{(\w+)\}/exists($values->{$1}) ? $values->{$1} : "\${$1}"/ge;
+  return $content;
+}
+
+
+=pod
+
+=head2 _GetInstanceProxyConfigPath
+
+B<Description>: Returns the volume sub-path of the NGINX configuration file of a
+managed instance.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $project: (string) (R)
+
+The managed instance project name.
+
+=back
+
+B<Return>: (string)
+
+The sub-path relative to the GenoRing "volumes" directory.
+
+=cut
+
+sub _GetInstanceProxyConfigPath {
+  my ($project) = @_;
+  return "proxy/nginx/includes/instance-$project.conf";
+}
+
+
+=pod
+
+=head2 _ReloadProxy
+
+B<Description>: Checks the NGINX configuration of the running proxy and reloads
+it.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $container: (string) (R)
+
+The proxy container name.
+
+=back
+
+B<Return>: (list)
+
+A true value on success and the NGINX output.
+
+=cut
+
+sub _ReloadProxy {
+  my ($container) = @_;
+
+  my $output = qx($Genoring::DOCKER_COMMAND exec $container nginx -t 2>&1);
+  if ($?) {
+    return (0, $output);
+  }
+  $output = qx($Genoring::DOCKER_COMMAND exec $container nginx -s reload 2>&1);
+  return (!$?, $output);
+}
+
+
+=pod
+
+=head2 _UpdateInstanceProxy
+
+B<Description>: Generates the proxy configuration of a managed instance and
+reloads the proxy if it is running. If the new configuration is invalid, it is
+removed and the proxy keeps working without it.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $project: (string) (R)
+
+The managed instance project name.
+
+=item $host: (string) (R)
+
+The managed instance public host name.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub _UpdateInstanceProxy {
+  my ($project, $host) = @_;
+
+  my $proxy = GetContainerName('genoring-proxy');
+  my (undef, $state) = IsContainerRunning($proxy);
+  my $running = ($state && ($state =~ m/running/));
+
+  # Check if HTTPS can be configured.
+  my $ssl = 0;
+  if (grep { 'ssl' eq $_ } @{GetModules(1)}) {
+    if ($running) {
+      my $script = File::Spec->catfile($Genoring::MODULES_DIR, 'ssl', 'res', 'instance-certificate.sh');
+      my $output = qx($Genoring::DOCKER_COMMAND exec -i -u 0 -e INSTANCE_HOST=$host $proxy sh -s < "$script" 2>&1);
+      if ($?) {
+        warn "WARNING: Failed to get a certificate for '$host'. HTTPS will not be available for instance '$project'.\n$output\n";
+      }
+      else {
+        $ssl = 1;
+      }
+    }
+    else {
+      warn "WARNING: GenoRing is not running: HTTPS could not be configured for instance '$project'. Run the 'attach' command again once GenoRing is running to enable it.\n";
+    }
+  }
+
+  # Write configuration.
+  my ($tmp_fh, $tmp_file) = tempfile('genoring-instance-XXXXXX', 'TMPDIR' => 1, 'UNLINK' => 1);
+  binmode($tmp_fh, ':utf8');
+  print {$tmp_fh} GetInstanceProxyConfig($project, $host, $ssl);
+  close($tmp_fh);
+  chmod(0644, $tmp_file);
+  my $config_path = _GetInstanceProxyConfigPath($project);
+  CopyFiles($tmp_file, $config_path, '', $Genoring::VOLUMES_DIR, 1);
+  unlink($tmp_file);
+
+  if ($running) {
+    my ($ok, $output) = _ReloadProxy($proxy);
+    if (!$ok) {
+      # Remove invalid configuration to keep the proxy working.
+      RemoveVolumeFiles($config_path);
+      _ReloadProxy($proxy);
+      die "ERROR: Invalid proxy configuration for instance '$project'. It has been removed.\n$output\n";
+    }
+  }
+  else {
+    print "NOTE: GenoRing is not running. The proxy configuration of instance '$project' will be used at next start.\n";
+  }
+}
+
+
+=pod
+
+=head2 AttachInstance
+
+B<Description>: Serves another GenoRing instance (managed instance) through the
+proxy of current (master) instance, using a dedicated virtual host. The managed
+instance should not expose its ports ("-no-exposed-ports" flag) and its proxy
+must share a Docker network with current instance proxy ("-network" flag).
+Calling it again on an already managed instance updates its configuration.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $project: (string) (R)
+
+The managed instance project name (COMPOSE_PROJECT_NAME).
+
+=item $host: (string) (R)
+
+The managed instance public host name. It should also be the GENORING_HOST of
+the managed instance.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub AttachInstance {
+  my ($project, $host) = @_;
+
+  if (!$project || ($project !~ m/^[a-z0-9][a-z0-9_\-]*$/)) {
+    die "ERROR: AttachInstance: Invalid or missing instance project name!\n";
+  }
+  if (!$host
+    || ($host !~ m/^[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$/)
+  ) {
+    die "ERROR: AttachInstance: Invalid or missing instance host name!\n";
+  }
+  if ($project eq $ENV{'COMPOSE_PROJECT_NAME'}) {
+    die "ERROR: AttachInstance: An instance can not manage itself!\n";
+  }
+  my $config = GetConfig();
+  if ($config->{'no_exposed_ports'}) {
+    die "ERROR: AttachInstance: Current instance does not expose its ports and can not serve other instances!\n";
+  }
+  if ($ENV{'GENORING_HOST'} && (lc($host) eq lc($ENV{'GENORING_HOST'}))) {
+    die "ERROR: AttachInstance: The host '$host' is already used by current instance!\n";
+  }
+  my $instances = $config->{'managed_instances'} || {};
+  foreach my $other (keys(%$instances)) {
+    if (($other ne $project) && (lc($instances->{$other}->{'host'} || '') eq lc($host))) {
+      die "ERROR: AttachInstance: The host '$host' is already used by managed instance '$other'!\n";
+    }
+  }
+
+  # Check the managed instance proxy is reachable.
+  my $proxy = GetContainerName('genoring-proxy');
+  my $instance_proxy = "$project-proxy";
+  my (undef, $instance_state) = IsContainerRunning($instance_proxy);
+  if ($instance_state && ($instance_state =~ m/running/)) {
+    my $get_networks = sub {
+      my ($container) = @_;
+      my $json = qx($Genoring::DOCKER_COMMAND inspect --format "{{json .NetworkSettings.Networks}}" $container 2>$Genoring::NULL);
+      my $networks = eval { decode_json($json) };
+      return ('HASH' eq ref($networks)) ? [keys(%$networks)] : [];
+    };
+    my %proxy_networks = map { $_ => 1 } @{$get_networks->($proxy)};
+    my @shared = grep { $proxy_networks{$_} } @{$get_networks->($instance_proxy)};
+    if (%proxy_networks && !@shared) {
+      warn "WARNING: '$instance_proxy' does not share any Docker network with '$proxy'. Use the same '-network' flag on both instances.\n";
+    }
+  }
+  else {
+    warn "WARNING: The proxy of instance '$project' ('$instance_proxy') is not running. It will be reachable once started.\n";
+  }
+
+  _UpdateInstanceProxy($project, $host);
+  $config->{'managed_instances'} ||= {};
+  $config->{'managed_instances'}->{$project} = {'host' => $host};
+  SaveConfig();
+  print "Instance '$project' is served on host '$host'.\n";
+}
+
+
+=pod
+
+=head2 DetachInstance
+
+B<Description>: Stops serving a managed instance through the proxy of current
+instance.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $project: (string) (R)
+
+The managed instance project name.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub DetachInstance {
+  my ($project) = @_;
+
+  my $config = GetConfig();
+  if (!$project || !exists($config->{'managed_instances'}->{$project})) {
+    die "ERROR: DetachInstance: '" . ($project // '') . "' is not a managed instance!\n";
+  }
+  RemoveVolumeFiles(_GetInstanceProxyConfigPath($project));
+  delete($config->{'managed_instances'}->{$project});
+  if (!%{$config->{'managed_instances'}}) {
+    delete($config->{'managed_instances'});
+  }
+  SaveConfig();
+
+  my $proxy = GetContainerName('genoring-proxy');
+  my (undef, $state) = IsContainerRunning($proxy);
+  if ($state && ($state =~ m/running/)) {
+    my ($ok, $output) = _ReloadProxy($proxy);
+    if (!$ok) {
+      warn "WARNING: Failed to reload proxy configuration.\n$output\n";
+    }
+  }
+  print "Instance '$project' is not served by current instance anymore.\n";
+}
+
+
+=pod
+
+=head2 RefreshManagedInstances
+
+B<Description>: Regenerates the proxy configuration of all managed instances
+(ie. after enabling or disabling the "ssl" module).
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub RefreshManagedInstances {
+  my $instances = GetConfig()->{'managed_instances'} || {};
+  foreach my $project (sort keys(%$instances)) {
+    eval {
+      _UpdateInstanceProxy($project, $instances->{$project}->{'host'});
+    };
+    if ($@) {
+      warn $@;
+    }
+  }
+}
+
+
+=pod
+
+=head2 ListManagedInstances
+
+B<Description>: Displays the instances managed by current instance.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub ListManagedInstances {
+  my $instances = GetConfig()->{'managed_instances'} || {};
+  if (!%$instances) {
+    print "No managed instance.\n";
+    return;
+  }
+  my $port = $ENV{'GENORING_PORT'} && ($ENV{'GENORING_PORT'} ne '80') ? ':' . $ENV{'GENORING_PORT'} : '';
+  print "Managed instances:\n";
+  foreach my $project (sort keys(%$instances)) {
+    my (undef, $state) = IsContainerRunning("$project-proxy");
+    printf(
+      "  - %s: http://%s%s/ (%s)\n",
+      $project,
+      $instances->{$project}->{'host'},
+      $port,
+      $state || 'not running'
+    );
   }
 }
 
@@ -2697,6 +3257,10 @@ sub GenerateDockerComposeFile {
       delete($compose->{'services'}->{$service}->{'restart'});
     }
     $compose->{'services'}->{$service}->{'container_name'} = $service_name;
+    # Remove exposed ports if needed (after overrides and merges).
+    if ($config->{'no_exposed_ports'}) {
+      delete($compose->{'services'}->{$service}->{'ports'});
+    }
     # Add dependencies between services.
     if (exists($service_dependencies->{$service})
       && (my $profile_count = scalar(keys(%{$service_dependencies->{$service}})))
@@ -6459,6 +7023,9 @@ APPLYCONTAINERHOOKS_HOOKS:
             $env_data = ' --env-file ' . $env_data;
           }
           $env_data .= ' -e COMPOSE_PROJECT_NAME=' . $ENV{'COMPOSE_PROJECT_NAME'} . ' -e GENORING_HOST=' . $ENV{'GENORING_HOST'} . ' -e GENORING_PORT=' . $ENV{'GENORING_PORT'} . ' ';
+          if ($ENV{'GENORING_REVERSE_PROXY_ADDRESSES'}) {
+            $env_data .= '-e GENORING_REVERSE_PROXY_ADDRESSES=' . $ENV{'GENORING_REVERSE_PROXY_ADDRESSES'} . ' ';
+          }
           my $output = Run(
             "$Genoring::DOCKER_COMMAND exec " . $env_data . ($g_flags->{'platform'} ? '--platform ' . $g_flags->{'platform'} . ' ' : '') . "-u 0 $service_name sh -c \"chmod uog+x /genoring/modules/$module/hooks/$hook && /genoring/modules/$module/hooks/$hook $args\"",
             "Failed to run hook of $module in $service_name (hook $hook)",
@@ -7029,6 +7596,9 @@ sub SaveConfig {
   $config->{'service_overrides'} = $service_overrides if %$service_overrides;
   $config->{'networks'} = $_g_config->{'networks'}
     if (('HASH' eq ref($_g_config->{'networks'})) && %{$_g_config->{'networks'}});
+  $config->{'no_exposed_ports'} = 1 if ($_g_config->{'no_exposed_ports'});
+  $config->{'managed_instances'} = $_g_config->{'managed_instances'}
+    if (('HASH' eq ref($_g_config->{'managed_instances'})) && %{$_g_config->{'managed_instances'}});
   WriteYaml($Genoring::CONFIG_FILE, $config, "# GenoRing config file\n");
 }
 
@@ -7952,7 +8522,7 @@ sub GetProjectName {
       }
     }
   }
-  return $_g_config->{'project'};
+  return $_g_config->{'project'} || 'genoring';
 }
 
 

@@ -35,7 +35,9 @@ SetupGenoringEnvironment StartGenoring StopGenoring ToGenoringService
 ToExternalService UninstallModule Update Upgrade UpgradeFrameworkAlpha8
 WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
 GetVolumeMapping IsInstalled ParseNetworkFlag SetNetworks GetServiceNetworkMode
-GetServiceNetworks EnsureNetworks
+GetServiceNetworks EnsureNetworks SetExposedPorts GetReverseProxyAddresses
+GetInstanceProxyConfig AttachInstance DetachInstance RefreshManagedInstances
+ListManagedInstances
 
 =head1 DESCRIPTION
 
@@ -77,7 +79,9 @@ our @EXPORT = qw(
   WaitModulesReady IsGitAvailable GetAvailableVersions GetPathVolume
 GetVolumeMapping IsInstalled WriteBackupManifest ReadBackupManifest
 ValidateBackupManifest ParseNetworkFlag SetNetworks GetServiceNetworkMode
-  GetServiceNetworks EnsureNetworks
+  GetServiceNetworks EnsureNetworks SetExposedPorts GetReverseProxyAddresses
+  GetInstanceProxyConfig AttachInstance DetachInstance RefreshManagedInstances
+  ListManagedInstances
 );
 # Init $NULL.
 $Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';
