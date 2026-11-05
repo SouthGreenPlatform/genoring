@@ -726,6 +726,18 @@ Only used by the "shell" command: runs the shell (or the command given by
 running it in a container.
 
 
+=head3 -man
+
+=head4 Syntax
+
+  ... -man ...
+
+=head4 Description
+
+Prints the manual page and exits, like the "man" command. The command is not
+run.
+
+
 =head3 -managed
 
 =head4 Syntax
@@ -992,6 +1004,10 @@ while (defined($arg)) {
 
 if (exists($g_flags->{'help'})) {
   $help = $command;
+}
+
+if (exists($g_flags->{'man'})) {
+  $man = 1;
 }
 
 if (exists($g_flags->{'verbose'})) {
