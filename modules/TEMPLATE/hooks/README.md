@@ -61,6 +61,13 @@ GenoRing "modules" directory is automatically mounted in the container as
 "/genoring/modules". Therefore, the hook can call additional scripts or use
 resource files for its operations.
 
+Container hooks are only run in the containers of enabled services. Therefore,
+"disable" and "uninstall" container hooks are only run on the services that
+remain enabled (ie. a "disable_genoring.sh" hook removing CMS menu items added by
+the module), and never on the services of the module being disabled or
+uninstalled: cleaning up those services (or their volumes) must be performed by
+the "disable.pl" and "uninstall.pl" local hooks.
+
 
 ## Some recipes
 

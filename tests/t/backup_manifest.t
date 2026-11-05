@@ -22,7 +22,7 @@ use File::Spec;
 use FindBin;
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
-use Test::More tests => 18;
+use Test::More tests => 22;
 
 my $backup_root = File::Spec->catdir($FindBin::Bin, '..', 'temptests', 'backup_manifest_test');
 $backup_root = File::Spec->rel2abs($backup_root);
@@ -138,6 +138,7 @@ ok(
   local $Genoring::VOLUMES_DIR = File::Spec->catdir($instance_dir, 'volumes');
   local $ENV{'GENORING_VOLUMES_DIR'} = $Genoring::VOLUMES_DIR;
   local *Genoring::IsInstalled = sub { return 0; };
+  local *Genoring::GetState = sub { return ''; };
   local *Genoring::GetModules = sub { return []; };
   local *Genoring::GetBackupVolumes = sub { return []; };
   local *Genoring::GetProjectName = sub { return 'testbackup'; };
@@ -177,6 +178,59 @@ ok(
     eval { Genoring::Restore('missing_backup'); };
     like($@, qr/Backup 'missing_backup' does not exist/, 'Restore rejects a backup missing from the sysbackups directory');
   }
+
+  # A running GenoRing is prepared in backend mode and stopped before its
+  # volumes are archived, then restarted in its original mode.
+  my @events;
+  local *Genoring::GetState = sub { return 'offline'; };
+  local *Genoring::StartGenoring = sub { push(@events, 'start:' . ($_[0] // '')); };
+  local *Genoring::StopGenoring = sub { push(@events, 'stop'); };
+  local *Genoring::ApplyLocalHooks = sub { push(@events, "local:$_[0]"); return {}; };
+  local *Genoring::ApplyContainerHooks = sub { push(@events, "container:$_[0]"); return {}; };
+  local *Genoring::CreateVolumeArchive = sub {
+    my ($backupdir, $archive_name) = @_;
+    push(@events, 'archive');
+    return File::Spec->catfile($backupdir, $archive_name);
+  };
+  {
+    open(my $fake_stdout, '>', \$output) or die "Could not redirect output: $!";
+    local *STDOUT = *$fake_stdout;
+    Genoring::Backup('hot_backup_test', undef, 1);
+  }
+  is_deeply(
+    \@events,
+    ['start:backend', 'local:pre-backup', 'container:pre-backup', 'stop', 'archive', 'start:offline'],
+    'Running GenoRing is prepared and stopped before a full backup, then restarted in its mode'
+  );
+
+  # The original mode is restored when the backup preparation fails.
+  @events = ();
+  local *Genoring::GetState = sub { return 'running'; };
+  local *Genoring::ApplyContainerHooks = sub {
+    push(@events, "container:$_[0]");
+    return {'genoring/pre-backup_genoring.sh' => 'hook failed'};
+  };
+  {
+    open(my $fake_stdout, '>', \$output) or die "Could not redirect output: $!";
+    local *STDOUT = *$fake_stdout;
+    eval { Genoring::Backup('failed_backup_test', undef, 1); };
+  }
+  like($@, qr/hook failed/, 'Full backup fails when a pre-backup hook fails');
+  is_deeply(
+    \@events,
+    ['start:backend', 'local:pre-backup', 'container:pre-backup', 'start:online'],
+    'Nothing is archived and the online mode is restored after a failed preparation'
+  );
+
+  # A stopped GenoRing is archived as is, without starting it.
+  @events = ();
+  local *Genoring::GetState = sub { return ''; };
+  {
+    open(my $fake_stdout, '>', \$output) or die "Could not redirect output: $!";
+    local *STDOUT = *$fake_stdout;
+    Genoring::Backup('cold_backup_test', undef, 1);
+  }
+  is_deeply(\@events, ['archive'], 'Stopped GenoRing is archived without being started');
   chdir($original_dir);
 }
 

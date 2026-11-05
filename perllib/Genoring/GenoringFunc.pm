@@ -383,7 +383,7 @@ sub StartGenoring {
   # Check that genoring docker is not already running.
   my ($id, $state, $name, $image) = IsContainerRunning($ENV{'COMPOSE_PROJECT_NAME'});
   if ($state && ($state =~ m/running/)) {
-    my $compose_profile = Run("$Genoring::DOCKER_COMMAND exec $ENV{'COMPOSE_PROJECT_NAME'} sh -c 'printf \"\$COMPOSE_PROFILES\"' 2>$Genoring::NULL");
+    my $compose_profile = _GetRunningProfiles();
     if ($g_debug) {
       print "DEBUG: Currently running with profile '" . $compose_profile . "'.\n";
     }
@@ -721,7 +721,9 @@ sub GetStatus {
 
 B<Description>: Returns the given GenorRing container state or a global state
 for all GenoRing containers (ie. 'running' only if all a running, otherwise the
-first non-running state).
+first non-running state). When all GenoRing containers are running, the global
+state is 'offline' or 'backend' if the main container runs with the
+corresponding profile (see _GetRunningProfiles()).
 
 B<ArgsCount>: 0-1
 
@@ -790,17 +792,48 @@ sub GetState {
     }
   }
 
-  # If it is running, check running mode.
-  if ('running' eq $state) {
-    if ($ENV{'COMPOSE_PROFILES'} =~ m/offline/) {
+  # If GenoRing is running, check its running mode from the profiles used by
+  # its main container (the current process COMPOSE_PROFILES environment
+  # variable does not reflect the running instance).
+  if (!$container && ('running' eq $state)) {
+    my $profiles = _GetRunningProfiles();
+    if ($profiles =~ m/\boffline\b/) {
       $state = 'offline';
     }
-    elsif ($ENV{'COMPOSE_PROFILES'} =~ m/backend/) {
+    elsif ($profiles =~ m/\bbackend\b/) {
       $state = 'backend';
     }
   }
 
   return $state;
+}
+
+
+=pod
+
+=head2 _GetRunningProfiles
+
+B<Description>: Returns the Docker Compose profiles used by the running GenoRing
+main container (its COMPOSE_PROFILES environment variable). Replacement main
+containers are expected to provide this variable too.
+
+B<ArgsCount>: 0
+
+B<Return>: (string)
+
+The running profiles or an empty string if the main container is not running
+or the profiles could not be read.
+
+=cut
+
+sub _GetRunningProfiles {
+  my $profiles = Run(
+    "$Genoring::DOCKER_COMMAND exec $ENV{'COMPOSE_PROJECT_NAME'} sh -c 'printf \"\$COMPOSE_PROFILES\"' 2>$Genoring::NULL",
+    'Failed to get GenoRing running profiles.',
+    0,
+    0
+  );
+  return defined($profiles) ? $profiles : '';
 }
 
 
@@ -6965,55 +6998,88 @@ sub Backup {
   print "Backuping GenoRing...\n";
   # Backup GenoRing config.
   if (!$module) {
-    # @todo Check if git is available and if there are modifications to backup.
-    print "- Backuping GenoRing config...\n";
-    if (!-d "$backupdir/config" && !mkdir "$backupdir/config") {
-      warn "WARNING: Backup: Failed to create config backup directory '$backupdir/config'.\n";
-    }
-    if (IsInstalled()
-      && !copy($Genoring::DOCKER_COMPOSE_FILE, "$backupdir/config/$Genoring::DOCKER_COMPOSE_FILE")
-    ) {
-      warn "WARNING: Failed to backup $Genoring::DOCKER_COMPOSE_FILE.\n$!";
-    }
-    if (-e $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE
-      && !copy($Genoring::DOCKER_COMPOSE_OVERRIDE_FILE, "$backupdir/config/$Genoring::DOCKER_COMPOSE_OVERRIDE_FILE")
-    ) {
-      warn "WARNING: Failed to backup $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE.\n$!";
-    }
-    if (-e $Genoring::CONFIG_FILE
-      && !copy($Genoring::CONFIG_FILE, "$backupdir/config/$Genoring::CONFIG_FILE")
-    ) {
-      warn "WARNING: Failed to backup $Genoring::CONFIG_FILE.\n$!";
-    }
-    if (-e $Genoring::EXTRA_HOSTS
-      && !copy($Genoring::EXTRA_HOSTS, "$backupdir/config/$Genoring::EXTRA_HOSTS")
-    ) {
-      warn "WARNING: Failed to backup $Genoring::EXTRA_HOSTS.\n$!";
-    }
-    if (-d './env'
-      && !CopyDirectory('env', "$backupdir/config/env")
-    ) {
-      warn "WARNING: Failed to backup 'env' directory.\n$!";
+    # Check if GenoRing is running or not.
+    my $current_mode = GetState() || '';
+    my $was_running = ($current_mode =~ m/^(?:running|backend|offline)$/);
+
+    eval {
+      # When GenoRing is running, data are prepared for backup in backend mode
+      # and GenoRing is stopped to archive consistent volumes (ie. databases).
+      # When it is not running, volumes are already consistent.
+      if ($was_running) {
+        print "- Switching GenoRing to backend mode for backup preparation...\n";
+        StartGenoring('backend');
+        print "- Preparing data for backup...\n";
+        $errors = ApplyLocalHooks('pre-backup', undef, $backup_name);
+        die join("\n", values(%$errors)) . "\n" if %$errors;
+        $errors = ApplyContainerHooks('pre-backup', undef, 0, $backup_name);
+        die join("\n", values(%$errors)) . "\n" if %$errors;
+        print "- Stopping GenoRing...\n";
+        StopGenoring();
+        print "  ...OK.\n";
+      }
+
+      # @todo Check if git is available and if there are modifications to backup.
+      print "- Backuping GenoRing config...\n";
+      if (!-d "$backupdir/config" && !mkdir "$backupdir/config") {
+        warn "WARNING: Backup: Failed to create config backup directory '$backupdir/config'.\n";
+      }
+      if (IsInstalled()
+        && !copy($Genoring::DOCKER_COMPOSE_FILE, "$backupdir/config/$Genoring::DOCKER_COMPOSE_FILE")
+      ) {
+        warn "WARNING: Failed to backup $Genoring::DOCKER_COMPOSE_FILE.\n$!";
+      }
+      if (-e $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE
+        && !copy($Genoring::DOCKER_COMPOSE_OVERRIDE_FILE, "$backupdir/config/$Genoring::DOCKER_COMPOSE_OVERRIDE_FILE")
+      ) {
+        warn "WARNING: Failed to backup $Genoring::DOCKER_COMPOSE_OVERRIDE_FILE.\n$!";
+      }
+      if (-e $Genoring::CONFIG_FILE
+        && !copy($Genoring::CONFIG_FILE, "$backupdir/config/$Genoring::CONFIG_FILE")
+      ) {
+        warn "WARNING: Failed to backup $Genoring::CONFIG_FILE.\n$!";
+      }
+      if (-e $Genoring::EXTRA_HOSTS
+        && !copy($Genoring::EXTRA_HOSTS, "$backupdir/config/$Genoring::EXTRA_HOSTS")
+      ) {
+        warn "WARNING: Failed to backup $Genoring::EXTRA_HOSTS.\n$!";
+      }
+      if (-d './env'
+        && !CopyDirectory('env', "$backupdir/config/env")
+      ) {
+        warn "WARNING: Failed to backup 'env' directory.\n$!";
+      }
+
+      my $modules = GetModules(1);
+      my $saved_volumes = GetBackupVolumes();
+      my $archive_name = 'genoring-volumes.tar.gz';
+      my $archive_path = CreateVolumeArchive($backupdir, $archive_name, $saved_volumes);
+      my $manifest = WriteBackupManifest(
+        $backupdir,
+        $backup_name,
+        File::Basename::basename($archive_path),
+        $saved_volumes,
+        $modules,
+        {
+          'project' => GetProjectName(),
+          'config_dir' => 'config',
+          'backup_dir' => $backup_name,
+        }
+      );
+      print "  ...OK.\n";
+      print "  - Full volume archive saved to '$archive_path' and manifest written to '$backupdir/manifest.yml'.\n";
+    };
+    if ($@ && (!$errors || !%$errors)) {
+      # Capture errors not supported by hooks.
+      $errors = "Backup failed!\n$@\n";
     }
 
-    my $modules = GetModules(1);
-    my $saved_volumes = GetBackupVolumes();
-    my $archive_name = 'genoring-volumes.tar.gz';
-    my $archive_path = CreateVolumeArchive($backupdir, $archive_name, $saved_volumes);
-    my $manifest = WriteBackupManifest(
-      $backupdir,
-      $backup_name,
-      File::Basename::basename($archive_path),
-      $saved_volumes,
-      $modules,
-      {
-        'project' => GetProjectName(),
-        'config_dir' => 'config',
-        'backup_dir' => $backup_name,
-      }
-    );
-    print "  ...OK.\n";
-    print "  - Full volume archive saved to '$archive_path' and manifest written to '$backupdir/manifest.yml'.\n";
+    # Restore the mode that was active before the backup.
+    if ($was_running) {
+      print "- Restarting GenoRing...\n";
+      StartGenoring('running' eq $current_mode ? 'online' : $current_mode);
+      print "  ...OK.\n";
+    }
   }
   else {
     # Check if GenoRing is running or not.
@@ -7354,9 +7420,9 @@ sub ApplyLocalHooks {
 
       my $output = '';
       eval {
-        # Temporarily add environment variables.
-        local %ENV;
-        %ENV = %module_env;
+        # Temporarily add module environment variables to the current ones
+        # (module values take precedence).
+        local %ENV = (%ENV, %module_env);
         if ($g_debug) {
           print "DEBUG: Using environment variables:\n" . Dumper([\%ENV]);
         }
@@ -7420,6 +7486,11 @@ List of supported container hooks:
 - enable: called for a module on services when one of them is enabled.
 - disable: called for a module on services when one of them is disabled.
 - uninstall: called for a module on services when it is uninstalled.
+  Note: "disable" and "uninstall" hooks are only run on services that remain
+  enabled (ie. a hook of a disabled module targeting the "genoring" service).
+  Services of the disabled or uninstalled module are not available anymore:
+  their cleanup must be performed by the module local hooks ("disable.pl" and
+  "uninstall.pl").
 - offline: called when GenoRing is set offline.
 - online: called when GenoRing is set online.
 - backend: called when GenoRing is set in backend mode.
@@ -7519,6 +7590,18 @@ APPLYCONTAINERHOOKS_MODULES:
       # Process all module hooks that can be run.
 APPLYCONTAINERHOOKS_HOOKS:
       foreach my $hook (@hooks) {
+        # Warn about hooks targeting a service of a disabled or uninstalled
+        # module as they can not be run (see function documentation).
+        my ($hook_service) = ($hook =~ m/^${hook_name}_(.+)\.sh$/);
+        if (($hook_name =~ m/^(?:disable|uninstall)$/)
+            && $selected_module_set{$module}
+            && defined($hook_service)
+            && !exists($services->{$hook_service})
+            && (grep { $_ eq $hook_service } @{GetModuleServices($module, 'all')})
+        ) {
+          warn "WARNING: Container hook '$module/hooks/$hook' ignored: services of a disabled module are not available anymore. Use the '$hook_name.pl' local hook instead.\n";
+          next APPLYCONTAINERHOOKS_HOOKS;
+        }
         if (($hook =~ m/^${hook_name}_(.+)\.sh$/) && exists($services->{$1})) {
           my $service = $1;
           if (defined($service_filter) && !$service_filter{$service}) {
