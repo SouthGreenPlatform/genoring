@@ -4773,12 +4773,15 @@ sub UpgradeFramework {
 
   my ($current_version, $new_version) = @_;
   my $run_hooks = 1;
-  if (CompareVersions($current_version || $Genoring::GENORING_VERSION, '1.0-alpha8') <= 0) {
-    UpgradeFrameworkAlpha8();
-  }
   # @todo Add support for Git "dev" qualifier (not tagged).
   # Perform a backup of GenoRing files.
   my $context = PrepareOperations();
+
+  # Upgrade old alphas to the new structure prior further upgrades.
+  if (CompareVersions($current_version || $Genoring::GENORING_VERSION, '1.0-alpha8') <= 0) {
+    UpgradeFrameworkAlpha8();
+  }
+
   # Upgrade operations must be performed in the GenoRing directory, not in the
   # instance directory.
   my $original_dir = getcwd();
