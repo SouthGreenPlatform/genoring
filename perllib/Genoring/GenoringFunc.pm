@@ -3626,13 +3626,14 @@ sub GenerateDockerComposeFile {
         if ($volume_dep->{'major_version'}) {
           my $module_info = GetModuleInfo($volume_dep->{'module'});
           my $version_constraint = $volume_dep->{'version_constraint'} || '=';
-          # @todo Code to test.
           my $dep_version = $volume_dep->{'major_version'} . '.' . ($volume_dep->{'minor_version'} || '0');
-          if ((('=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) == 0))
-            || (('<' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) < 0))
-            || (('<=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) <= 0))
-            || (('>' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) > 0))
-            || (('>=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) >= 0))
+          # Missing or invalid versions can not satisfy a version constraint.
+          if (ParseVersion($module_info->{'version'})
+            && ((('=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) == 0))
+              || (('<' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) < 0))
+              || (('<=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) <= 0))
+              || (('>' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) > 0))
+              || (('>=' eq $version_constraint) && (CompareVersions($module_info->{'version'}, $dep_version) >= 0)))
           ) {
             $volume_ok = 1;
           }
@@ -4258,6 +4259,7 @@ B<Return>: (int)
 
 0 if the 2 versions are equal, >0 if $version_a is above $version_b, and <0 if
 $version_a is below $version_b.
+Dies if one of the versions can not be parsed (see ParseVersion()).
 
 =cut
 
@@ -4265,8 +4267,10 @@ sub CompareVersions {
   my ($version_a, $version_b) = @_;
 
   # Parse versions.
-  my ($maj_a, $min_a, $qual_a, $qualver_a) = ParseVersion($version_a);
-  my ($maj_b, $min_b, $qual_b, $qualver_b) = ParseVersion($version_b);
+  my ($maj_a, $min_a, $qual_a, $qualver_a) = ParseVersion($version_a)
+    or die "ERROR: CompareVersions: Invalid version '" . ($version_a // '') . "'!\n";
+  my ($maj_b, $min_b, $qual_b, $qualver_b) = ParseVersion($version_b)
+    or die "ERROR: CompareVersions: Invalid version '" . ($version_b // '') . "'!\n";
 
   return $maj_a <=> $maj_b if $maj_a != $maj_b;
   return $min_a <=> $min_b if $min_a != $min_b;
@@ -4310,20 +4314,21 @@ B<Return>: (list)
 
 A list of 4 elements: major version number (int), minor version number (int),
 qualifier (string) and qualifier version (int). The qualifier can be an empty
-string, 'RC', 'beta' or 'alpha'. The qualifier version can be 0 if absent.
+string, 'RC', 'beta', 'alpha' or 'dev'. The qualifier version is 0 if absent.
 The list is empty if parsing failed.
+In scalar context, returns 1 (TRUE) if the version could be parsed and a false
+value otherwise, which can be used to check a version string.
 
 =cut
 
 sub ParseVersion {
   my ($version) = @_;
-  $version ||= '';
-  my ($maj, $min, $qual, $qualver) = ($version =~ /^(\d+)\.(\d+)(?:-(alpha|beta|dev|RC)(\d+)?)?$/);
-  $maj //= 0;
-  $min //= 0;
-  $qual ||= '';
-  $qualver ||= 0;
-  return ($maj, $min, $qual, $qualver);
+  $version //= '';
+  my ($maj, $min, $qual, $qualver) = ($version =~ /^(\d+)\.(\d+)(?:-(alpha|beta|dev|RC)(\d+)?)?$/)
+    or return;
+  $qual //= '';
+  $qualver //= 0;
+  return wantarray ? ($maj, $min, $qual, $qualver) : 1;
 }
 
 
@@ -4411,6 +4416,9 @@ sub GetAvailableVersions {
     };
   }
 
+  # Only keep valid versions (ie. skip tags not following the version format).
+  @versions = grep { ParseVersion($_) } @versions;
+
   # Filter versions.
   if ($stability && ($stability =~ m/^(?:RC|beta|alpha|dev)$/)) {
     my %stability_check = ('' => 1, 'RC' => 1);
@@ -4428,7 +4436,7 @@ sub GetAvailableVersions {
     }
     @versions = grep {
         my ($maj, $min, $qual, $qualver) = ParseVersion($_);
-        $maj && exists($stability_check{$qual});
+        exists($stability_check{$qual});
       }
       @versions;
   }
@@ -4436,7 +4444,7 @@ sub GetAvailableVersions {
     # Only stable.
     my @stable_versions = grep {
       my ($maj, $min, $qual, $qualver) = ParseVersion($_);
-      $maj && !$qual;
+      !$qual;
     }
     @versions;
     if (@stable_versions) {
@@ -4529,8 +4537,7 @@ sub Upgrade {
   #   Implement module upgrades.
   warn "WARNING: Experimental! This procedure has not been tested yet! Use at your own risks.\n";
   if ($element) {
-    my ($majver, $minver, $qual, $qualver_a) = ParseVersion($element);
-    if ($majver) {
+    if (ParseVersion($element)) {
       $new_version = $element;
     }
     else {
@@ -4547,7 +4554,10 @@ sub Upgrade {
       # @todo Implement a way to fetch a version from the web.
       die "ERROR: Unable to upgrade module '$module' to requested version '$new_version' as the only new version available is " . $module_info->{'version'} . ".\n";
     }
-    my $version_comparison = CompareVersions($new_version, $current_version);
+    # An unknown (or invalid) current version is considered as older.
+    my $version_comparison = ParseVersion($current_version)
+      ? CompareVersions($new_version, $current_version)
+      : 1;
     if (((0 < $version_comparison) && Confirm("Upgrade '$module' module from version $current_version to $new_version?"))
       || ((0 > $version_comparison) && Confirm("Are you sure you want to *DOWNGRADE* '$module' module from version $current_version to $new_version?"))
     ) {
@@ -4859,6 +4869,7 @@ sub _ValidateModuleFrameworkCompatibility {
   if (!$module_info
       || !exists($module_info->{'genoring_script_version'})
       || !$module_info->{'genoring_script_version'}
+      || !ParseVersion($module_info->{'genoring_script_version'})
       || (0 < CompareVersions($module_info->{'genoring_script_version'}, $Genoring::GENORING_VERSION))
   ) {
     die "ERROR: Module '$module' is not supported by current GenoRing script version!\nRequired version: "
@@ -4958,7 +4969,8 @@ sub _ModuleDependencyTargetMatches {
     ? ($candidate_config->{'version'} || $candidate_info->{'version'} || '')
     : ($candidate_info->{'version'} || '');
   if ($dependency->{'major_version'}) {
-    return 0 if !$version;
+    # Missing or invalid versions can not satisfy a version constraint.
+    return 0 if !ParseVersion($version);
     my $required_version = $dependency->{'major_version'} . '.' . ($dependency->{'minor_version'} || '0');
     my $comparison = CompareVersions($version, $required_version);
     my $version_constraint = $dependency->{'version_constraint'} || '=';

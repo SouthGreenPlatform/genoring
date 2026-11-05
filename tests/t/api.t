@@ -28,7 +28,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 78;
+use Test::More tests => 82;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -863,6 +863,106 @@ is(GetProjectName(), $instance, 'Got project name');
 
 # GetProfile()
 is(GetProfile(), 'dev', 'Got profile');
+
+# CompareVersions()
+{
+  # Versions in strictly increasing order. Qualifier order is:
+  # alpha < beta < RC < (none) < dev.
+  my @ordered_versions = (
+    '0.9',
+    '1.0-alpha',
+    '1.0-alpha1',
+    '1.0-alpha2',
+    '1.0-alpha10',
+    '1.0-beta',
+    '1.0-beta3',
+    '1.0-RC',
+    '1.0-RC1',
+    '1.0-RC2',
+    '1.0',
+    '1.0-dev',
+    '1.1-alpha1',
+    '1.1',
+    '1.2',
+    '1.9',
+    '1.10',
+    '2.0-alpha1',
+    '2.0',
+    '9.0',
+    '10.0',
+  );
+  subtest 'CompareVersions() orders versions' => sub {
+    plan tests => scalar(@ordered_versions) ** 2;
+    foreach my $i (0..$#ordered_versions) {
+      foreach my $j (0..$#ordered_versions) {
+        my ($version_a, $version_b) = ($ordered_versions[$i], $ordered_versions[$j]);
+        if ($i < $j) {
+          cmp_ok(CompareVersions($version_a, $version_b), '<', 0, "$version_a < $version_b");
+        }
+        elsif ($i > $j) {
+          cmp_ok(CompareVersions($version_a, $version_b), '>', 0, "$version_a > $version_b");
+        }
+        else {
+          cmp_ok(CompareVersions($version_a, $version_b), '==', 0, "$version_a == $version_a");
+        }
+      }
+    }
+  };
+
+  # Different syntaxes of the same version (missing qualifier version is 0).
+  my @equal_versions = (
+    ['1.0-alpha', '1.0-alpha0'],
+    ['1.0-beta', '1.0-beta0'],
+    ['1.0-RC', '1.0-RC0'],
+    ['1.0-dev', '1.0-dev0'],
+  );
+  subtest 'CompareVersions() equal versions' => sub {
+    plan tests => 2 * scalar(@equal_versions);
+    foreach my $versions (@equal_versions) {
+      my ($version_a, $version_b) = @$versions;
+      cmp_ok(CompareVersions($version_a, $version_b), '==', 0, "$version_a == $version_b");
+      cmp_ok(CompareVersions($version_b, $version_a), '==', 0, "$version_b == $version_a");
+    }
+  };
+}
+
+# ParseVersion()
+{
+  my %valid_versions = (
+    '1.0'         => [1, 0, '', 0],
+    '0.9'         => [0, 9, '', 0],
+    '1.10'        => [1, 10, '', 0],
+    '1.0-alpha'   => [1, 0, 'alpha', 0],
+    '1.0-alpha10' => [1, 0, 'alpha', 10],
+    '2.3-beta1'   => [2, 3, 'beta', 1],
+    '5.12-RC'     => [5, 12, 'RC', 0],
+    '3.4-dev2'    => [3, 4, 'dev', 2],
+  );
+  my @invalid_versions = (
+    undef, '', 'unknown', '1', '1.', '.1', '1.0.0', '1.0.0-alpha6', 'v1.0',
+    '1.0-rc1', '1.0-gamma', '1.0-alpha-1', '1.0 ', ' 1.0', '1.0-',
+  );
+  subtest 'ParseVersion() parses versions' => sub {
+    plan tests => 2 * (scalar(keys(%valid_versions)) + scalar(@invalid_versions));
+    foreach my $version (sort keys(%valid_versions)) {
+      is_deeply([ParseVersion($version)], $valid_versions{$version}, "'$version' parsed");
+      ok(scalar(ParseVersion($version)), "'$version' is valid in scalar context");
+    }
+    foreach my $version (@invalid_versions) {
+      my $label = defined($version) ? "'$version'" : 'undef';
+      is_deeply([ParseVersion($version)], [], "$label not parsed (empty list)");
+      ok(!scalar(ParseVersion($version)), "$label is invalid in scalar context");
+    }
+  };
+  subtest 'CompareVersions() dies on invalid versions' => sub {
+    plan tests => 2 * scalar(@invalid_versions);
+    foreach my $version (@invalid_versions) {
+      my $label = defined($version) ? "'$version'" : 'undef';
+      ok(!eval { CompareVersions($version, '1.0'); 1 }, "$label rejected as first version");
+      ok(!eval { CompareVersions('1.0', $version); 1 }, "$label rejected as second version");
+    }
+  };
+}
 
 # GetModuleConf
 # SetModuleConf
