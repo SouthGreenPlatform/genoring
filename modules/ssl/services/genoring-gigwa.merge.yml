@@ -1,0 +1,4 @@
+# Provides SSL settings (ie. SSL_PORT) to the service and its container hooks.
+# Note: env file names must be prefixed by the module name in merge files.
+env_file:
+  - ${PWD}/env/ssl_ssl.env

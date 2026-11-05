@@ -16,6 +16,9 @@ service defined by genoring-OTHER.yml on the following basis:
 - if both structure are lists, the merge values are added to the other ones.
 - if both structure are key-value pairs, the merge values are merge to the
   corresponding ones on the basis defined above.
+Note: environment files added through "env_file" in a merge (or override) file
+must use their prefixed name (ie. "${PWD}/env/MODULE_file.env"). Otherwise,
+they would be prefixed with the name of the module of the other service.
 
 Config keys in genoring-OTHER.override.yml will override to the ones of the
 service defined by genoring-OTHER.yml on the following basis:

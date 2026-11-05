@@ -1,5 +1,8 @@
+env_file:
+  - ${PWD}/env/ssl_ssl.env
 ports:
-  # Change left port to change SSL port on local server.
-  - ${SSL_PORT}:443
+  # Nginx listens on SSL_PORT (see res/nginx/ssl.template), so the same port is
+  # used on both sides.
+  - ${SSL_PORT}:${SSL_PORT}
 volumes:
   - genoring-proxy-ssl:/etc/ssl
