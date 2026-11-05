@@ -10147,7 +10147,6 @@ sub CopyFiles
   if ($target_base) {
     $target_base = $target_base . '/';
   }
-  my $config = GetConfig();
   if (!ref($files)) {
     # Single file.
     $files =~ s~^\s+|\s+$~~g;
@@ -10166,28 +10165,7 @@ sub CopyFiles
       warn "WARNING: Genoring::CopyFiles(): Missing source file '$source_base$files'.\n";
     }
     elsif ((!-e $target_path) || $replace_existing) {
-      if ($config->{'no_exposed_volumes'}
-         && ($target_path =~ m/^\Q$Genoring::VOLUMES_DIR\E/)
-      ) {
-        # Identify corresponding volume and get absolute path.
-        my ($volume, $subdirectory) = GetPathVolume($target_path);
-        if ($volume && (my $abs_source = abs_path($source_base . $files))) {
-          # Use docker alpine to copy files.
-          Run(
-            "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source /volume$subdirectory\"",
-            "Failed to copy file '$abs_source' into Docker volume '$volume:$subdirectory'.",
-            0,
-            0
-          );
-        }
-        else {
-          # No corresponding volume: copy to host.
-          copy($source_base . $files, $target_path);
-        }
-      }
-      else {
-        copy($source_base . $files, $target_path);
-      }
+      _CopyFileToVolume($source_base . $files, $target_path, 'CopyFiles()');
     }
   }
   elsif ('HASH' eq ref($files)) {
@@ -10209,25 +10187,7 @@ sub CopyFiles
         next;
       }
       elsif ((!-e $target_base . $target) || $replace_existing) {
-        if ($config->{'no_exposed_volumes'}) {
-          # Identify corresponding volume and get absolute path.
-          my ($volume, $subdirectory) = GetPathVolume($target_base . $target);
-          if ($volume && (my $abs_source = abs_path($source_base . $source))) {
-            # Use docker alpine to copy files.
-            Run(
-              "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source /volume$subdirectory\"",
-              "Failed to copy file '$abs_source' into Docker volume '$volume:$subdirectory'.",
-              0,
-              0
-            );
-          }
-          else {
-            warn "WARNING: Genoring::CopyFiles(%): Cannot copy file '$source_base$source' to non-exposed volume (" . ($volume ? "'$volume:$subdirectory'" : 'volume not found') . ").\n";
-          }
-        }
-        else {
-          copy($source_base . $source, $target_base . $target);
-        }
+        _CopyFileToVolume($source_base . $source, $target_base . $target, 'CopyFiles(%)');
       }
     }
   }
@@ -10237,6 +10197,79 @@ sub CopyFiles
   }
 }
 
+
+
+=pod
+
+=head2 _CopyFileToVolume
+
+B<Description>: Copies a file to the given target path. If GenoRing volumes
+are not exposed and the target path is in the GenoRing "volumes" directory, the
+file is copied into the corresponding Docker volume. If no corresponding volume
+is found, the file is copied to the host target path if its directory exists,
+with a warning as the file will not be available in the expected volume.
+
+B<ArgsCount>: 3
+
+=over 4
+
+=item $source_path: (string) (R)
+
+Path of the file to copy.
+
+=item $target_path: (string) (R)
+
+Target path of the file.
+
+=item $caller: (string) (R)
+
+Name of the calling function used in warning messages.
+
+=back
+
+B<Return>: (nothing)
+
+=cut
+
+sub _CopyFileToVolume {
+  my ($source_path, $target_path, $caller) = @_;
+  my $config = GetConfig();
+  if ($config->{'no_exposed_volumes'}
+     && ($target_path =~ m/^\Q$Genoring::VOLUMES_DIR\E/)
+  ) {
+    # Identify corresponding volume and get absolute path.
+    my ($volume, $subdirectory) = GetPathVolume($target_path);
+    my $abs_source = abs_path($source_path);
+    if ($volume && $abs_source) {
+      # Use docker alpine to copy files.
+      Run(
+        "$Genoring::DOCKER_COMMAND run --rm -v $volume:/volume -v $abs_source:/source alpine sh -c \"cp -rfT /source /volume$subdirectory\"",
+        "Failed to copy file '$abs_source' into Docker volume '$volume:$subdirectory'.",
+        0,
+        0
+      );
+    }
+    elsif (-d dirname($target_path)) {
+      # No corresponding volume: copy to host.
+      if (copy($source_path, $target_path)) {
+        warn "WARNING: Genoring::$caller: Could not copy file '$source_path' to non-exposed volume ("
+          . ($volume ? "'$volume:$subdirectory'" : 'volume not found')
+          . "). It has been copied to the corresponding host directory instead ('$target_path'), which may lead to unexpected behaviors as the file may not be available where it is expected.\n";
+      }
+      else {
+        warn "WARNING: Genoring::$caller: Failed to copy file '$source_path' to '$target_path'.\n$!\n";
+      }
+    }
+    else {
+      warn "WARNING: Genoring::$caller: Cannot copy file '$source_path' to non-exposed volume ("
+        . ($volume ? "'$volume:$subdirectory'" : 'volume not found')
+        . ") nor to host directory (missing '" . dirname($target_path) . "').\n";
+    }
+  }
+  elsif (!copy($source_path, $target_path)) {
+    warn "WARNING: Genoring::$caller: Failed to copy file '$source_path' to '$target_path'.\n$!\n";
+  }
+}
 
 =pod
 

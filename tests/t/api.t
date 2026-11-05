@@ -28,7 +28,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 82;
+use Test::More tests => 83;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -66,6 +66,88 @@ my $instance_docker_compose_yml = File::Spec->catdir($instance_dir, 'docker-comp
 CopyFiles($default_docker_compose_yml, $instance_docker_compose_yml);
 ok(-f $instance_docker_compose_yml, 'Docker compose file created');
 ok(IsInstalled(), 'Installed');
+
+# CopyFiles() into GenoRing volumes (exposed or not).
+subtest 'CopyFiles() copies files to volumes or host' => sub {
+  plan tests => 21;
+  my $copy_dir = tempdir(CLEANUP => 1);
+  my $source = File::Spec->catfile($copy_dir, 'source.txt');
+  open(my $source_fh, '>', $source) or die "ERROR: Unable to create test source file: $!";
+  print {$source_fh} "test\n";
+  close($source_fh);
+  my $volumes_dir = File::Spec->catdir($copy_dir, 'volumes');
+  make_path(File::Spec->catdir($volumes_dir, 'sub'));
+  my $outside_dir = File::Spec->catdir($copy_dir, 'outside');
+  make_path($outside_dir);
+
+  # Mock config, volume detection and Docker commands.
+  local $Genoring::VOLUMES_DIR = $volumes_dir;
+  my $no_exposed_volumes = 1;
+  my @path_volume = ();
+  my @run_commands;
+  my @warnings;
+  local *Genoring::GetConfig = sub { return {'no_exposed_volumes' => $no_exposed_volumes}; };
+  local *Genoring::GetPathVolume = sub { return @path_volume; };
+  local *Genoring::Run = sub { push(@run_commands, $_[0]); return ''; };
+  local $SIG{__WARN__} = sub { push(@warnings, $_[0]); };
+  my $reset = sub { @run_commands = (); @warnings = (); };
+
+  # Non-exposed volumes, volume found: copied into the Docker volume.
+  @path_volume = ('test-volume', '/sub');
+  foreach my $files (['single', [$source, "$volumes_dir/sub/volume_single.txt"]], ['hash', [{$source => "$volumes_dir/sub/volume_hash.txt"}]]) {
+    my ($type, $args) = @$files;
+    $reset->();
+    CopyFiles(@$args);
+    is(scalar(@run_commands), 1, "Volume copy ($type): Docker copy command run");
+    like($run_commands[0] || '', qr/-v test-volume:\/volume .*cp -rfT \/source \/volume\/sub/, "Volume copy ($type): copied into the volume");
+    is(scalar(@warnings), 0, "Volume copy ($type): no warning");
+  }
+  ok(!-e "$volumes_dir/sub/volume_single.txt" && !-e "$volumes_dir/sub/volume_hash.txt", 'Volume copy: nothing copied on host');
+
+  # Non-exposed volumes, no volume but valid host directory: copied to host
+  # with a warning.
+  @path_volume = ();
+  foreach my $files (['single', [$source, "$volumes_dir/sub/host_single.txt"], "$volumes_dir/sub/host_single.txt"], ['hash', [{$source => "$volumes_dir/sub/host_hash.txt"}], "$volumes_dir/sub/host_hash.txt"]) {
+    my ($type, $args, $target) = @$files;
+    $reset->();
+    CopyFiles(@$args);
+    ok(-f $target, "No volume ($type): copied to host directory");
+    is(scalar(@run_commands), 0, "No volume ($type): no Docker command");
+    ok((1 == @warnings) && ($warnings[0] =~ m/copied to the corresponding host directory.*unexpected behaviors/s), "No volume ($type): fallback warning issued");
+  }
+
+  # Non-exposed volumes, no volume and missing host directory: not copied.
+  $reset->();
+  CopyFiles({$source => "$volumes_dir/missing/no_target.txt"});
+  ok(!-e "$volumes_dir/missing/no_target.txt", 'No volume nor host directory: not copied');
+  ok((1 == @warnings) && ($warnings[0] =~ m/Cannot copy file .* nor to host directory/), 'No volume nor host directory: warning issued');
+
+  # Non-exposed volumes but target outside "volumes": regular copy (both
+  # syntaxes).
+  $reset->();
+  CopyFiles($source, "$outside_dir/outside_single.txt");
+  CopyFiles({$source => "$outside_dir/outside_hash.txt"});
+  ok(-f "$outside_dir/outside_single.txt" && -f "$outside_dir/outside_hash.txt", 'Target outside volumes: copied to host');
+  ok(!@run_commands && !@warnings, 'Target outside volumes: no Docker command nor warning');
+
+  # Exposed volumes: regular copy.
+  $no_exposed_volumes = 0;
+  @path_volume = ('test-volume', '/sub');
+  $reset->();
+  CopyFiles($source, "$volumes_dir/sub/exposed.txt");
+  ok(-f "$volumes_dir/sub/exposed.txt", 'Exposed volumes: copied to host');
+  ok(!@run_commands && !@warnings, 'Exposed volumes: no Docker command nor warning');
+
+  # Existing target is only replaced when requested.
+  my $existing = "$volumes_dir/sub/exposed.txt";
+  open(my $existing_fh, '>', $existing) or die "ERROR: Unable to update test target file: $!";
+  print {$existing_fh} "old\n";
+  close($existing_fh);
+  CopyFiles($source, $existing);
+  is(-s $existing, 4, 'Existing target kept');
+  CopyFiles($source, $existing, undef, undef, 1);
+  is(-s $existing, 5, 'Existing target replaced when requested');
+};
 
 # ExpandYamlArrays()
 is_deeply(
