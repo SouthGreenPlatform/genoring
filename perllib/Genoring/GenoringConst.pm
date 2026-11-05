@@ -164,6 +164,16 @@ B<%OS>: (hash)
 
 Hash associating an OS name ($^O) to a normalized OS architecture.
 
+B<$PRIVATE_DIR_MODE>: (integer)
+
+Permissions of directories containing sensitive data (ie. "env" and
+"sysbackups"): only accessible by their owner.
+
+B<$PRIVATE_FILE_MODE>: (integer)
+
+Permissions of files containing sensitive data (ie. environment files and
+generated Docker Compose file): only readable and writable by their owner.
+
 B<$PROFILE_CONSTRAINT_REGEX>: (string)
 
 Regular expression used to match Docker execution profiles supported by
@@ -268,6 +278,8 @@ our %OS = (
   'vms'      => 'unsup',
   'vos'      => 'unsup',
 );
+our $PRIVATE_DIR_MODE = 0700;
+our $PRIVATE_FILE_MODE = 0600;
 our $PROFILE_CONSTRAINT_REGEX = '(?:((?:dev|staging|prod|backend|offline)(?:\s*,\s*(?:dev|staging|prod|backend|offline))*):)?';
 our $SERVICE_CONSTRAINT_REGEX = '(?:([a-z0-9\-\_]+)\s)?';
 our $SERVICE_NAME_REGEX = '[a-z][a-z0-9\-]*';

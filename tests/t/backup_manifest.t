@@ -22,7 +22,7 @@ use File::Spec;
 use FindBin;
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
-use Test::More tests => 17;
+use Test::More tests => 18;
 
 my $backup_root = File::Spec->catdir($FindBin::Bin, '..', 'temptests', 'backup_manifest_test');
 $backup_root = File::Spec->rel2abs($backup_root);
@@ -159,6 +159,13 @@ ok(
   ok(-f File::Spec->catfile($backupdir, 'manifest.yml'), 'Framework backup is stored in the sysbackups directory');
   ok(-f File::Spec->catfile($backupdir, 'genoring-volumes.tar.gz'), 'Framework backup archive is stored in the sysbackups directory');
   ok(!-e File::Spec->catdir($Genoring::VOLUMES_DIR, 'backups'), 'Framework backup is not stored in the containers backups volume');
+  SKIP: {
+    skip('Unix permissions are not supported on Windows', 1) if 'Win32' eq GetOs();
+    ok(
+      !((stat(File::Spec->catdir($instance_dir, $Genoring::SYSBACKUPS_DIR)))[2] & 077),
+      'The sysbackups directory is only accessible by its owner'
+    );
+  }
 
   # Restore looks for backups in the sysbackups directory.
   local *Genoring::ValidateBackupManifest = sub { die "RESTORE REACHED\n"; };

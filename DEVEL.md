@@ -36,6 +36,12 @@ be write-protected.
   contained environment files come from modules' "env" directories and can be
   altered but might be overridden by genoring.pl if a corresponding module is
   reinstalled or reconfigured.
+  As environment files contain sensitive data (ie. passwords), genoring.pl
+  restricts their access to their owner (0600, and 0700 for the directory) at
+  each run if needed. The same applies to the `sysbackups` directory and to the
+  generated `docker-compose.yml` file (which may contain environment values).
+  This is not managed with a native Windows Perl (ACL) and a warning is issued
+  if the file system does not support Unix permissions.
 
 - `sysbackups` (W):
   Contains GenoRing framework backups performed by "genoring.pl backup". Each

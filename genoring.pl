@@ -1171,6 +1171,9 @@ CheckFreeSpace();
 InitGenoringUser();
 CheckGenoringUser();
 
+# Restrict access to instance sensitive files (env, backups, ...) if needed.
+SecureInstanceFiles();
+
 # Set waiting time.
 if (!$g_flags->{'health-timeout'} || ($g_flags->{'health-timeout'} !~ m/^\d+$/)) {
   $g_flags->{'health-timeout'} = $Genoring::STATE_MAX_TRIES;

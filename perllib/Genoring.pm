@@ -39,6 +39,7 @@ ValidateBackupManifest ParseNetworkFlag SetNetworks GetServiceNetworkMode
 GetServiceNetworks EnsureNetworks SetExposedPorts GetReverseProxyAddresses
 GetInstanceProxyConfig AttachInstance DetachInstance RefreshManagedInstances
 ListManagedInstances RunManagedInstances GetBasePath SetBasePath
+RestrictPermissions SecureInstanceFiles
 
 =head1 DESCRIPTION
 
@@ -85,6 +86,7 @@ our @EXPORT = qw(
   GetServiceNetworks EnsureNetworks SetExposedPorts GetReverseProxyAddresses
   GetInstanceProxyConfig AttachInstance DetachInstance RefreshManagedInstances
   ListManagedInstances RunManagedInstances GetBasePath SetBasePath
+  RestrictPermissions SecureInstanceFiles
 );
 # Init $NULL.
 $Genoring::NULL = ('Win32' eq GetOs()) ? 'nul' : '/dev/null';
