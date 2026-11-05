@@ -1066,7 +1066,7 @@ B<Return>: (nothing)
 sub Reinitialize {
   if (!exists($g_flags->{'f'})) {
     #  Warn and ask for confirmation.
-    if (!Confirm("WARNING: This will stop all GenoRing containers, REMOVE their local data ('volumes' directory contant) and reset GenoRing config! This operation can not be undone so make backups before as needed. Are you sure you want to continue?")) {
+    if (!Confirm("WARNING: This will stop all GenoRing containers, REMOVE their local data ('volumes' directory content) and reset GenoRing config! GenoRing backups ('$Genoring::SYSBACKUPS_DIR' directory) are kept. This operation can not be undone so make backups before as needed. Are you sure you want to continue?")) {
       print "Operation canceled!\n";
       exit(0);
     }
@@ -6898,7 +6898,9 @@ sub GetBackupVolumes {
 =head2 Backup
 
 B<Description>: Performs a general backup of the GenoRing system into an archive
-file or a backup of the given module data and config.
+file or a backup of the given module data and config. Backups are stored in the
+GenoRing framework backup directory ($Genoring::SYSBACKUPS_DIR), one
+sub-directory per backup name.
 
 B<ArgsCount>: 0-3
 
@@ -6938,7 +6940,7 @@ sub Backup {
     die "ERROR: Backup: Invalid back name '$backup_name'. Only letters, numbers, dots, underscores and dashes are allowed and the name must begin with a letter.\n";
   }
 
-  my $backupdir = File::Spec->catfile($Genoring::VOLUMES_DIR, 'backups', $backup_name);
+  my $backupdir = File::Spec->catdir($Genoring::SYSBACKUPS_DIR, $backup_name);
   if (-d $backupdir) {
     # Check if directory is not empty.
     opendir(my $dh, $backupdir)
@@ -7054,7 +7056,7 @@ sub Backup {
         }
       );
       print "  ...Module volumes and environment files archived.\n";
-      print "Backup done. Backup created in 'backups/$backup_name/'.\n";
+      print "Backup done. Backup created in '$Genoring::SYSBACKUPS_DIR/$backup_name/'.\n";
     };
 
     if ($@ && (!$errors || !%$errors)) {
@@ -7122,7 +7124,7 @@ sub Restore {
   $module = NormalizeBackupModules($module);
 
   print "Restore GenoRing...\n";
-  my $backupdir = "$Genoring::VOLUMES_DIR/backups/$backup_name";
+  my $backupdir = File::Spec->catdir($Genoring::SYSBACKUPS_DIR, $backup_name);
   if (!-d $backupdir) {
     die "ERROR: Backup '$backup_name' does not exist.\n";
   }

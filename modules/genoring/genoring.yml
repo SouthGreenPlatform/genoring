@@ -37,7 +37,7 @@ volumes:
     mapping: "volumes/data"
   genoring-backups-volume:
     name: "Backups"
-    description: "Contains backups stored by backup names and applications."
+    description: "Contains containers internal backups (ie. CMS or database backups) stored by backup names and applications. GenoRing framework backups are stored in the instance 'sysbackups' directory instead."
     type: "shared"
     mapping: "volumes/backups"
   genoring-drupal-volume:

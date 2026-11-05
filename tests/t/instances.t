@@ -18,7 +18,7 @@ use File::Temp qw(tempdir);
 use FindBin;
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
-use Test::More tests => 101;
+use Test::More tests => 102;
 
 sub write_file {
   my ($path, $content) = @_;
@@ -132,7 +132,7 @@ open($null_fh, '>', File::Spec->devnull()) or die "Cannot open null device: $!";
   );
   write_file(
     File::Spec->catfile($Genoring::MODULES_DIR, 'core', 'services', 'genoring-proxy.yml'),
-    "image: nginx\nports:\n  - 8080:80\n"
+    "image: nginx\nenv_file:\n  - \${PWD}/env/core.env\nports:\n  - 8080:80\n"
   );
   write_file(
     File::Spec->catfile($Genoring::MODULES_DIR, 'addon', 'addon.yml'),
@@ -140,7 +140,7 @@ open($null_fh, '>', File::Spec->devnull()) or die "Cannot open null device: $!";
   );
   write_file(
     File::Spec->catfile($Genoring::MODULES_DIR, 'addon', 'services', 'genoring-proxy.merge.yml'),
-    "ports:\n  - 443:443\n"
+    "env_file:\n  - \${PWD}/env/addon_addon.env\nports:\n  - 443:443\n"
   );
   write_file(
     $Genoring::CONFIG_FILE,
@@ -161,6 +161,11 @@ open($null_fh, '>', File::Spec->devnull()) or die "Cannot open null device: $!";
   GenerateDockerComposeFile();
   $compose = Genoring::ReadYaml($Genoring::DOCKER_COMPOSE_FILE)->[0];
   is_deeply($compose->{'services'}->{'genoring-proxy'}->{'ports'}, ['8080:80', '443:443'], 'Ports are kept by default');
+  is_deeply(
+    $compose->{'services'}->{'genoring-proxy'}->{'env_file'},
+    ['${PWD}/env/core_core.env', '${PWD}/env/addon_addon.env'],
+    'Env files merged from another module keep their module prefix'
+  );
   unlink($Genoring::CONFIG_FILE, $Genoring::DOCKER_COMPOSE_FILE);
   ClearInternalCache();
 }

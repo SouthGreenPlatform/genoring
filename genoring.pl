@@ -291,8 +291,8 @@ exposition.
 
 =head4 Description
 
-Reinitializes GenoRing system and removes everything (except backups) to restart
-GenoRing from scratch. If the '-f' flag is used, no confirmation is asked. If
+Reinitializes GenoRing system and removes everything (except GenoRing backups
+stored in "sysbackups/") to restart GenoRing from scratch. If the '-f' flag is used, no confirmation is asked. If
 the '-delete-containers' flag is used, build containers are also removed.
 If '-preserve-env' is used, current environment files are kept.
 
@@ -466,8 +466,11 @@ directory.
 =head4 Description
 
 Performs a general backup of the GenoRing system into a backup directory
-(volumes/backups/[BACKUP_NAME]/), or backs up the Docker volumes and environment
+(sysbackups/[BACKUP_NAME]/), or backs up the Docker volumes and environment
 files of one or more modules into the same archive.
+Note: the "sysbackups" directory is not accessible from containers, contrary to
+the "volumes/backups" directory which is only used by containers for their own
+internal backups (ie. CMS or database backups).
 
 
 =head3 restore
@@ -479,7 +482,7 @@ files of one or more modules into the same archive.
 =head4 Description
 
 Restores a general GenoRing backup from the backup directory
-(volumes/backups/[BACKUP_NAME]/), or restores the Docker volumes and environment
+(sysbackups/[BACKUP_NAME]/), or restores the Docker volumes and environment
 files of one or more modules from that archive.
 
 

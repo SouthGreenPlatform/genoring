@@ -16,12 +16,13 @@ restore validation checks the current installed versions against the backup.
 use strict;
 use warnings;
 
+use Cwd qw(getcwd);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
 use FindBin;
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
-use Test::More tests => 12;
+use Test::More tests => 17;
 
 my $backup_root = File::Spec->catdir($FindBin::Bin, '..', 'temptests', 'backup_manifest_test');
 $backup_root = File::Spec->rel2abs($backup_root);
@@ -126,5 +127,50 @@ ok(
   (grep { index($_, "$postgres_data_dir:/dest") >= 0 } @docker_commands) > 0,
   'Exposed PostgreSQL data is restored to its mapped host directory'
 );
+
+# Framework backups are stored in the instance "sysbackups" directory, not in
+# the "backups" Docker volume shared with containers.
+{
+  my $instance_dir = File::Spec->catdir($backup_root, 'instance');
+  make_path($instance_dir);
+  my $original_dir = getcwd();
+  chdir($instance_dir) or die "Could not enter test instance directory: $!";
+  local $Genoring::VOLUMES_DIR = File::Spec->catdir($instance_dir, 'volumes');
+  local $ENV{'GENORING_VOLUMES_DIR'} = $Genoring::VOLUMES_DIR;
+  local *Genoring::IsInstalled = sub { return 0; };
+  local *Genoring::GetModules = sub { return []; };
+  local *Genoring::GetBackupVolumes = sub { return []; };
+  local *Genoring::GetProjectName = sub { return 'testbackup'; };
+  local *Genoring::CreateVolumeArchive = sub {
+    my ($backupdir, $archive_name) = @_;
+    my $archive = File::Spec->catfile($backupdir, $archive_name);
+    open(my $fh, '>', $archive) or die "Could not create test archive: $!";
+    close($fh);
+    return $archive;
+  };
+  # Hide backup progress messages.
+  my $output = '';
+  {
+    open(my $fake_stdout, '>', \$output) or die "Could not redirect output: $!";
+    local *STDOUT = *$fake_stdout;
+    Genoring::Backup('sysbackup_test', undef, 1);
+  }
+  my $backupdir = File::Spec->catdir($instance_dir, $Genoring::SYSBACKUPS_DIR, 'sysbackup_test');
+  ok(-f File::Spec->catfile($backupdir, 'manifest.yml'), 'Framework backup is stored in the sysbackups directory');
+  ok(-f File::Spec->catfile($backupdir, 'genoring-volumes.tar.gz'), 'Framework backup archive is stored in the sysbackups directory');
+  ok(!-e File::Spec->catdir($Genoring::VOLUMES_DIR, 'backups'), 'Framework backup is not stored in the containers backups volume');
+
+  # Restore looks for backups in the sysbackups directory.
+  local *Genoring::ValidateBackupManifest = sub { die "RESTORE REACHED\n"; };
+  {
+    open(my $fake_stdout, '>', \$output) or die "Could not redirect output: $!";
+    local *STDOUT = *$fake_stdout;
+    eval { Genoring::Restore('sysbackup_test'); };
+    like($@, qr/RESTORE REACHED/, 'Restore finds the backup in the sysbackups directory');
+    eval { Genoring::Restore('missing_backup'); };
+    like($@, qr/Backup 'missing_backup' does not exist/, 'Restore rejects a backup missing from the sysbackups directory');
+  }
+  chdir($original_dir);
+}
 
 remove_tree($backup_root);

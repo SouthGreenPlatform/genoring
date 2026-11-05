@@ -181,6 +181,13 @@ B<$STATE_MAX_TRIES>: (integer)
 
 Maximum number of seconds to wait for a service to be ready (running).
 
+B<$SYSBACKUPS_DIR>: (string)
+
+Name of the directory (relative to the instance directory) containing GenoRing
+framework backups (performed by "genoring.pl backup"). It is not a Docker
+volume and it is not shared with containers: containers internal backups are
+stored in the "backups" Docker volume ("volumes/backups").
+
 B<$VOLUMES_DIR>: (string)
 
 Name of the shared docker volume directory.
@@ -265,6 +272,7 @@ our $PROFILE_CONSTRAINT_REGEX = '(?:((?:dev|staging|prod|backend|offline)(?:\s*,
 our $SERVICE_CONSTRAINT_REGEX = '(?:([a-z0-9\-\_]+)\s)?';
 our $SERVICE_NAME_REGEX = '[a-z][a-z0-9\-]*';
 our $STATE_MAX_TRIES = 300;
+our $SYSBACKUPS_DIR = 'sysbackups';
 our $VOLUMES_DIR = $ENV{'GENORING_VOLUMES_DIR'} || File::Spec->catfile(cwd(), 'volumes');
 our $VOLUME_NAME_REGEX = '[a-z][a-z0-9\-]*';
 # Constants that depends on others.
