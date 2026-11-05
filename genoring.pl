@@ -10,7 +10,7 @@ genoring.pl - Manages GenoRing platform.
 
 =head2 Syntax
 
-  perl genoring.pl [help [command | flag] | man
+  perl genoring.pl help [COMMAND | FLAG] | man
   | start | stop | online | offline | backend | logs [-f] | status
   | modules | services | volumes | alternatives <MODULE>
   | moduledetails <MODULE>
@@ -27,7 +27,7 @@ genoring.pl - Manages GenoRing platform.
   | importvolume <VOLUME> <ARCHIVE.tar.gz | DIRECTORY>
   | version [MODULE] [-all | -latest]
   | diag | localhooks <HOOK> [MODULE] | containerhooks <HOOK> [MODULE]
-  | [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
+  [-debug] [-no-exposed-volumes | -exposed-volumes] [-no-backup]
   [-port=<HTTP_PORT>] [-arm[=ARCH] | -platform=<ARCH>] [-health-timeout[=DELAYSEC]]
   [-network=<NETWORK_NAME>[:[SERVICE_LIST]]]...
   [-no-exposed-ports | -exposed-ports] [-path=<BASE_PATH>] [-managed]
@@ -97,11 +97,12 @@ use Genoring;
 
 =head4 Syntax
 
-  perl genoring.pl help
+  perl genoring.pl help [COMMAND | FLAG]
 
 =head4 Description
 
-Display help and exits.
+Display help and exits. If a command or a flag (with its leading dash) is
+given, only displays the help of that command or flag.
 
 
 =head3 man
@@ -1034,7 +1035,7 @@ if ($help) {
     );
   }
 }
-if ($man) {pod2usage('-verbose' => 1, '-exitval' => 0);}
+if ($man) {pod2usage('-verbose' => 2, '-noperldoc' => 1, '-exitval' => 0);}
 
 if (exists($g_flags->{'yes'}) && exists($g_flags->{'no'})) {
   die "ERROR: '-yes' and '-no' flags are mutually exclusive!\n";

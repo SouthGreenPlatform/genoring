@@ -327,6 +327,8 @@ sub IsPortAvailable {
 
 B<Description>: Lists all the existing instances.
 
+B<ArgsCount>: 0
+
 B<Return>: (list)
 
 The list of existing test instances.
@@ -355,11 +357,11 @@ sub ListInstances {
 B<Description>: Remove the given test instances or all the existing instances,
 including their Docker Compose volumes.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 0-n
 
 =over 4
 
-=item $instance_names: (array) (O)
+=item @instance_names: (list of strings) (O)
 
 List of instance names to remove. If not provided, all existing instances will
 be removed.
@@ -379,7 +381,10 @@ sub RemoveInstances {
     @instance_names = keys(%all_instances_hash);
   }
   @instance_names = grep { exists $all_instances_hash{$_} } @instance_names;
-  return print "No test directories to remove.\n" unless @instance_names;
+  if (!@instance_names) {
+    print "No test directories to remove.\n";
+    return 0;
+  }
   for my $instance_name (@instance_names) {
     my $directory = abs_path(File::Spec->catdir($TEMP_TEST_DIR, $instance_name));
     die "Unable to resolve test directory '$instance_name'.\n"
@@ -432,11 +437,11 @@ sub RemoveInstances {
 B<Description>: Removes logs for the given test instances or all test instance
 logs.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 0-n
 
 =over 4
 
-=item $instance_names: (array) (O)
+=item @instance_names: (list of strings) (O)
 
 List of instance names whose logs should be removed. If not provided, all log
 files are removed.
@@ -482,7 +487,7 @@ sub RemoveInstanceLogs {
 
 B<Description>: Runs Genoring with the given arguments for the given instance.
 
-B<ArgsCount>: 2
+B<ArgsCount>: 2-4
 
 =over 4
 
@@ -490,15 +495,28 @@ B<ArgsCount>: 2
 
 Instance name.
 
-=item $args: (string) (R)
+=item $args: (string|array ref) (R)
 
-GenoRing command arguments.
+GenoRing command arguments (a single argument or a list of arguments).
+
+=item $io: (hash ref) (U)
+
+Expected interactive questions and their answers: keys are parts of the
+questions asked by genoring.pl (or exact output chunks) and values are the
+answers sent to its standard input. Any other question (output line ending
+with "?") is considered unexpected and makes the run fail.
+
+=item $max_execution_time: (integer) (O)
+
+Maximum execution time in seconds. Default: $DEFAULT_MAX_EXECUTION_TIME.
 
 =back
 
-B<Return>: (boolean).
+B<Return>: (integer)
 
-1 (true) if an error occurred, 0 (false) otherwise.
+0 if genoring.pl succeeded, a non-zero value otherwise: the genoring.pl exit
+code, 1 if an unexpected question was asked or the process was killed, or 124
+if the execution timed out.
 
 =cut
 
@@ -789,7 +807,7 @@ sub ReadTestName {
 B<Description>: Displays the given tests grouped by category (sorted), with
 the name and description of each test.
 
-B<ArgsCount>: 1+
+B<ArgsCount>: 1-n
 
 =over 4
 
@@ -826,7 +844,7 @@ identifiers may omit the "base/" category prefix (default category), and a
 trailing "/" is ignored. Without selection, all tests are returned. Selected
 tests are de-duplicated, keeping the original test order.
 
-B<ArgsCount>: 2
+B<ArgsCount>: 1-2
 
 =over 4
 

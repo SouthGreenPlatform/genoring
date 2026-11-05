@@ -123,7 +123,7 @@ our $_g_git_available = undef;
 B<Description>: Runs a shell command and displays a message in case of error. If
 $fatal_error is TRUE, calls die() and use warn() otherwise.
 
-B<ArgsCount>: 3
+B<ArgsCount>: 1-4
 
 =over 4
 
@@ -1206,7 +1206,17 @@ sub Reinitialize {
 
 B<Description>: Initializes GenoRing system with user inputs.
 
-B<ArgsCount>: 0
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $module: (string) (O)
+
+If set, only initializes the given module (environment, local "init" hooks and
+container "enable" hooks). Otherwise, all enabled modules are initialized and
+the core "genoring" module is enabled if no module is enabled yet.
+
+=back
 
 B<Return>: (nothing)
 
@@ -1273,7 +1283,7 @@ B<ArgsCount>: 0-2
 
 Force environment file re-generation.
 
-=item $module: (string) (O)
+=item $setup_module: (string) (O)
 
 A specific module name.
 
@@ -1834,7 +1844,10 @@ B<ArgsCount>: 0-2
 
 =over 4
 
-=item $service: (string) (O)
+=item $service_filter: (string) (U)
+
+If set, only the overrides of the given service are applied. Otherwise, the
+overrides of all the enabled services are applied.
 
 =item $base_image_ready: (boolean) (O)
 
@@ -2194,7 +2207,7 @@ sub GetServiceNetworkMode {
 B<Description>: Returns the additional Docker networks each service should
 join according to the given network config.
 
-B<ArgsCount>: 2
+B<ArgsCount>: 1-2
 
 =over 4
 
@@ -2462,7 +2475,7 @@ sub GetReverseProxyAddresses {
 
 B<Description>: Validates and normalizes a site base path.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 0-1
 
 =over 4
 
@@ -4402,7 +4415,7 @@ sub IsGitAvailable {
 
 B<Description>: Returns a sorted list of available versions.
 
-B<ArgsCount>: 0-1
+B<ArgsCount>: 0-2
 
 =over 4
 
@@ -5355,11 +5368,11 @@ sub _ActivateModulePlan {
 
 B<Description>: Installs and enables the given module.
 
-B<ArgsCount>: 1+
+B<ArgsCount>: 1-n
 
 =over 4
 
-=item $module: (string) (R)
+=item @requested_modules: (list of strings) (R)
 
 One or more module names. Required modules are included in the same operation.
 
@@ -5408,11 +5421,11 @@ sub InstallModule {
 
 B<Description>: Enables the given installed module and its required modules.
 
-B<ArgsCount>: 1+
+B<ArgsCount>: 1-n
 
 =over 4
 
-=item $module: (string) (R)
+=item @modules: (list of strings) (R)
 
 One or more installed module names. Required modules are activated in the same
 operation after confirmation.
@@ -5461,7 +5474,7 @@ only enabled or all installed modules are considered. Modules are ordered by
 decreasing dependency depth, so that dependents appear before the modules they
 depend on (i.e. suitable for a disable/uninstall order).
 
-B<ArgsCount>: 2
+B<ArgsCount>: 1-2
 
 =over 4
 
@@ -5550,7 +5563,7 @@ confirmation in interactive mode. Applies local and container "disable" (and
 "uninstall") hooks in backend mode, removes module environment files on
 uninstall, and restores previous module configurations on failure.
 
-B<ArgsCount>: 2-3
+B<ArgsCount>: 1-3
 
 =over 4
 
@@ -6392,7 +6405,7 @@ sub ToGenoringService {
 
 B<Description>: Writes a backup manifest file in the given backup directory.
 
-B<ArgsCount>: 5-6
+B<ArgsCount>: 2-6
 
 =over 4
 
@@ -6571,7 +6584,7 @@ sub ValidateBackupManifest {
 
 B<Description>: Creates a backup archive of the specified Docker volumes and environment files.
 
-B<ArgsCount>: 4
+B<ArgsCount>: 1-4
 
 =over 4
 
@@ -6702,6 +6715,35 @@ sub CreateVolumeArchive {
   return $archive_path;
 }
 
+
+=pod
+
+=head2 _GetBackupVolumeStorage
+
+B<Description>: Tells where the data of a given volume is stored, for backup
+and restore operations. Only "exposed" and "shared" volumes of enabled modules
+that have a mapping are considered.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $volume: (string) (R)
+
+The volume name.
+
+=back
+
+B<Return>: (hash ref|undef)
+
+A hash with either a 'path' key (local directory of the exposed volume) or
+'volume' and 'subdirectory' keys (Docker volume and sub-directory holding the
+mapped path when volumes are not exposed). Returns undef (empty list in list
+context) if the volume is not an exposed or shared mapped volume of an enabled
+module: the Docker named volume should then be used.
+
+=cut
+
 sub _GetBackupVolumeStorage {
   my ($volume) = @_;
   foreach my $module (@{GetModules(1)}) {
@@ -6733,6 +6775,28 @@ sub _GetBackupVolumeStorage {
 
 =head2 RestoreEnvironmentFiles
 
+B<Description>: Copies environment files from a restored backup directory into
+the instance "env" directory, preserving their mode and timestamps and
+restricting their permissions. Nothing is done if the source directory does
+not exist. Dies if a file can not be read or copied.
+
+B<ArgsCount>: 1-2
+
+=over 4
+
+=item $source_dir: (string) (R)
+
+The directory containing the environment files to restore.
+
+=item $selected_modules: (array ref) (O)
+
+If set, only the environment files of the given modules (ie. files prefixed by
+"<module>_") are restored. Otherwise, all the files are restored.
+
+=back
+
+B<Return>: (nothing)
+
 =cut
 
 sub RestoreEnvironmentFiles {
@@ -6762,6 +6826,42 @@ sub RestoreEnvironmentFiles {
 =pod
 
 =head2 RestoreVolumeArchive
+
+B<Description>: Restores a backup archive created by CreateVolumeArchive(): the
+archive is extracted in a temporary staging directory, then the volumes listed
+in the manifest are copied back (into their exposed directories or their
+Docker volumes), the archived config directory is restored in the backup
+directory and the environment files are restored. Dies on failures.
+
+B<ArgsCount>: 1-4
+
+=over 4
+
+=item $backupdir: (string) (R)
+
+The backup directory containing the archive.
+
+=item $archive_name: (string) (U)
+
+The name of the archive file. Defaults to the manifest "archive" value or
+'genoring-volumes.tar.gz'.
+
+=item $manifest: (hash ref) (U)
+
+The backup manifest (see ReadBackupManifest()). Its "volumes" list gives the
+volumes to restore: without manifest, no volume is restored.
+
+=item $selected_modules: (array ref) (O)
+
+If set, only the volumes and environment files of the given modules are
+restored, and the archived config directory is not restored (only its
+environment files for these modules).
+
+=back
+
+B<Return>: (boolean)
+
+1 if the archive was restored, 0 if the archive file was not found.
 
 =cut
 
@@ -6886,6 +6986,25 @@ sub RestoreVolumeArchive {
 
 =head2 NormalizeBackupModules
 
+B<Description>: Validates and normalizes a module selection for backup and
+restore operations. Dies if a module is not enabled or if the selection does
+not contain any valid module name.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $module_selection: (string|array ref) (O)
+
+A comma-separated list of module names or an array of module names.
+
+=back
+
+B<Return>: (array ref|undef)
+
+The sorted list of unique selected module names, or undef if no selection was
+given (ie. all modules).
+
 =cut
 
 sub NormalizeBackupModules {
@@ -6913,6 +7032,25 @@ sub NormalizeBackupModules {
 =pod
 
 =head2 GetBackupVolumes
+
+B<Description>: Returns the volumes to include in a backup. Backup volumes
+(named "backups" or ending with "-backups-volume") are always excluded.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $modules: (array ref) (O)
+
+If set and not empty, only the volumes of the given modules (all their volumes,
+see GetModuleVolumes()) are returned. Otherwise, the volumes of all the
+enabled modules are returned.
+
+=back
+
+B<Return>: (array ref)
+
+The sorted list of volume names.
 
 =cut
 
@@ -7495,8 +7633,8 @@ List of supported container hooks:
 - online: called when GenoRing is set online.
 - backend: called when GenoRing is set in backend mode.
 - update: called for a module on services when one of them is updated.
-- upgrade: upgrade local file system for the given module. First argument is
-  current version and second argument is the new version to upgrade to.
+- upgrade: upgrade module data in its services. First argument is current
+  version and second argument is the new version to upgrade to.
 - pre-backup: called in module services to prepare data before a backup. The
   backup name is passed as the first argument.
 - post-restore: called in module services to finalize data after restoration.
@@ -7699,7 +7837,7 @@ the builder: GENORING_UID and GENORING_GID that correspond to their respective
 environment variables set by GenoRing. An alternate image name can be supplied
 when building an intermediate image in an override chain.
 
-B<ArgsCount>: 2-3
+B<ArgsCount>: 1-3
 
 =over 4
 
@@ -7707,9 +7845,10 @@ B<ArgsCount>: 2-3
 
 Module machine name.
 
-=item $container: (string) (O)
+=item $service: (string) (U)
 
-Container name.
+Service name. If not set, the module must have a single service source
+directory, which is then used.
 
 =item $image_name: (string) (O)
 
@@ -8363,6 +8502,8 @@ sub GetModules {
 
 B<Description>: Returns the list of GenoRing services (of enabled modules).
 
+B<ArgsCount>: 0
+
 B<Return>: (hash ref)
 
 The list of services. Keys are service names and values are modules they belong
@@ -8464,7 +8605,7 @@ sub GetVolumeName {
 
 B<Description>: Returns a list of services provided by the given module.
 
-B<ArgsCount>: 1-2
+B<ArgsCount>: 1-3
 
 =over 4
 
@@ -8714,6 +8855,8 @@ sub GetModuleInfo {
 =head2 GetVolumes
 
 B<Description>: Returns the list of GenoRing volumes (of enabled modules).
+
+B<ArgsCount>: 0
 
 B<Return>: (hash ref)
 
@@ -9127,6 +9270,8 @@ sub GetEnvironmentFiles {
 
 B<Description>: Returns current project name.
 
+B<ArgsCount>: 0
+
 B<Return>: (string)
 
 The project name.
@@ -9168,6 +9313,8 @@ sub GetProjectName {
 =head2 GetProfile
 
 B<Description>: Returns current site environment type (dev/staging/prod).
+
+B<ArgsCount>: 0
 
 B<Return>: (string)
 
@@ -10296,7 +10443,7 @@ sub CopyDirectory {
 
 B<Description>: Copy files between directories.
 
-B<ArgsCount>: 2-5
+B<ArgsCount>: 1-5
 
 =over 4
 

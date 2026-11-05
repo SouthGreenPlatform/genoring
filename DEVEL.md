@@ -9,7 +9,8 @@ develop GenoRing modules.
 2. [Structure of a GenoRing module](#structure-of-a-genoring-module)
 3. [Implementing a GenoRing module](#implementing-a-genoring-module)
 4. [GenoRing core API](#genoring-core-api)
-5. [Tips and developer features](#tips-and-developer-features)
+5. [GenoRing Perl API documentation](#genoring-perl-api-documentation)
+6. [Tips and developer features](#tips-and-developer-features)
 
 ## Directory structure of GenoRing
 
@@ -445,6 +446,60 @@ The commands supported by the main "genoring" container script "genoring" are:
 * offline: sets the site offline and displays a maintenance message.
 
 * online: sets the site back online (after an "offline" command).
+
+
+## GenoRing Perl API documentation
+
+The Perl API functions (in `perllib/`) are documented in POD, just above each
+function. Each function documentation uses the following structure:
+
+```perl
+=pod
+
+=head2 FunctionName
+
+B<Description>: What the function does.
+
+B<ArgsCount>: 1-3
+
+=over 4
+
+=item $first: (string) (R)
+
+Description of the first parameter.
+
+=item $second: (hash ref) (U)
+
+Description of the second parameter.
+
+=item $third: (bool) (O)
+
+Description of the third parameter.
+
+=back
+
+B<Return>: (array ref)
+
+Description of the returned value.
+
+=cut
+```
+
+Each parameter type is followed by a qualifier:
+
+* (R): required parameter.
+* (U): optional parameter, but if it is not provided, it must be set to `undef`
+  to keep the order of the following parameters.
+  Example: `FunctionName('a', undef, 1)`.
+* (O): optional parameter that can be omitted. Only the last parameters can be
+  omitted.
+
+`B<ArgsCount>` gives the number of arguments the function accepts: the number
+of required (R) parameters, followed by the total number of parameters when
+some are optional (ie. "1-3"). Functions without parameter use "0" and
+functions accepting a variable list of arguments use "n" as the maximum (ie.
+"1-n"). Such a list is documented as a list parameter (ie.
+`=item @modules: (list of strings) (R)`).
 
 
 ## Tips and developer features
