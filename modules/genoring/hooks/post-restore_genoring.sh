@@ -4,4 +4,4 @@
 set -e
 
 # Rebuild cache files.
-drush cr
+genoring command drush cr
