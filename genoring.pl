@@ -274,10 +274,10 @@ Displays information on the given module.
 =head4 Description
 
 Setups GenoRing environment and regenerates Docker Compose file.
-If '-default' flag is used, all current or default settings are used. If
-'-minimal' flag is used, only non-optional environment values will be asked. If
-'-reset' flag is used, current environment files are removed and need to be
-fully regenerated.
+If '-default' flag is used, all current or default settings are used (nb. the
+"-yes" flag does not validate defaults.). If '-minimal' flag is used, only
+non-optional environment values will be asked. If '-reset' flag is used, current
+environment files are removed and need to be fully regenerated.
 The "-network" flag can be used to manage the Docker networks of the instance
 and the "-no-exposed-ports" and "-exposed-ports" flags to manage port
 exposition.
@@ -799,6 +799,8 @@ once GenoRing is restarted.
 
 Automatically answers confirmations with 'no'. '-no' and '-yes' are mutually
 exclusive flags.
+The validation of environment settings ("setup") is not answered by this flag:
+the user is asked (see "-default").
 
 
 =head3 -no-backup
@@ -922,6 +924,8 @@ in such cases in reasonable time.
 
 Automatically answers confirmations with 'yes'. '-no' and '-yes' are mutually
 exclusive flags.
+Environment settings values ("setup") are still asked to the user; only their
+final validation is automatically accepted (see "-default").
 
 =cut
 

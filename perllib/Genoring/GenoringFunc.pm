@@ -1442,7 +1442,9 @@ SETUPGENORINGENVIRONMENT_ENV_FILES:
             foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
                print "* " . ($envvar->{'name'} || $envvar->{'var'}) . ": " . $envvar->{'current'} . "\n";
             }
-            if ($g_flags->{'default'} || Confirm('Validate these settings?')) {
+            # Note: "-yes" validates the settings entered but "-no" must not
+            # reject them, the user is asked instead.
+            if ($g_flags->{'default'} || Confirm('Validate these settings?', $g_flags->{'no'})) {
               # Save changes.
               if (open($env_fh, '>:utf8', "env/${module}_$env_file")) {
                 foreach my $envvar (@{$env_vars{$module}->{$env_file}}) {
@@ -9727,9 +9729,11 @@ sub ClearInternalCache {
 
 =head2 Confirm
 
-B<Description>: Ask a question and get user confirmation.
+B<Description>: Ask a question and get user confirmation. Unless
+$ignore_flags is set, the "-yes" and "-no" flags automatically answer the
+question.
 
-B<ArgsCount>: 1
+B<ArgsCount>: 1-2
 
 =over 4
 
@@ -9737,6 +9741,11 @@ B<ArgsCount>: 1
 
 Confirmation message. The message does not need to have "(y/n)" in the end as it
 is automatically added.
+
+=item $ignore_flags: (boolean) (O)
+
+If 1 (TRUE), the "-yes" and "-no" flags are ignored and the user is always
+asked.
 
 =back
 
@@ -9747,13 +9756,15 @@ B<Return>: (bool)
 =cut
 
 sub Confirm {
-  my ($message) = @_;
+  my ($message, $ignore_flags) = @_;
 
-  if ($g_flags->{'yes'}) {
-    return 1;
-  }
-  elsif ($g_flags->{'no'}) {
-    return 0;
+  if (!$ignore_flags) {
+    if ($g_flags->{'yes'}) {
+      return 1;
+    }
+    elsif ($g_flags->{'no'}) {
+      return 0;
+    }
   }
 
   print "$message (y/n) ";
