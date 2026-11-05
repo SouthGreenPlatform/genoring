@@ -42,7 +42,9 @@ be write-protected.
   directory contains a backup. The directory name is the backup name. This
   directory is not a Docker volume and is not accessible from containers, which
   prevents them from altering GenoRing backups. It is kept by
-  "genoring.pl reset".
+  "genoring.pl reset". The (empty) directory is provided by the repository so
+  its access rights can be adjusted right after cloning, as backups may contain
+  sensitive data (ie. database dumps and settings).
 
 - `modules` (R or W):
   Contains available GenoRing modules as well as a module template.
