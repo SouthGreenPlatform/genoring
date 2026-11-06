@@ -114,13 +114,17 @@ be write-protected.
   Contains web server config.
 
 - `volumes/proxy/nginx` (W):
-  Contains nginx configuration file (genoring-fpm.conf) as well as module
-  configurations to include as part of the "genoring" service in
-  volumes/proxy/nginx/includes
+  Contains nginx configuration file (genoring-fpm.conf) used by the default
+  "genoring-proxy" service as well as module configurations to include at the
+  "http" level (volumes/proxy/nginx/includes) or in the main "GenoRing" server
+  definition (volumes/proxy/nginx/genoring).
 
 - `volumes/proxy/httpd` (W):
-  Contains Apache HTTPd configuration file as well as module configurations to
-  include as part of the "genoring" service in volumes/proxy/httpd/includes
+  Contains Apache HTTPd configuration file (genoring-httpd.conf) used by the
+  "genoring-proxy-httpd" service ("httpd" alternative of the "genoring" module)
+  as well as module configurations to include at the server level
+  (volumes/proxy/httpd/includes) or in the main "GenoRing" virtual host
+  definition (volumes/proxy/httpd/genoring).
 
 
 ## Structure of a GenoRing module
@@ -346,6 +350,28 @@ When using other genoring services in a module, find the service server using
 service. For instance, if you want to access the JBrowse service, you would use
 `${COMPOSE_PROJECT_NAME}-jbrowse`. This is necessary to support multiple
 GenoRing instances running on a same system.
+
+### Proxy configuration
+
+The proxy service of the "genoring" module is either "genoring-proxy" (nginx,
+default) or "genoring-proxy-httpd" (Apache HTTPd, "httpd" alternative). Modules
+that rely on the proxy should support both:
+- provide their proxy configuration for both servers ("res/nginx/" and
+  "res/httpd/" directories) and install (or remove) both configurations from
+  their local hooks, in "volumes/proxy/nginx/" and "volumes/proxy/httpd/"
+  sub-directories, so the alternative can be switched at any time. Apache HTTPd
+  configurations included in the "genoring" sub-directory are included in both
+  the HTTP and the HTTPS virtual hosts of the main site;
+- provide container hooks and service merge files for both services (ie.
+  `enable_genoring-proxy.sh` and `enable_genoring-proxy-httpd.sh`,
+  `genoring-proxy.merge.yml` and `genoring-proxy-httpd.merge.yml`);
+- declare dependencies on both services (ie.
+  `"REQUIRES genoring genoring-proxy OR genoring genoring-proxy-httpd"`).
+
+Other services can reach the proxy using the "genoring-proxy" host name in both
+cases (it is a network alias of the "genoring-proxy-httpd" service). The Perl
+API provides GetProxyServer() ("nginx" or "httpd") and GetProxyService() to
+adapt local hooks to the proxy in use.
 
 ## GenoRing core API
 

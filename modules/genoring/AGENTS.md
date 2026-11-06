@@ -44,8 +44,14 @@ instance), which may lead to inconsistencies.
 ## `genoring-proxy` service
 
 The proxy service is based on nginx. An alternative based on Apache HTTPd is
-provided. The nginx proxy uses a main configuration file, `genoring-fpm.conf`,
-stored in the exposed volume directory `volumes/proxy/nginx/`.
+provided (`httpd` alternative, `genoring-proxy-httpd` service, reachable by
+other services through the `genoring-proxy` network alias). The nginx proxy
+uses a main configuration file, `genoring-fpm.conf`, stored in the exposed
+volume directory `volumes/proxy/nginx/`. The Apache HTTPd proxy uses a main
+configuration file, `genoring-httpd.conf`, stored in the exposed volume
+directory `volumes/proxy/httpd/`, with the same subdirectories as nginx. Both
+proxy configurations are created by the `start.pl` local hook so the
+alternative can be switched at any time.
 
 Two subdirectories allow other modules to use the proxy in 2 ways:
 
@@ -57,6 +63,11 @@ Two subdirectories allow other modules to use the proxy in 2 ways:
   loaded in the "server" context of the main "GenoRing" web server definition.
   It can be used to handle GenoRing website paths differently, or to handle
   SSL or other security aspects, for instance.
+
+With Apache HTTPd, `includes` files are included at the server level after the
+main virtual host, and `genoring` files are included in both the HTTP and the
+HTTPS virtual hosts of the main site (`GenoRingSite` macro). HTTPS needs a
+dedicated virtual host, so the `ssl` module adds `includes/genoring-ssl.conf`.
 
 ## `genoring-db` service
 

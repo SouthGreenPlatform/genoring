@@ -144,7 +144,7 @@ dependencies:
   services:
     - "REQUIRES genoring >=1.0"
     - "REQUIRES genoring genoring-db"
-    - "jbrowse REQUIRES genoring >=1.0 genoring-proxy or genoring 1.0 genoring-httpd"
+    - "jbrowse REQUIRES genoring >=1.0 genoring-proxy or genoring 1.0 genoring-proxy-httpd"
     - "CONFLICTS genoring genoring-mysql"
     - "backend:genoringtools BEFORE genoring genoring-proxy"
   # Lists required volumes from other modules.

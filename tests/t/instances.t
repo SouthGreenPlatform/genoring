@@ -18,7 +18,7 @@ use File::Temp qw(tempdir);
 use FindBin;
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
-use Test::More tests => 102;
+use Test::More tests => 137;
 
 sub write_file {
   my ($path, $content) = @_;
@@ -199,7 +199,7 @@ open($null_fh, '>', File::Spec->devnull()) or die "Cannot open null device: $!";
     $written{$target} = do { local $/; <$fh> };
     close($fh);
   };
-  local *Genoring::RemoveVolumeFiles = sub { push(@removed, @_); };
+  local *Genoring::RemoveVolumeFiles = sub { push(@removed, ref($_[0]) ? @{$_[0]} : @_); };
   local $Genoring::VOLUMES_DIR = File::Spec->catdir($work_dir, 'volumes');
   write_file(File::Spec->catfile($Genoring::VOLUMES_DIR, 'proxy', 'nginx', 'genoring-fpm.conf'), "server {}\n");
   {
@@ -214,7 +214,11 @@ open($null_fh, '>', File::Spec->devnull()) or die "Cannot open null device: $!";
   like($conf, qr#location = /itc \{[^}]*return 301 /itc/;#s, 'Base path without trailing slash is redirected');
   ok(SetBasePath(''), 'Removing the base path changes the environment');
   Genoring::_UpdateBasePathConfig();
-  is_deeply(\@removed, ['proxy/nginx/genoring/base-path.conf'], 'Base path config removed without base path');
+  is_deeply(
+    \@removed,
+    ['proxy/nginx/genoring/base-path.conf', 'proxy/httpd/genoring/base-path.conf'],
+    'Base path configs of both proxy servers removed without base path'
+  );
   unlink('env/genoring_genoring.env');
 }
 
@@ -303,7 +307,7 @@ make_path(File::Spec->catdir($instances_dir, 'empty'));
   AttachInstance($slave1_dir);
   is_deeply(
     $config->{'managed_instances'},
-    {'slave1' => {'host' => 'slave1.example.org', 'path' => Cwd::abs_path($slave1_dir)}},
+    {'slave1' => {'host' => 'slave1.example.org', 'path' => Cwd::abs_path($slave1_dir), 'proxy_server' => 'nginx'}},
     'Managed instance stored in config with its host and directory'
   );
   like($copied{'proxy/nginx/includes/instance-slave1.conf'} || '', qr/server_name slave1\.example\.org;/, 'Managed instance virtual host config written');
@@ -331,7 +335,7 @@ make_path(File::Spec->catdir($instances_dir, 'empty'));
   AttachInstance($itc_dir);
   is_deeply(
     $config->{'managed_instances'}->{'itc'},
-    {'host' => 'master.example.org', 'path' => Cwd::abs_path($itc_dir), 'base_path' => '/itc'},
+    {'host' => 'master.example.org', 'path' => Cwd::abs_path($itc_dir), 'base_path' => '/itc', 'proxy_server' => 'nginx'},
     'Managed instance stored in config with its base path'
   );
   my $conf = $copied{'proxy/nginx/genoring/instance-itc.conf'} || '';
@@ -349,8 +353,13 @@ make_path(File::Spec->catdir($instances_dir, 'empty'));
   DetachInstance('itc');
   is_deeply(
     [sort @removed],
-    ['proxy/nginx/genoring/instance-itc.conf', 'proxy/nginx/includes/instance-itc.conf'],
-    'Both managed instance config kinds removed on detach'
+    [
+      'proxy/httpd/genoring/instance-itc.conf',
+      'proxy/httpd/includes/instance-itc.conf',
+      'proxy/nginx/genoring/instance-itc.conf',
+      'proxy/nginx/includes/instance-itc.conf',
+    ],
+    'Both managed instance config kinds of both proxy servers removed on detach'
   );
   DetachInstance('slave1');
   ok(!exists($config->{'managed_instances'}), 'Managed instance removed from config');
@@ -422,6 +431,95 @@ make_path(File::Spec->catdir($instances_dir, 'empty'));
   is(getcwd(), $cwd, 'Current directory restored');
   is($ENV{'GENORING_VOLUMES_DIR'}, '/master/volumes', 'Current environment restored');
   ok(!Genoring::_RunInstanceCommand('slave1', $slave1_dir, 'fail'), 'Failed command');
+}
+
+# Apache HTTPd proxy alternative.
+{
+  # GetProxyServer and GetProxyService.
+  my $module_config = {};
+  {
+    local *Genoring::GetModuleConf = sub { return $module_config; };
+    is(GetProxyServer(), 'nginx', 'NGINX is the default proxy server');
+    is(GetProxyService(), 'genoring-proxy', 'Default proxy service');
+    $module_config = {'alternative' => 'httpd'};
+    is(GetProxyServer(), 'httpd', 'Apache HTTPd is used with the "httpd" alternative');
+    is(GetProxyService(), 'genoring-proxy-httpd', 'Apache HTTPd proxy service');
+  }
+  my $httpd_dir = make_instance('httpdslave', "project: httpdslave\nmodules:\n  genoring:\n    status: enabled\n    alternative: httpd\n");
+  is(GetProxyServer($httpd_dir), 'httpd', 'Proxy server of another instance');
+  is(GetProxyServer($slave2_dir), 'nginx', 'Default proxy server of another instance');
+  is(GetProxyServer(File::Spec->catdir($instances_dir, 'missing')), 'nginx', 'Default proxy server of a missing instance');
+  is(Genoring::_GetInstanceProxyContainer('httpdslave', $httpd_dir), 'httpdslave-proxy-httpd', 'Managed instance Apache HTTPd proxy container');
+  is(Genoring::_GetInstanceProxyContainer('slave2', $slave2_dir), 'slave2-proxy', 'Managed instance NGINX proxy container');
+  is(Genoring::_GetInstanceProxyContainer('legacy'), 'legacy-proxy', 'Default managed instance proxy container');
+
+  local *Genoring::GetProxyServer = sub { return 'httpd'; };
+  is(Genoring::_GetInstanceProxyConfigPath('slave1'), 'proxy/httpd/includes/instance-slave1.conf', 'Apache HTTPd virtual host config path');
+  is(Genoring::_GetInstanceProxyConfigPath('itc', '/itc'), 'proxy/httpd/genoring/instance-itc.conf', 'Apache HTTPd base path config path');
+  is(Genoring::_GetInstanceProxyConfigPath('itc', '/itc', 'nginx'), 'proxy/nginx/genoring/instance-itc.conf', 'Config path of a given proxy server');
+
+  # GetInstanceProxyConfig.
+  my $conf = GetInstanceProxyConfig('slave1', 'slave1.example.org', 0, undef, 'slave1-proxy-httpd');
+  like($conf, qr/<VirtualHost \*:80>/, 'Default Apache HTTPd port is used');
+  like($conf, qr/ServerName slave1\.example\.org/, 'Host is used as server name');
+  like($conf, qr{ProxyPass "/" "http://slave1-proxy-httpd:80/" disablereuse=On}, 'Managed instance proxy is resolved at request time');
+  unlike($conf, qr/SSLEngine/, 'No SSL settings by default');
+  unlike($conf, qr/\$\{\w+\}/, 'No remaining placeholder');
+  write_file('env/genoring_httpd.env', "HTTPD_PORT=8081\n");
+  write_file('env/ssl_ssl.env', "SSL_PORT=8443\n");
+  $conf = GetInstanceProxyConfig('slave1', 'slave1.example.org', 1);
+  like($conf, qr/<VirtualHost \*:8081>/, 'Instance Apache HTTPd port is used');
+  like($conf, qr/<VirtualHost \*:8443>\s*Use GenoRingInstance-slave1/, 'SSL virtual host uses the managed instance definition');
+  like($conf, qr{SSLCertificateFile\s+/etc/ssl/certs/slave1\.example\.org\.crt}, 'Host certificate is used');
+  like($conf, qr{http://slave1-proxy:80/}, 'Default managed instance proxy');
+  unlike($conf, qr/\$\{\w+\}/, 'No remaining placeholder with SSL');
+  unlink('env/genoring_httpd.env', 'env/ssl_ssl.env');
+  $conf = GetInstanceProxyConfig('itc', 'master.example.org', 0, '/itc');
+  like($conf, qr{<Location "/itc/">\s.*ProxyPass "http://itc-proxy:80/itc/"}s, 'Base path is passed unchanged to the managed instance');
+  like($conf, qr{RedirectMatch 301 "\^/itc\$" "/itc/"}, 'Base path without trailing slash is redirected');
+  unlike($conf, qr/VirtualHost|\$\{\w+\}/, 'No virtual host and no remaining placeholder');
+
+  # Base path and managed instance synchronization.
+  my %written;
+  my $save_count = 0;
+  local *Genoring::CopyFiles = sub {
+    my ($source, $target) = @_;
+    open(my $fh, '<', $source) or die "Cannot read '$source': $!";
+    $written{$target} = do { local $/; <$fh> };
+    close($fh);
+  };
+  local *STDOUT = $null_fh;
+  write_file('env/genoring_genoring.env', "GENORING_HOST=example.org\nGENORING_BASE_PATH=/abc\n");
+  {
+    my @warnings;
+    local $SIG{__WARN__} = sub { push(@warnings, @_); };
+    Genoring::_UpdateBasePathConfig();
+    ok(!@warnings, 'No warning for Apache HTTPd base path');
+  }
+  $conf = $written{'proxy/httpd/genoring/base-path.conf'} || '';
+  like($conf, qr{Alias "/abc" "/opt/drupal/web"}, 'Apache HTTPd base path config serves Drupal under the base path');
+  like($conf, qr{RedirectMatch 301 "\^/abc\$" "/abc/"}, 'Apache HTTPd base path without trailing slash is redirected');
+  unlink('env/genoring_genoring.env');
+
+  my $config = {
+    'managed_instances' => {
+      'slave1' => {'host' => 'slave1.example.org', 'path' => $httpd_dir},
+      'itc' => {'host' => 'master.example.org', 'path' => $itc_dir, 'base_path' => '/itc', 'proxy_server' => 'httpd'},
+    },
+  };
+  local *Genoring::GetConfig = sub { return $config; };
+  local *Genoring::SaveConfig = sub { ++$save_count; };
+  local *Genoring::GetModules = sub { return ['genoring']; };
+  %written = ();
+  Genoring::_SyncManagedInstancesProxy();
+  is_deeply([sort keys(%written)], ['proxy/httpd/includes/instance-slave1.conf'], 'Only managed instances configured for another proxy server are regenerated');
+  like($written{'proxy/httpd/includes/instance-slave1.conf'}, qr{http://slave1-proxy-httpd:80/}, 'Managed instance proxy container of the managed instance proxy service is used');
+  is($config->{'managed_instances'}->{'slave1'}->{'proxy_server'}, 'httpd', 'Managed instance proxy server updated');
+  is($save_count, 1, 'Config saved after synchronization');
+  %written = ();
+  Genoring::_SyncManagedInstancesProxy();
+  ok(!%written, 'Synchronized managed instances are not regenerated');
+  is($save_count, 1, 'Config not saved without changes');
 }
 
 chdir($previous_dir);

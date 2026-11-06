@@ -402,6 +402,8 @@ sub StartGenoring {
     EnsureNetworks();
     # Serve the site under its base path if needed.
     _UpdateBasePathConfig();
+    # Serve managed instances with current proxy server.
+    _SyncManagedInstancesProxy();
     # Not running, start it.
     Run(
       "$Genoring::DOCKER_COMPOSE_COMMAND up -d -y",
@@ -2640,6 +2642,85 @@ sub _WriteVolumeFile {
 
 =pod
 
+=head2 GetProxyServer
+
+B<Description>: Returns the HTTP server used by the proxy service of a GenoRing
+instance: "httpd" (Apache HTTPd) when the "httpd" alternative of the "genoring"
+module is enabled, "nginx" otherwise. It is also the name of the proxy
+configuration sub-directory in the "volumes/proxy" directory and in the
+"res" directories of the modules.
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $instance_dir: (string) (O)
+
+The instance directory. Default: current instance.
+
+=back
+
+B<Return>: (string)
+
+"nginx" or "httpd".
+
+=cut
+
+sub GetProxyServer {
+  my ($instance_dir) = @_;
+
+  my $module_config;
+  if (defined($instance_dir)) {
+    my $config_file = File::Spec->catfile($instance_dir, $Genoring::CONFIG_FILE);
+    my $yaml = (-r $config_file) ? eval { ReadYaml($config_file) } : undef;
+    if ($yaml && ('HASH' eq ref($yaml->[0])) && ('HASH' eq ref($yaml->[0]->{'modules'}))) {
+      $module_config = $yaml->[0]->{'modules'}->{'genoring'};
+    }
+  }
+  else {
+    $module_config = GetModuleConf('genoring');
+  }
+  if (('HASH' eq ref($module_config))
+    && ('httpd' eq ($module_config->{'alternative'} // ''))
+  ) {
+    return 'httpd';
+  }
+  return 'nginx';
+}
+
+
+=pod
+
+=head2 GetProxyService
+
+B<Description>: Returns the name of the proxy service of a GenoRing instance:
+"genoring-proxy" or its Apache HTTPd alternative "genoring-proxy-httpd" (see
+GetProxyServer()).
+
+B<ArgsCount>: 0-1
+
+=over 4
+
+=item $instance_dir: (string) (O)
+
+The instance directory. Default: current instance.
+
+=back
+
+B<Return>: (string)
+
+The proxy service name.
+
+=cut
+
+sub GetProxyService {
+  my ($instance_dir) = @_;
+  return ('httpd' eq GetProxyServer($instance_dir)) ? 'genoring-proxy-httpd' : 'genoring-proxy';
+}
+
+
+=pod
+
 =head2 _UpdateBasePathConfig
 
 B<Description>: Generates (or removes) the proxy configuration that serves
@@ -2653,18 +2734,24 @@ B<Return>: (nothing)
 
 sub _UpdateBasePathConfig {
   my $base_path = GetBasePath();
-  my $config_path = 'proxy/nginx/genoring/base-path.conf';
+  my $server = GetProxyServer();
   if (!$base_path) {
-    RemoveVolumeFiles($config_path);
+    # Remove the configurations of both proxy servers.
+    RemoveVolumeFiles([
+      'proxy/nginx/genoring/base-path.conf',
+      'proxy/httpd/genoring/base-path.conf',
+    ]);
     return;
   }
   _WriteVolumeFile(
-    $config_path,
+    "proxy/$server/genoring/base-path.conf",
     _ReadTemplate(
-      File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'nginx', 'base-path.template'),
+      File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', $server, 'base-path.template'),
       {'BASE_PATH' => $base_path}
     )
   );
+  # Apache HTTPd main config does not need specific settings.
+  return if ('nginx' ne $server);
   # Check the main proxy config supports base paths.
   my $main_config = File::Spec->catfile($Genoring::VOLUMES_DIR, 'proxy', 'nginx', 'genoring-fpm.conf');
   if (open(my $fh, '<:utf8', $main_config)) {
@@ -2681,10 +2768,12 @@ sub _UpdateBasePathConfig {
 
 =head2 GetInstanceProxyConfig
 
-B<Description>: Returns the NGINX configuration used by the proxy of current
-(master) instance to serve a managed instance.
+B<Description>: Returns the configuration used by the proxy of current (master)
+instance to serve a managed instance. The configuration is generated for the
+HTTP server of current instance proxy (NGINX or Apache HTTPd, see
+GetProxyServer()).
 
-B<ArgsCount>: 2-4
+B<ArgsCount>: 2-5
 
 =over 4
 
@@ -2696,48 +2785,56 @@ The managed instance project name (COMPOSE_PROJECT_NAME).
 
 The managed instance public host name.
 
-=item $ssl: (boolean) (O)
+=item $ssl: (boolean) (U)
 
 If true, HTTPS is also configured (requires the "ssl" module and a certificate
 for the host). Not used for managed instances served under a base path as they
 use current site virtual host (and its HTTPS settings).
 
-=item $base_path: (string) (O)
+=item $base_path: (string) (U)
 
 The managed instance base path (ie. "/itc"). If set, the managed instance is
 served under that path of current site virtual host, otherwise it is served
 with its own virtual host.
 
+=item $proxy: (string) (O)
+
+The managed instance proxy container name (see _GetInstanceProxyContainer()).
+Default: "<PROJECT>-proxy".
+
 =back
 
 B<Return>: (string)
 
-The NGINX configuration.
+The proxy configuration.
 
 =cut
 
 sub GetInstanceProxyConfig {
-  my ($project, $host, $ssl, $base_path) = @_;
+  my ($project, $host, $ssl, $base_path, $proxy) = @_;
 
+  my $server = GetProxyServer();
   my %values = (
     'INSTANCE_PROJECT' => $project,
     'INSTANCE_HOST' => $host,
-    'INSTANCE_PROXY' => "$project-proxy",
+    'INSTANCE_PROXY' => $proxy || "$project-proxy",
     'INSTANCE_PORT' => 80,
     'INSTANCE_BASE_PATH' => $base_path // '',
   );
   if ($base_path) {
     return _ReadTemplate(
-      File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'nginx', 'instance-path.template'),
+      File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', $server, 'instance-path.template'),
       \%values
     );
   }
 
-  my $nginx_port;
-  if (-r 'env/genoring_nginx.env') {
-    $nginx_port = GetEnvVariable('env/genoring_nginx.env', 'NGINX_PORT');
+  # Proxy port (NGINX_PORT or HTTPD_PORT).
+  my $port_variable = uc($server) . '_PORT';
+  my $server_port;
+  if (-r "env/genoring_$server.env") {
+    $server_port = GetEnvVariable("env/genoring_$server.env", $port_variable);
   }
-  $values{'NGINX_PORT'} = ($nginx_port && ($nginx_port =~ m/^\d+$/)) ? $nginx_port : 80;
+  $values{$port_variable} = ($server_port && ($server_port =~ m/^\d+$/)) ? $server_port : 80;
   $values{'INSTANCE_SSL'} = '';
   if ($ssl) {
     my $ssl_port;
@@ -2746,12 +2843,12 @@ sub GetInstanceProxyConfig {
     }
     $values{'SSL_PORT'} = ($ssl_port && ($ssl_port =~ m/^\d+$/)) ? $ssl_port : 443;
     $values{'INSTANCE_SSL'} = _ReadTemplate(
-      File::Spec->catfile($Genoring::MODULES_DIR, 'ssl', 'res', 'nginx', 'instance-ssl.template'),
+      File::Spec->catfile($Genoring::MODULES_DIR, 'ssl', 'res', $server, 'instance-ssl.template'),
       \%values
     );
   }
   return _ReadTemplate(
-    File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'nginx', 'instance.template'),
+    File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', $server, 'instance.template'),
     \%values
   );
 }
@@ -2800,13 +2897,13 @@ sub _ReadTemplate {
 
 =head2 _GetInstanceProxyConfigPath
 
-B<Description>: Returns the volume sub-path of the NGINX configuration file of a
+B<Description>: Returns the volume sub-path of the proxy configuration file of a
 managed instance. Managed instances with their own virtual host are configured
-in the "includes" directory (HTTP level) while managed instances served under a
-base path are configured in the "genoring" directory (included in current site
-virtual host).
+in the "includes" directory (HTTP/server level) while managed instances served
+under a base path are configured in the "genoring" directory (included in
+current site virtual host).
 
-B<ArgsCount>: 1-2
+B<ArgsCount>: 1-3
 
 =over 4
 
@@ -2814,9 +2911,14 @@ B<ArgsCount>: 1-2
 
 The managed instance project name.
 
-=item $base_path: (string) (O)
+=item $base_path: (string) (U)
 
 The managed instance base path.
+
+=item $server: (string) (O)
+
+The proxy HTTP server ("nginx" or "httpd"). Default: current instance proxy
+server (see GetProxyServer()).
 
 =back
 
@@ -2827,11 +2929,49 @@ The sub-path relative to the GenoRing "volumes" directory.
 =cut
 
 sub _GetInstanceProxyConfigPath {
-  my ($project, $base_path) = @_;
+  my ($project, $base_path, $server) = @_;
+  $server ||= GetProxyServer();
   if ($base_path) {
-    return "proxy/nginx/genoring/instance-$project.conf";
+    return "proxy/$server/genoring/instance-$project.conf";
   }
-  return "proxy/nginx/includes/instance-$project.conf";
+  return "proxy/$server/includes/instance-$project.conf";
+}
+
+
+=pod
+
+=head2 _GetInstanceProxyContainer
+
+B<Description>: Returns the proxy container name of a managed instance. It
+depends on the proxy service used by the managed instance (see
+GetProxyService()).
+
+B<ArgsCount>: 1-2
+
+=over 4
+
+=item $project: (string) (R)
+
+The managed instance project name.
+
+=item $instance_dir: (string) (O)
+
+The managed instance directory. If not set, the default proxy service is
+assumed.
+
+=back
+
+B<Return>: (string)
+
+The managed instance proxy container name.
+
+=cut
+
+sub _GetInstanceProxyContainer {
+  my ($project, $instance_dir) = @_;
+  my $service = $instance_dir ? GetProxyService($instance_dir) : 'genoring-proxy';
+  $service =~ s/^genoring/$project/;
+  return $service;
 }
 
 
@@ -2839,8 +2979,8 @@ sub _GetInstanceProxyConfigPath {
 
 =head2 _ReloadProxy
 
-B<Description>: Checks the NGINX configuration of the running proxy and reloads
-it.
+B<Description>: Checks the configuration of the running proxy (NGINX or Apache
+HTTPd, see GetProxyServer()) and reloads it.
 
 B<ArgsCount>: 1
 
@@ -2854,18 +2994,21 @@ The proxy container name.
 
 B<Return>: (list)
 
-A true value on success and the NGINX output.
+A true value on success and the proxy server output.
 
 =cut
 
 sub _ReloadProxy {
   my ($container) = @_;
 
-  my $output = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $container nginx -t 2>&1);
+  my ($check_command, $reload_command) = ('httpd' eq GetProxyServer())
+    ? ('httpd -t', 'httpd -k graceful')
+    : ('nginx -t', 'nginx -s reload');
+  my $output = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $container $check_command 2>&1);
   if ($?) {
     return (0, $output);
   }
-  $output = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $container nginx -s reload 2>&1);
+  $output = qx($g_exec_prefix$Genoring::DOCKER_COMMAND exec $container $reload_command 2>&1);
   return (!$?, $output);
 }
 
@@ -2878,7 +3021,7 @@ B<Description>: Generates the proxy configuration of a managed instance and
 reloads the proxy if it is running. If the new configuration is invalid, it is
 removed and the proxy keeps working without it.
 
-B<ArgsCount>: 2-3
+B<ArgsCount>: 2-4
 
 =over 4
 
@@ -2890,9 +3033,14 @@ The managed instance project name.
 
 The managed instance public host name.
 
-=item $base_path: (string) (O)
+=item $base_path: (string) (U)
 
 The managed instance base path.
+
+=item $instance_dir: (string) (O)
+
+The managed instance directory, used to get its proxy container name (see
+_GetInstanceProxyContainer()).
 
 =back
 
@@ -2901,9 +3049,9 @@ B<Return>: (nothing)
 =cut
 
 sub _UpdateInstanceProxy {
-  my ($project, $host, $base_path) = @_;
+  my ($project, $host, $base_path, $instance_dir) = @_;
 
-  my $proxy = GetContainerName('genoring-proxy');
+  my $proxy = GetContainerName(GetProxyService());
   my (undef, $state) = IsContainerRunning($proxy);
   my $running = ($state && ($state =~ m/running/));
 
@@ -2931,7 +3079,16 @@ sub _UpdateInstanceProxy {
 
   # Write configuration.
   my $config_path = _GetInstanceProxyConfigPath($project, $base_path);
-  _WriteVolumeFile($config_path, GetInstanceProxyConfig($project, $host, $ssl, $base_path));
+  _WriteVolumeFile(
+    $config_path,
+    GetInstanceProxyConfig(
+      $project,
+      $host,
+      $ssl,
+      $base_path,
+      _GetInstanceProxyContainer($project, $instance_dir)
+    )
+  );
 
   if ($running) {
     my ($ok, $output) = _ReloadProxy($proxy);
@@ -2944,6 +3101,54 @@ sub _UpdateInstanceProxy {
   }
   else {
     print "NOTE: GenoRing is not running. The proxy configuration of instance '$project' will be used at next start.\n";
+  }
+}
+
+
+=pod
+
+=head2 _SyncManagedInstancesProxy
+
+B<Description>: Generates the proxy configuration of the managed instances that
+have been configured for another proxy HTTP server (ie. after switching current
+instance proxy to its Apache HTTPd alternative). As current instance proxy is
+not running, HTTPS is not configured on managed instances with their own
+virtual host: the "attach" command must be run again once GenoRing is started.
+
+B<ArgsCount>: 0
+
+B<Return>: (nothing)
+
+=cut
+
+sub _SyncManagedInstancesProxy {
+  my $config = GetConfig();
+  my $instances = $config->{'managed_instances'} || {};
+  my $server = GetProxyServer();
+  my $changed = 0;
+  foreach my $project (sort keys(%$instances)) {
+    my $instance = $instances->{$project};
+    # Managed instances attached before Apache HTTPd support use NGINX.
+    next if ($server eq ($instance->{'proxy_server'} || 'nginx'));
+    my $base_path = $instance->{'base_path'};
+    _WriteVolumeFile(
+      _GetInstanceProxyConfigPath($project, $base_path, $server),
+      GetInstanceProxyConfig(
+        $project,
+        $instance->{'host'},
+        0,
+        $base_path,
+        _GetInstanceProxyContainer($project, $instance->{'path'})
+      )
+    );
+    if (!$base_path && (grep { 'ssl' eq $_ } @{GetModules(1)})) {
+      print "NOTE: Run the 'attach' command again for instance '$project' once GenoRing is started to enable HTTPS on it.\n";
+    }
+    $instance->{'proxy_server'} = $server;
+    $changed = 1;
+  }
+  if ($changed) {
+    SaveConfig();
   }
 }
 
@@ -3123,7 +3328,7 @@ sub AttachInstance {
   if (!@shared) {
     warn "WARNING: Instance '$project' does not share any Docker network with current instance. Use the same '-network' flag on both instances.\n";
   }
-  my (undef, $instance_state) = IsContainerRunning("$project-proxy");
+  my (undef, $instance_state) = IsContainerRunning(_GetInstanceProxyContainer($project, $instance_dir));
   if (!$instance_state || ($instance_state !~ m/running/)) {
     warn "WARNING: The proxy of instance '$project' is not running. It will be reachable once started.\n";
   }
@@ -3131,11 +3336,12 @@ sub AttachInstance {
     warn "SECURITY WARNING: Instance '$project' is served under '$base_path/' of current site and shares its web origin: an administrator, a module or a security issue of instance '$project' may affect current site and its users (see README.md).\n";
   }
 
-  _UpdateInstanceProxy($project, $host, $base_path);
+  _UpdateInstanceProxy($project, $host, $base_path, $instance_dir);
   $config->{'managed_instances'} ||= {};
   $config->{'managed_instances'}->{$project} = {
     'host' => $host,
     'path' => $instance_dir,
+    'proxy_server' => GetProxyServer(),
   };
   if ($base_path) {
     $config->{'managed_instances'}->{$project}->{'base_path'} = $base_path;
@@ -3173,10 +3379,12 @@ sub DetachInstance {
   if (!$project || !exists($config->{'managed_instances'}->{$project})) {
     die "ERROR: DetachInstance: '" . ($project // '') . "' is not a managed instance!\n";
   }
-  # Remove both kinds of configuration (virtual host and base path).
+  # Remove both kinds of configuration (virtual host and base path) of both
+  # proxy servers.
   RemoveVolumeFiles([
-    _GetInstanceProxyConfigPath($project),
-    _GetInstanceProxyConfigPath($project, '/'),
+    map {
+      (_GetInstanceProxyConfigPath($project, '', $_), _GetInstanceProxyConfigPath($project, '/', $_))
+    } ('nginx', 'httpd')
   ]);
   delete($config->{'managed_instances'}->{$project});
   if (!%{$config->{'managed_instances'}}) {
@@ -3184,7 +3392,7 @@ sub DetachInstance {
   }
   SaveConfig();
 
-  my $proxy = GetContainerName('genoring-proxy');
+  my $proxy = GetContainerName(GetProxyService());
   my (undef, $state) = IsContainerRunning($proxy);
   if ($state && ($state =~ m/running/)) {
     my ($ok, $output) = _ReloadProxy($proxy);
@@ -3211,18 +3419,23 @@ B<Return>: (nothing)
 
 sub RefreshManagedInstances {
   my $instances = GetConfig()->{'managed_instances'} || {};
+  return if (!%$instances);
+  my $server = GetProxyServer();
   foreach my $project (sort keys(%$instances)) {
     eval {
       _UpdateInstanceProxy(
         $project,
         $instances->{$project}->{'host'},
-        $instances->{$project}->{'base_path'}
+        $instances->{$project}->{'base_path'},
+        $instances->{$project}->{'path'}
       );
+      $instances->{$project}->{'proxy_server'} = $server;
     };
     if ($@) {
       warn $@;
     }
   }
+  SaveConfig();
 }
 
 
@@ -3247,7 +3460,9 @@ sub ListManagedInstances {
   my $port = $ENV{'GENORING_PORT'} && ($ENV{'GENORING_PORT'} ne '80') ? ':' . $ENV{'GENORING_PORT'} : '';
   print "Managed instances:\n";
   foreach my $project (sort keys(%$instances)) {
-    my (undef, $state) = IsContainerRunning("$project-proxy");
+    my (undef, $state) = IsContainerRunning(
+      _GetInstanceProxyContainer($project, $instances->{$project}->{'path'})
+    );
     printf(
       "  - %s: http://%s%s%s/ (%s) in %s\n",
       $project,

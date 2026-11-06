@@ -10,7 +10,7 @@ use Genoring;
 
 # Remove proxy configs if one.
 RemoveVolumeFiles('proxy/nginx/genoring/jbrowse.conf');
-RemoveVolumeFiles('proxy/httpd/jbrowse.conf');
+RemoveVolumeFiles('proxy/httpd/genoring/jbrowse.conf');
 
 # Move JBrowse web files aside (they are restored by the
 # enable_genoring-jbrowse.sh hook when the module is enabled again).

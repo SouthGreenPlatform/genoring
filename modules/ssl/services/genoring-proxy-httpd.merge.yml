@@ -1,0 +1,8 @@
+env_file:
+  - ${PWD}/env/ssl_ssl.env
+ports:
+  # Apache HTTPd listens on SSL_PORT (see res/httpd/ssl.template), so the same
+  # port is used on both sides.
+  - ${SSL_PORT}:${SSL_PORT}
+volumes:
+  - genoring-proxy-ssl:/etc/ssl

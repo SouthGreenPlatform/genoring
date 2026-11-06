@@ -7,9 +7,6 @@ use Genoring;
 
 ++$|; # No buffering.
 
-# Remove proxy configs.
-# Nginx.
+# Remove proxy configs (NGINX and Apache HTTPd).
 RemoveVolumeFiles('proxy/nginx/includes/brapimapper.conf');
-
-# Apache2.
 RemoveVolumeFiles('proxy/httpd/includes/brapimapper.conf');

@@ -120,7 +120,10 @@ In some cases, GenoRing modules may provide alternative service containers to
 suite specific needs. For instance, the core GenoRing module provides an Apache
 HTTPd server as an alternative to the default NGINX proxy server for people more
 confortable with Apache HTTPd config files. Switching from one to the other is
-done in a single command line: `perl genoring.pl enalt genoring httpd`.
+done in a single command line: `perl genoring.pl enalt genoring httpd`. Both
+proxy servers support the same features (modules, HTTPS, base paths and managed
+instances) and their configuration files are respectively stored in
+"volumes/proxy/nginx" and "volumes/proxy/httpd".
 
 GenoRing modules use "hook scripts" that are automatically triggered by the
 GenoRing PERL script to manage changes such as modules installation,
@@ -399,7 +402,11 @@ If the "ssl" module is enabled on the master instance, HTTPS is also configured
 for managed instances with their own host name (run "attach" again after
 enabling the module), while managed instances served under a base path use the
 master instance HTTPS settings. The master instance can be started before or
-after its managed instances.
+after its managed instances. Master and managed instances can use either the
+nginx proxy or its Apache HTTPd alternative: after switching the proxy of the
+master instance, the configuration of its managed instances is regenerated at
+next start, but HTTPS must be enabled again on them by running "attach" again
+once the master instance is started.
 
 **SECURITY WARNING: managed instances served under a base path.** Such a managed
 instance shares the web origin (scheme, host name and port) of the master site:

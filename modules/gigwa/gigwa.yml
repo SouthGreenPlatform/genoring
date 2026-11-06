@@ -24,8 +24,8 @@ volumes:
     mapping: "volumes/gigwa/config"
 dependencies:
   services:
-    - "REQUIRES genoring genoring-proxy OR genoring-proxy-http"
-    - "genoring-gigwa BEFORE genoring genoring-proxy OR genoring-proxy-http"
+    - "REQUIRES genoring genoring-proxy OR genoring genoring-proxy-httpd"
+    - "genoring-gigwa BEFORE genoring genoring-proxy OR genoring genoring-proxy-httpd"
     - "REQUIRES mongodb42 genoring-mongodb42"
     - "genoring-gigwa AFTER mongodb42 genoring-mongodb42"
   volumes:

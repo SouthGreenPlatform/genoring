@@ -1,0 +1,7 @@
+<VirtualHost *:${SSL_PORT}>
+  Use GenoRingInstance-${INSTANCE_PROJECT}
+
+  SSLEngine on
+  SSLCertificateFile    /etc/ssl/certs/${INSTANCE_HOST}.crt
+  SSLCertificateKeyFile /etc/ssl/private/${INSTANCE_HOST}.key
+</VirtualHost>

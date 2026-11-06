@@ -786,8 +786,9 @@ Docker as they may still be used by other GenoRing instances.
 =item -network=<NETWORK_NAME>
 
 Adds the services flagged with "network: auto" in their module definition
-(currently "genoring-proxy") to the given network. Services of modules enabled
-later are also added if they are flagged that way.
+(currently "genoring-proxy" or its "genoring-proxy-httpd" alternative) to the
+given network. Services of modules enabled later are also added if they are
+flagged that way.
 
 =item -network=<NETWORK_NAME>:<SERVICE_LIST>
 

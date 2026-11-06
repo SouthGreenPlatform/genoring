@@ -9,4 +9,4 @@ genoring_script_version: 1.0-alpha8
 dependencies:
   services:
     - "REQUIRES genoring genoring"
-    - "REQUIRES genoring genoring-proxy"
+    - "REQUIRES genoring genoring-proxy OR genoring genoring-proxy-httpd"

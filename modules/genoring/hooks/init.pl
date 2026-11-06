@@ -24,13 +24,6 @@ if (!$ENV{'GENORING_NO_EXPOSED_VOLUMES'}) {
     }
   }
 
-  CreateVolumeDirectory('proxy/nginx/includes');
-  CreateVolumeDirectory('proxy/nginx/genoring');
-  CopyModuleFiles(
-    'genoring/res/nginx/genoring-fpm.conf',
-    'proxy/nginx/genoring-fpm.conf'
-  );
-
   if (!-d $Genoring::VOLUMES_DIR . '/www') {
     my $www_src_path = File::Spec->catfile($Genoring::MODULES_DIR, 'genoring', 'res', 'www');
     my $www_vol_path = File::Spec->catfile($Genoring::VOLUMES_DIR, 'www');
@@ -41,12 +34,9 @@ if (!$ENV{'GENORING_NO_EXPOSED_VOLUMES'}) {
   CreateVolumeDirectory('backups');
 }
 else {
-  # Files are not (exposed) volumes so we need to keep them copied.
-  CreateVolumeDirectory('proxy/nginx');
-  CopyModuleFiles(
-    'genoring/res/nginx/genoring-fpm.conf',
-    'proxy/nginx/genoring-fpm.conf'
-  );
   # We still want a visible backup directory.
   CreateVolumeDirectory('backups');
 }
+
+# Add proxy configs (NGINX and Apache HTTPd).
+require $ENV{'GENORING_DIR'} . '/modules/genoring/hooks/start.pl';

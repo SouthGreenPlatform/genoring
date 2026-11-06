@@ -2,14 +2,22 @@ image: httpd:2.4
 profiles: ["prod","staging","dev","backend","offline"]
 env_file:
   - ${PWD}/env/genoring_httpd.env
+  - ${PWD}/env/genoring_genoring.env
 ports:
-  - 8080:80
+  - ${GENORING_PORT}:80
 volumes:
-  - ${GENORING_VOLUMES_DIR}/proxy/genoring-fpm.conf:/etc/nginx/templates/default.conf.template
-  - ${GENORING_VOLUMES_DIR}/proxy/modules:/etc/nginx/genoring
+  - type: bind
+    source: ${GENORING_VOLUMES_DIR}/proxy/httpd/genoring-httpd.conf
+    target: /usr/local/apache2/conf/httpd.conf
+  - ${GENORING_VOLUMES_DIR}/proxy/httpd/includes:/usr/local/apache2/conf/includes
+  - ${GENORING_VOLUMES_DIR}/proxy/httpd/genoring:/usr/local/apache2/conf/genoring
   - genoring-drupal-volume:/opt/drupal
+  - genoring-www-volume:/usr/share/www
   - genoring-data-volume:/data
+# Other services reach the proxy using the "genoring-proxy" name, whatever the
+# proxy service used.
+networks:
+  default:
+    aliases:
+      - genoring-proxy
 restart: always
-# Depencies will be added automatically for the proxy.
-# depends_on:
-#   - genoring

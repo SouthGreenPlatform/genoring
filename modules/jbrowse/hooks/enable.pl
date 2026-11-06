@@ -9,7 +9,7 @@ use Genoring;
 
 # Add configs.
 CopyModuleFiles('jbrowse/res/nginx/jbrowse.conf', 'proxy/nginx/genoring/jbrowse.conf');
-CopyModuleFiles('jbrowse/res/httpd/jbrowse.conf', 'proxy/httpd/jbrowse.conf');
+CopyModuleFiles('jbrowse/res/httpd/jbrowse.conf', 'proxy/httpd/genoring/jbrowse.conf');
 
 # Returns 1 when called by "require".
 1;

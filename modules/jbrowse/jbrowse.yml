@@ -18,7 +18,7 @@ dependencies:
   services:
     - "REQUIRES genoringtools"
     - "backend,offline:genoring-jbrowse AFTER genoringtools genoring-genoringtools"
-    - "backend,offline:genoring-jbrowse BEFORE genoring genoring-proxy"
+    - "backend,offline:genoring-jbrowse BEFORE genoring genoring-proxy OR genoring genoring-proxy-httpd"
   volumes:
     - "REQUIRES genoring genoring-data-volume"
     - "REQUIRES genoring genoring-www-volume"

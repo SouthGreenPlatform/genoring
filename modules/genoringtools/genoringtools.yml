@@ -26,6 +26,6 @@ services:
     version: 1.0
 dependencies:
   services:
-    - "backend,offline:genoring-genoringtools BEFORE genoring genoring-proxy"
+    - "backend,offline:genoring-genoringtools BEFORE genoring genoring-proxy OR genoring genoring-proxy-httpd"
   volumes:
     - "REQUIRES genoring genoring-data-volume"

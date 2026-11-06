@@ -26,7 +26,7 @@ services:
     network: auto
 alternatives:
   httpd:
-    description: "Replaces NGINX server with Apache 2 HTTPd."
+    description: "Replaces NGINX server with Apache 2 HTTPd (genoring-proxy-httpd service)."
     substitute:
       genoring-proxy: genoring-proxy-httpd
 volumes:
@@ -65,7 +65,17 @@ volumes:
     description: "Contains NGINX location (or other directives) to include into the main genoring web host."
     type: "exposed"
     mapping: "volumes/proxy/nginx/genoring"
+  genoring-volume-proxy-httpd-includes:
+    name: "Apache HTTPd includes"
+    description: "Contains Apache HTTPd virtual host definitions (or other server level directives) to include when the httpd alternative is enabled."
+    type: "exposed"
+    mapping: "volumes/proxy/httpd/includes"
+  genoring-volume-proxy-httpd-genoring:
+    name: "Apache HTTPd genoring virtual host includes"
+    description: "Contains Apache HTTPd directives to include into the main genoring virtual host when the httpd alternative is enabled."
+    type: "exposed"
+    mapping: "volumes/proxy/httpd/genoring"
 dependencies:
   services:
     - "genoring-db BEFORE genoring genoring"
-    - "genoring BEFORE genoring genoring-proxy"
+    - "genoring BEFORE genoring genoring-proxy OR genoring genoring-proxy-httpd"

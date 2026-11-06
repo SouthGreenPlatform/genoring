@@ -1,0 +1,9 @@
+# Service interface.
+Listen ${BRAPI_PORT}
+
+<VirtualHost *:${BRAPI_PORT}>
+  ServerName ${GENORING_HOST}
+
+  ProxyPass "/brapi/v1/" "http://genoring-proxy/brapi/v1/"
+  ProxyPass "/brapi/v2/" "http://genoring-proxy/brapi/v2/"
+</VirtualHost>

@@ -1,0 +1,12 @@
+# HTTPS virtual host of the main "GenoRing" site.
+# Note: this file is included before managed instance configurations so the
+# main site is the default HTTPS virtual host.
+Listen ${SSL_PORT}
+
+<VirtualHost *:${SSL_PORT}>
+  Use GenoRingSite
+
+  SSLEngine on
+  SSLCertificateFile    /etc/ssl/certs/${GENORING_HOST}.crt
+  SSLCertificateKeyFile /etc/ssl/private/${GENORING_HOST}.key
+</VirtualHost>

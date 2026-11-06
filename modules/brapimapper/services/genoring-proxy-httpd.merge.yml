@@ -1,0 +1,2 @@
+ports:
+  - ${BRAPI_PORT}:${BRAPI_PORT}

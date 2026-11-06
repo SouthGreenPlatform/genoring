@@ -764,7 +764,7 @@ is_deeply(
   GetModuleAlternatives('genoring'),
   {
     'httpd' => {
-      'description' => 'Replaces NGINX server with Apache 2 HTTPd.',
+      'description' => 'Replaces NGINX server with Apache 2 HTTPd (genoring-proxy-httpd service).',
       'substitute' => {
         'genoring-proxy' => 'genoring-proxy-httpd',
       },
@@ -787,8 +787,8 @@ is_deeply(
     },
     'dependencies' => {
       'services' => [
-        'REQUIRES genoring genoring-proxy OR genoring-proxy-http',
-        'genoring-gigwa BEFORE genoring genoring-proxy OR genoring-proxy-http',
+        'REQUIRES genoring genoring-proxy OR genoring genoring-proxy-httpd',
+        'genoring-gigwa BEFORE genoring genoring-proxy OR genoring genoring-proxy-httpd',
         'REQUIRES mongodb42 genoring-mongodb42',
         'genoring-gigwa AFTER mongodb42 genoring-mongodb42',
       ],
@@ -827,6 +827,12 @@ is_deeply(
   GetVolumes(),
   {
     'genoring-volume-proxy-nginx-genoring' => [
+      'genoring',
+    ],
+    'genoring-volume-proxy-httpd-genoring' => [
+      'genoring',
+    ],
+    'genoring-volume-proxy-httpd-includes' => [
       'genoring',
     ],
     'genoring-volume-www' => [
@@ -886,6 +892,8 @@ is_deeply(
   GetModuleVolumes('genoring', 'exposed'),
   [
     'genoring-volume-db-data',
+    'genoring-volume-proxy-httpd-genoring',
+    'genoring-volume-proxy-httpd-includes',
     'genoring-volume-proxy-nginx-genoring',
     'genoring-volume-proxy-nginx-includes',
   ],
@@ -903,6 +911,8 @@ is_deeply(
     'genoring-data-volume',
     'genoring-drupal-volume',
     'genoring-volume-db-data',
+    'genoring-volume-proxy-httpd-genoring',
+    'genoring-volume-proxy-httpd-includes',
     'genoring-volume-proxy-nginx-genoring',
     'genoring-volume-proxy-nginx-includes',
     'genoring-volume-www',
