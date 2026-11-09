@@ -34,6 +34,7 @@ use utf8;
 use CPAN::Meta::YAML;
 use Cwd qw( abs_path getcwd );
 use Data::Dumper;
+use Digest::SHA;
 use File::Basename;
 use File::Copy;
 use File::Path qw( make_path remove_tree );
@@ -1618,8 +1619,9 @@ sub _GetServiceImage {
 
 =head2 _OverrideImagePrefix
 
-B<Description>: Returns the Docker image name prefix to use for override
-images of the given service (i.e. "genoring-override-<project>-<service>"),
+B<Description>: Returns the Docker image name prefix to use for temporary
+override stage images of the given service (i.e.
+"genoring-override-<project>-<service>"),
 with project and service names lowercased and normalized to only contain
 alphanumerical characters, ".", "_" and "-".
 
@@ -1647,6 +1649,165 @@ sub _OverrideImagePrefix {
   $service = lc($service);
   $service =~ s/[^a-z0-9_.-]+/-/g;
   return "genoring-override-$project-$service";
+}
+
+
+=pod
+
+=head2 _OverrideImageName
+
+B<Description>: Returns the Docker image name to use for the final image of a
+service override chain (i.e. "genoring-override-<service>:<key>"). The key is
+a short hash computed from the service name, the module owning the service,
+its base image and the ordered list of modules providing the overrides. This
+way, an overridden image never replaces the original service image, and
+instances sharing the same override set share the same image while instances
+with a different override set use a different image.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $service: (string) (R)
+
+The service name.
+
+=item $plan: (hash ref) (R)
+
+The service override plan as returned by _GetServiceOverridePlans().
+
+=back
+
+B<Return>: (string)
+
+The override image name (with tag).
+
+=cut
+
+sub _OverrideImageName {
+  my ($service, $plan) = @_;
+  my $key = substr(
+    Digest::SHA::sha1_hex(
+      join(
+        "\0",
+        $service,
+        $plan->{'owner'} || '',
+        $plan->{'base_image'} || '',
+        map { $_->{'module'} } @{$plan->{'overrides'}}
+      )
+    ),
+    0,
+    $Genoring::OVERRIDE_KEY_LENGTH
+  );
+  $service = lc($service);
+  $service =~ s/[^a-z0-9_.-]+/-/g;
+  return "genoring-override-$service:$key";
+}
+
+
+=pod
+
+=head2 _IsServiceImage
+
+B<Description>: Tells if the given Docker image name corresponds to the given
+service image, either its original image (named after the service) or one of
+its override images.
+
+B<ArgsCount>: 2
+
+=over 4
+
+=item $service: (string) (R)
+
+The service name.
+
+=item $image: (string) (R)
+
+The Docker image name.
+
+=back
+
+B<Return>: (boolean)
+
+True if the image is the service image or one of its override images.
+
+=cut
+
+sub _IsServiceImage {
+  my ($service, $image) = @_;
+  my $normalized = lc($service);
+  $normalized =~ s/[^a-z0-9_.-]+/-/g;
+  return ($image eq $service)
+    || ($image eq "$service:latest")
+    || ($image =~ m/^genoring-override-\Q$normalized\E:[0-9a-f]+$/);
+}
+
+
+=pod
+
+=head2 _GetFileDigest
+
+B<Description>: Returns the SHA-1 hexadecimal digest of the given file content
+or an empty string if the file can not be read.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $path: (string) (R)
+
+The file path.
+
+=back
+
+B<Return>: (string)
+
+The file digest.
+
+=cut
+
+sub _GetFileDigest {
+  my ($path) = @_;
+  return '' if !-r $path;
+  my $digest = eval { Digest::SHA->new(1)->addfile($path, 'b')->hexdigest(); };
+  return $digest || '';
+}
+
+
+=pod
+
+=head2 _GetDockerImageLabels
+
+B<Description>: Returns the labels of the given local Docker image.
+
+B<ArgsCount>: 1
+
+=over 4
+
+=item $image: (string) (R)
+
+The Docker image name.
+
+=back
+
+B<Return>: (hash ref)
+
+The image labels (empty if the image is not available or has no labels).
+
+=cut
+
+sub _GetDockerImageLabels {
+  my ($image) = @_;
+  my $labels = eval {
+    my $output = Run(
+      "$Genoring::DOCKER_COMMAND image inspect --format "
+        . _ShellQuote('{{json .Config.Labels}}') . ' '
+        . _ShellQuote($image) . " 2>$Genoring::NULL"
+    );
+    $output =~ s/^\s+|\s+$//g;
+    $output ? JSON::PP->new->allow_nonref->decode($output) : undef;
+  };
+  return ('HASH' eq ref($labels)) ? $labels : {};
 }
 
 
@@ -1691,7 +1852,7 @@ B<Description>: Computes the service override plans for all services targeted
 by overrides declared by enabled modules (from their module info "overrides"
 section). For each overridden service, the plan contains the owner module,
 the base image, the source directory, the list of override Dockerfiles (with
-file timestamps and size) and a signature used to detect changes. Dies on
+their content digest) and a signature used to detect changes. Dies on
 invalid override declarations or missing Dockerfiles.
 
 B<ArgsCount>: 1-2
@@ -1791,15 +1952,12 @@ sub _GetServiceOverridePlans {
       if (!-r $dockerfile) {
         die "ERROR: Module '$declaration->{'module'}' declares an override for '$service' but '$dockerfile' is missing or unreadable.\n";
       }
-      my @stat = stat($dockerfile);
       push(
         @{$plan->{'overrides'}},
         {
           %$declaration,
           'dockerfile' => $dockerfile,
-          'mtime' => $stat[9] || 0,
-          'ctime' => $stat[10] || 0,
-          'size' => $stat[7] || 0,
+          'digest' => _GetFileDigest($dockerfile),
         }
       );
     }
@@ -1810,8 +1968,7 @@ sub _GetServiceOverridePlans {
       my $dockerfile = File::Spec->catfile($source_dir, 'Dockerfile');
       $dockerfile = File::Spec->catfile($source_dir, 'Dockerfile.default')
         if !-f $dockerfile;
-      my @stat = stat($dockerfile);
-      push(@signature_parts, $stat[9] || 0, $stat[10] || 0, $stat[7] || 0);
+      push(@signature_parts, _GetFileDigest($dockerfile));
     }
     foreach my $override (@{$plan->{'overrides'}}) {
       push(
@@ -1819,9 +1976,7 @@ sub _GetServiceOverridePlans {
         $override->{'module'},
         $override->{'version'},
         $override->{'target'},
-        $override->{'mtime'},
-        $override->{'ctime'},
-        $override->{'size'},
+        $override->{'digest'},
       );
     }
     $plan->{'signature'} = join('|', @signature_parts);
@@ -1842,6 +1997,14 @@ override Dockerfiles to generate the final Docker image and saves the result
 in the global config ("service_overrides" section). Dies on build failures and
 cleans up temporary stage images.
 
+The final image is named "genoring-override-<service>:<key>" (see
+_OverrideImageName()) so that it never replaces the original service image and
+can be shared by all the instances using the same override set. The override
+content signature and the base image identifier are stored as labels of the
+final image: an existing image is reused (not rebuilt) when they still match,
+even if it was built by another instance. An override image is always rebuilt
+when the base image has just been compiled or when the "no-cache" flag is set.
+
 B<ArgsCount>: 0-2
 
 =over 4
@@ -1853,8 +2016,8 @@ overrides of all the enabled services are applied.
 
 =item $base_image_ready: (boolean) (O)
 
-If true, the service base image has just been built and can be tagged as the
-first intermediate layer instead of rebuilding it.
+If true, the service base image has just been built: it is used as is to apply
+the overrides and the override chain is always rebuilt.
 
 =back
 
@@ -1871,6 +2034,8 @@ sub ApplyServiceOverrides {
   my $previous = $config->{'service_overrides'} || {};
   my %updated = %$previous;
   my $changed = 0;
+  my $signature_label = "$Genoring::OVERRIDE_LABEL_PREFIX.signature";
+  my $base_id_label = "$Genoring::OVERRIDE_LABEL_PREFIX.base-image-id";
 
   foreach my $service (keys(%updated)) {
     next if defined($service_filter) && $service ne $service_filter;
@@ -1885,52 +2050,54 @@ sub ApplyServiceOverrides {
     my $old = $previous->{$service} || {};
     my $modules = [map { $_->{'module'} } @{$plan->{'overrides'}}];
     my $prefix = _OverrideImagePrefix($service);
-    my $image = $plan->{'has_source'} ? $plan->{'base_image'} : "$prefix:latest";
+    my $image = _OverrideImageName($service, $plan);
+    my $signature = Digest::SHA::sha1_hex($plan->{'signature'} || '');
     my $image_id = _GetDockerImageId($image);
-    next if $image_id
-      && ($old->{'signature'} || '') eq $plan->{'signature'}
-      && ($old->{'image'} || '') eq $image
-      && ($old->{'image_id'} || '') eq $image_id
-      && 'ARRAY' eq ref($old->{'modules'})
-      && join("\0", @{$old->{'modules'}}) eq join("\0", @$modules);
+    my $base_id = _GetDockerImageId($plan->{'base_image'});
 
-    my @temporary_images;
-    eval {
-      my $previous_image = $plan->{'base_image'};
-      if ($plan->{'has_source'}) {
-        $previous_image = "$prefix-stage-0:latest";
-        push(@temporary_images, $previous_image);
-        if ($base_image_ready) {
-          Run(
-            "$Genoring::DOCKER_COMMAND image tag "
-              . _ShellQuote($plan->{'base_image'}) . ' '
-              . _ShellQuote($previous_image),
-            "Failed to tag the compiled base image for service '$service'.",
-            1,
-            $g_debug || $g_flags->{'verbose'}
+    # Check if an up-to-date image is already available (possibly built by
+    # another instance sharing the same override set).
+    my $up_to_date = 0;
+    if ($image_id && !$base_image_ready && !$g_flags->{'no-cache'}) {
+      my $labels = _GetDockerImageLabels($image);
+      $up_to_date = (($labels->{$signature_label} || '') eq $signature)
+        && (!$base_id || (($labels->{$base_id_label} || '') eq $base_id));
+    }
+
+    if (!$up_to_date) {
+      my @temporary_images;
+      eval {
+        my $previous_image = $plan->{'base_image'};
+        if ($plan->{'has_source'} && !$base_image_ready && !$base_id) {
+          # Base image not available, compile it under its original name (it
+          # is not altered by overrides).
+          Build($plan->{'owner'}, $service, $plan->{'base_image'});
+          $base_id = _GetDockerImageId($plan->{'base_image'});
+        }
+        foreach my $index (0 .. $#{$plan->{'overrides'}}) {
+          my $output_image = $image;
+          my $labels;
+          if ($index < $#{$plan->{'overrides'}}) {
+            $output_image = "$prefix-stage-" . ($index + 1) . ':latest';
+            push(@temporary_images, $output_image);
+          }
+          else {
+            $labels = {
+              $signature_label => $signature,
+              $base_id_label => $base_id,
+            };
+          }
+          _BuildServiceOverride(
+            $plan->{'overrides'}->[$index]->{'dockerfile'},
+            $plan->{'overrides'}->[$index]->{'module'},
+            $plan->{'base_image'},
+            $previous_image,
+            $output_image,
+            $labels
           );
+          $previous_image = $output_image;
         }
-        else {
-          Build($plan->{'owner'}, $service, $previous_image);
-        }
-      }
-      foreach my $index (0 .. $#{$plan->{'overrides'}}) {
-        my $output_image = $image;
-        if ($index < $#{$plan->{'overrides'}}) {
-          $output_image = "$prefix-stage-" . ($index + ($plan->{'has_source'} ? 1 : 0)) . ':latest';
-          push(@temporary_images, $output_image);
-        }
-        _BuildServiceOverride(
-          $plan->{'overrides'}->[$index]->{'dockerfile'},
-          $plan->{'overrides'}->[$index]->{'module'},
-          $plan->{'base_image'},
-          $previous_image,
-          $output_image
-        );
-        $previous_image = $output_image;
-      }
-    };
-    if ($@) {
+      };
       my $failure = $@;
       foreach my $temporary_image (@temporary_images) {
         next if !_GetDockerImageId($temporary_image);
@@ -1941,22 +2108,23 @@ sub ApplyServiceOverrides {
           $g_debug || $g_flags->{'verbose'}
         );
       }
-      die $failure;
+      die $failure if $failure;
+
+      $image_id = _GetDockerImageId($image);
+      if (!$image_id) {
+        die "ERROR: Override image '$image' for service '$service' was not found after building.\n";
+      }
     }
-    foreach my $temporary_image (@temporary_images) {
-      next if !_GetDockerImageId($temporary_image);
-      Run(
-        "$Genoring::DOCKER_COMMAND image rm -f " . _ShellQuote($temporary_image),
-        "Failed to remove temporary override image '$temporary_image'.",
-        0,
-        $g_debug || $g_flags->{'verbose'}
-      );
+    else {
+      print "Using existing override image '$image' for service '$service'.\n";
     }
 
-    $image_id = _GetDockerImageId($image);
-    if (!$image_id) {
-      die "ERROR: Override image '$image' for service '$service' was not found after building.\n";
-    }
+    next if ($old->{'image'} || '') eq $image
+      && ($old->{'image_id'} || '') eq $image_id
+      && ($old->{'signature'} || '') eq $plan->{'signature'}
+      && 'ARRAY' eq ref($old->{'modules'})
+      && join("\0", @{$old->{'modules'}}) eq join("\0", @$modules);
+
     $updated{$service} = {
       'image' => $image,
       'image_id' => $image_id,
@@ -3988,9 +4156,12 @@ sub GenerateDockerComposeFile {
   foreach my $service (sort keys(%services)) {
     my $service_name = GetContainerName($service);
     $compose->{'services'}->{$service} = $services{$service}->{'definition'};
-    if (exists($config->{'service_overrides'}->{$service}->{'image'})) {
-      $compose->{'services'}->{$service}->{'image'} =
-        $config->{'service_overrides'}->{$service}->{'image'};
+    # Note: avoid autovivification of "service_overrides" entries in config.
+    my $service_override = ('HASH' eq ref($config->{'service_overrides'}))
+      ? $config->{'service_overrides'}->{$service}
+      : undef;
+    if (('HASH' eq ref($service_override)) && $service_override->{'image'}) {
+      $compose->{'services'}->{$service}->{'image'} = $service_override->{'image'};
       delete($compose->{'services'}->{$service}->{'build'});
       $compose->{'services'}->{$service}->{'pull_policy'} = 'never';
     }
@@ -8187,7 +8358,7 @@ sub Build {
   # projects may run with the same image, each should be checked.
   my ($id, $state, $name, $image) = IsContainerRunning($service);
   if ($id) {
-    if ($image && ($image ne $service)) {
+    if ($image && !_IsServiceImage($service, $image)) {
       die "ERROR: Build: A container with the same name ($service) but a different image ($image) is currently running. Please stop it before compiling.";
     }
     Run(
@@ -8328,7 +8499,7 @@ builds the resulting image in a temporary Dockerfile. Dies if the Dockerfile
 can not be read or written, or if it does not use the base image in a "FROM"
 instruction. Removes any previous image with the same name before building.
 
-B<ArgsCount>: 5
+B<ArgsCount>: 5-6
 
 =over 4
 
@@ -8353,6 +8524,10 @@ image).
 
 The name of the Docker image to generate.
 
+=item $labels: (hash ref) (O)
+
+Docker labels to set on the generated image.
+
 =back
 
 B<Return>: (nothing)
@@ -8360,7 +8535,7 @@ B<Return>: (nothing)
 =cut
 
 sub _BuildServiceOverride {
-  my ($dockerfile, $module, $base_image, $previous_image, $output_image) = @_;
+  my ($dockerfile, $module, $base_image, $previous_image, $output_image, $labels) = @_;
   my $dockerfile_fh;
   open($dockerfile_fh, '<:utf8', $dockerfile)
     or die "ERROR: Unable to read service override Dockerfile '$dockerfile': $!\n";
@@ -8407,9 +8582,13 @@ sub _BuildServiceOverride {
     );
   }
   my $no_cache = $g_flags->{'no-cache'} ? '--no-cache' : '';
+  my $label_args = '';
+  foreach my $label (sort keys(%{$labels || {}})) {
+    $label_args .= '--label ' . _ShellQuote("$label=" . ($labels->{$label} // '')) . ' ';
+  }
   my $context = File::Basename::dirname($dockerfile);
   Run(
-    "$Genoring::DOCKER_BUILD_COMMAND $no_cache --build-arg GENORING_UID=$ENV{GENORING_UID} --build-arg GENORING_GID=$ENV{GENORING_GID} -f "
+    "$Genoring::DOCKER_BUILD_COMMAND $no_cache $label_args--build-arg GENORING_UID=$ENV{GENORING_UID} --build-arg GENORING_GID=$ENV{GENORING_GID} -f "
       . _ShellQuote($temp_path) . ' -t ' . _ShellQuote($output_image) . ' ' . _ShellQuote($context),
     "Failed to build service override from module '$module'.",
     1,
@@ -8436,17 +8615,27 @@ sub BuildMissingContainers {
   # Get module services.
   my $services = GetServices();
 
+  my $service_overrides = GetConfig()->{'service_overrides'} || {};
+
   # Check missing containers.
   foreach my $service (keys(%$services)) {
+    my $module = $services->{$service};
     my $image_id = Run("$Genoring::DOCKER_COMMAND images -q $service:latest 2>&1");
     if (!$image_id) {
       # Check if we got sources
-      my $module = $services->{$service};
       if (-d "$Genoring::MODULES_DIR/$module/src/$service") {
-        # Got sources, build.
+        # Got sources, build (overrides are applied as well).
         print "Build missing service $module:$service.\n";
         Build($module, $service);
+        next;
       }
+    }
+    # Check missing override images (they may have been removed or built by
+    # another instance on another host).
+    my $override_image = ($service_overrides->{$service} || {})->{'image'};
+    if ($override_image && !_GetDockerImageId($override_image)) {
+      print "Build missing override image of service $module:$service.\n";
+      ApplyServiceOverrides($service, 0);
     }
   }
 }
@@ -8488,7 +8677,7 @@ sub DeleteAllContainers {
       # projects may run with the same image, each should be checked.
       my ($id, $state, $name, $image) = IsContainerRunning($service);
       if ($id) {
-        if ($image && ($image ne $service)) {
+        if ($image && !_IsServiceImage($service, $image)) {
           die "ERROR: DeleteAllContainers: A container with the same name ($service) but a different image ($image) is currently running. Please stop it manually.";
         }
         Run(

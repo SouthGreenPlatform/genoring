@@ -17,7 +17,7 @@ use File::Temp qw(tempdir);
 use FindBin;
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
-use Test::More tests => 22;
+use Test::More tests => 39;
 
 my $modules_dir = tempdir(CLEANUP => 1);
 local $Genoring::MODULES_DIR = $modules_dir;
@@ -101,10 +101,25 @@ my %module_config = (
   is_deeply($plans, {}, 'Services without active override declarations are not inspected or rebuilt');
 }
 
+# Simulated local Docker image store used by override chain tests.
+my (%images, %image_labels, $image_counter);
+sub reset_images {
+  %images = @_;
+  %image_labels = ();
+  $image_counter = 0;
+}
+sub mock_build_override {
+  my ($log, $dockerfile, $module, $base, $previous, $output, $labels) = @_;
+  push(@$log, ['override', $dockerfile, $module, $base, $previous, $output, $labels]);
+  $images{$output} = 'built-' . ++$image_counter;
+  $image_labels{$output} = {%{$labels || {}}};
+}
+
 {
   my @builds;
   my @compose_updates;
   my $config = {'service_overrides' => {}};
+  my $project = 'test-project';
   my $plan = {
     'owner' => 'base',
     'base_image' => 'genoring',
@@ -115,32 +130,74 @@ my %module_config = (
       {'module' => 'override_two', 'dockerfile' => 'two.dockerfile'},
     ],
   };
+  reset_images('genoring' => 'base-id-1');
   local *Genoring::ClearInternalCache = sub {};
   local *Genoring::GetServices = sub { return {'genoring-app' => 'base'}; };
   local *Genoring::GetConfig = sub { return $config; };
-  local *Genoring::GetProjectName = sub { return 'test-project'; };
+  local *Genoring::GetProjectName = sub { return $project; };
   local *Genoring::SaveConfig = sub {};
   local *Genoring::GenerateDockerComposeFile = sub { push(@compose_updates, 1); };
   local *Genoring::Run = sub {
-    return $_[0] =~ / images -q / ? 'image-id' : '';
+    delete($images{$1}) if $_[0] =~ / image rm -f '([^']+)'/;
+    return '';
   };
+  local *Genoring::_GetDockerImageId = sub { return $images{$_[0]} || ''; };
+  local *Genoring::_GetDockerImageLabels = sub { return $image_labels{$_[0]} || {}; };
   local *Genoring::_GetServiceOverridePlans = sub { return {'genoring-app' => $plan}; };
-  local *Genoring::Build = sub { push(@builds, ['base', @_]); };
-  local *Genoring::_BuildServiceOverride = sub { push(@builds, ['override', @_]); };
+  local *Genoring::Build = sub {
+    push(@builds, ['base', @_]);
+    $images{$_[2]} = 'base-id-rebuilt';
+  };
+  local *Genoring::_BuildServiceOverride = sub { mock_build_override(\@builds, @_); };
 
   Genoring::ApplyServiceOverrides();
-  is(scalar(@builds), 3, 'Builds a source image and both override layers');
-  is($builds[0]->[3], 'genoring-override-test-project-genoring-app-stage-0:latest', 'Builds source image to an intermediate tag');
-  is($builds[1]->[5], 'genoring-override-test-project-genoring-app-stage-1:latest', 'Tags the first override as an intermediate layer');
-  is($builds[2]->[5], 'genoring', 'Tags the final source-based override with the original image name');
+  my $final_image = $builds[-1]->[5];
+  is(scalar(@builds), 2, 'Builds both override layers on top of the existing source image');
+  is($builds[0]->[4], 'genoring', 'Chains the first override on the original source image');
+  is($builds[0]->[5], 'genoring-override-test-project-genoring-app-stage-1:latest', 'Builds the first override as an intermediate layer');
+  like($final_image, qr/^genoring-override-genoring-app:[0-9a-f]{12}$/, 'Names the final image after the service and an override key');
+  ok(!grep({ $_->[5] eq 'genoring' } @builds), 'Never overwrites the original source image');
+  ok(!exists($images{'genoring-override-test-project-genoring-app-stage-1:latest'}), 'Removes intermediate images');
+  is($image_labels{$final_image}->{'org.genoring.override.base-image-id'}, 'base-id-1', 'Labels the final image with its base image identifier');
+  is($config->{'service_overrides'}->{'genoring-app'}->{'image'}, $final_image, 'Persists the effective override image');
   is_deeply(
     $config->{'service_overrides'}->{'genoring-app'}->{'modules'},
     [qw(override_one override_two)],
     'Persists the ordered override module list'
   );
   Genoring::ApplyServiceOverrides();
-  is(scalar(@builds), 3, 'Does not rebuild an unchanged override chain');
+  is(scalar(@builds), 2, 'Does not rebuild an unchanged override chain');
   is(scalar(@compose_updates), 1, 'Regenerates Compose after changing an override image');
+
+  # Another instance with the same override set shares the image.
+  $config = {};
+  $project = 'another-project';
+  Genoring::ApplyServiceOverrides();
+  is(scalar(@builds), 2, 'Reuses an up-to-date override image built by another instance');
+  is($config->{'service_overrides'}->{'genoring-app'}->{'image'}, $final_image, 'Another instance with the same overrides uses the same image');
+
+  # A base image change invalidates the override image.
+  $images{'genoring'} = 'base-id-2';
+  Genoring::ApplyServiceOverrides();
+  is(scalar(@builds), 4, 'Rebuilds the override chain when the base image changed');
+  is($builds[-1]->[5], $final_image, 'Rebuilds the shared override image in place');
+
+  # A freshly compiled base image always triggers a rebuild.
+  Genoring::ApplyServiceOverrides('genoring-app', 1);
+  is(scalar(@builds), 6, 'Rebuilds the override chain after a base image compilation');
+
+  # A different override set uses a different image.
+  my $first_override = pop(@{$plan->{'overrides'}});
+  Genoring::ApplyServiceOverrides();
+  isnt($builds[-1]->[5], $final_image, 'A different override set uses a different image');
+  ok(exists($images{$final_image}), 'Keeps the image of the other override set');
+  push(@{$plan->{'overrides'}}, $first_override);
+
+  # Missing base image is compiled under its original name first.
+  delete($images{'genoring'});
+  delete($images{$final_image});
+  Genoring::ApplyServiceOverrides();
+  is_deeply([@{$builds[-3]}[0 .. 3]], ['base', 'base', 'genoring-app', 'genoring'], 'Compiles a missing source image under its original name');
 }
 
 {
@@ -167,6 +224,13 @@ my %module_config = (
   );
   like($built_dockerfile, qr/^FROM genoring-intermediate:latest$/m, 'Rewrites FROM to the preceding image');
   like($commands[1], qr/-t 'genoring-final:latest'/, 'Builds the override under its requested image name');
+  @commands = ();
+  Genoring::_BuildServiceOverride(
+    $dockerfile, 'override_one', 'app-image',
+    'genoring-intermediate:latest', 'genoring-final:latest',
+    {'org.genoring.override.signature' => 'abc'}
+  );
+  like($commands[-1], qr/--label 'org.genoring.override.signature=abc'/, 'Sets requested labels on the override image');
 }
 
 {
@@ -188,23 +252,25 @@ my %module_config = (
   local *Genoring::GetProjectName = sub { return 'other_instance'; };
   local *Genoring::SaveConfig = sub {};
   local *Genoring::GenerateDockerComposeFile = sub {};
-  local *Genoring::Run = sub {
-    return $_[0] =~ / images -q / ? 'public-image-id' : '';
-  };
+  reset_images('mongo:4.2.24' => 'public-image-id');
+  local *Genoring::Run = sub { return ''; };
+  local *Genoring::_GetDockerImageId = sub { return $images{$_[0]} || ''; };
+  local *Genoring::_GetDockerImageLabels = sub { return $image_labels{$_[0]} || {}; };
   local *Genoring::_GetServiceOverridePlans = sub { return {'genoring-mongodb42' => $plan}; };
   local *Genoring::Build = sub { push(@base_builds, [@_]); };
-  local *Genoring::_BuildServiceOverride = sub { push(@built_overrides, [@_]); };
+  local *Genoring::_BuildServiceOverride = sub { mock_build_override(\@built_overrides, @_); };
 
   Genoring::ApplyServiceOverrides();
   is(scalar(@base_builds), 0, 'Does not rebuild a public base image');
-  is(
-    $built_overrides[0]->[4],
-    'genoring-override-other_instance-genoring-mongodb42:latest',
-    'Creates an instance-specific image for an override of a public image'
+  like(
+    $built_overrides[0]->[5],
+    qr/^genoring-override-genoring-mongodb42:[0-9a-f]{12}$/,
+    'Creates an instance-independent image for an override of a public image'
   );
+  is($built_overrides[0]->[4], 'mongo:4.2.24', 'Chains the override on the public image');
   is(
     $config->{'service_overrides'}->{'genoring-mongodb42'}->{'image'},
-    'genoring-override-other_instance-genoring-mongodb42:latest',
+    $built_overrides[0]->[5],
     'Persists the public override image for Compose generation'
   );
 }
@@ -293,3 +359,7 @@ my %module_config = (
   );
   is(scalar(@override_calls), 1, 'Public image override build exits without a source build');
 }
+
+ok(Genoring::_IsServiceImage('genoring', 'genoring'), 'Original image is a service image');
+ok(Genoring::_IsServiceImage('genoring', 'genoring-override-genoring:0123456789ab'), 'Override image is a service image');
+ok(!Genoring::_IsServiceImage('genoring', 'genoring-override-genoring-db:0123456789ab'), 'Other service override image is not a service image');

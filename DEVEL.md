@@ -317,20 +317,29 @@ directory. A GenoRing module is a directory with the following structure:
   active. An optional "alternatives" list limits an override to the selected
   alternative name; use the module name in that list to select the module's
   default services. When multiple modules override one service, GenoRing builds
-  them in module-name order. It rebuilds the original module image first when
-  the service has local sources, then applies each override and tags the final
-  image with the service's original image name. For services based on public
-  images, the final image gets an instance-specific
-  "genoring-override-<project>-<service>" name, and that image is written into
-  the generated "docker-compose.yml" as a local-only image. The active override
-  module list and effective image are persisted under "service_overrides" in
-  "config.yml".
+  them in module-name order. It starts from the original service image (built
+  from local sources when needed, or the public image), applies each override
+  and tags the final image "genoring-override-<service>:<key>", where "<key>"
+  is a short hash of the service, its owner module, its base image and the
+  ordered list of override modules. The original service image is never
+  modified, so instances on the same host with different override sets use
+  distinct images, while instances with the same override set share one
+  image. The final image carries Docker labels
+  ("org.genoring.override.signature" and
+  "org.genoring.override.base-image-id") that record the override content
+  (module versions and Dockerfile digests) and the base image identifier. An
+  existing image whose labels still match is reused instead of rebuilt, even
+  if another instance built it. The image is written into the generated
+  "docker-compose.yml" as a local-only image. The active override module list
+  and effective image are persisted under "service_overrides" in "config.yml".
+  Override images that are no longer used are not removed automatically, since
+  other instances may still use them.
   Overrides are built when the target service is compiled, for example with
   `./genoring.pl build genoring genoring`; enabling or disabling an override
   module does not itself rebuild the target image. Rebuild the target service
   after changing its active override modules or Dockerfiles. For a public-image
   service, the same build command applies its overrides without rebuilding the
-  public base image.
+  public base image (use "-no-cache" to force the override rebuild).
   Note: these overrides a related to the Docker container content, but it is
   also possible to override the definition of service using the container. See
   "services" item and TEMPLATE services documentation for details.

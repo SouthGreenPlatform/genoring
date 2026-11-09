@@ -164,6 +164,16 @@ B<%OS>: (hash)
 
 Hash associating an OS name ($^O) to a normalized OS architecture.
 
+B<$OVERRIDE_KEY_LENGTH>: (integer)
+
+Number of hexadecimal characters of the key used to tag service override
+images (see "genoring-override-<service>:<key>" images).
+
+B<$OVERRIDE_LABEL_PREFIX>: (string)
+
+Prefix of the Docker labels set on service override images to track their
+content signature and the base image they were built from.
+
 B<$PRIVATE_DIR_MODE>: (integer)
 
 Permissions of directories containing sensitive data (ie. "env" and
@@ -278,6 +288,8 @@ our %OS = (
   'vms'      => 'unsup',
   'vos'      => 'unsup',
 );
+our $OVERRIDE_KEY_LENGTH = 12;
+our $OVERRIDE_LABEL_PREFIX = 'org.genoring.override';
 our $PRIVATE_DIR_MODE = 0700;
 our $PRIVATE_FILE_MODE = 0600;
 our $PROFILE_CONSTRAINT_REGEX = '(?:((?:dev|staging|prod|backend|offline)(?:\s*,\s*(?:dev|staging|prod|backend|offline))*):)?';
