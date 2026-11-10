@@ -6663,7 +6663,12 @@ The service name.
 
 =item $ip: (string) (R)
 
-The IP running the service.
+The IP running the service. The keywords "host", "host-gateway" and
+"localhost" (case insensitive) can be used instead to designate the Docker
+host: they are stored as "host-gateway", which Docker resolves to the host IP
+on its default bridge network (i.e. "docker0") when containers start.
+Loopback addresses (127.x.x.x and ::1), which would otherwise designate each
+container itself, are also replaced by "host-gateway" with a warning.
 
 =back
 
@@ -6676,8 +6681,21 @@ sub ToExternalService {
   if (!$service) {
     die "ERROR: Turn docker service into local service: no service name provided!\n";
   }
+  # Docker host keywords.
+  if ($ip && ($ip =~ m/^\s*(?:host(?:-gateway)?|localhost)\s*$/i)) {
+    $ip = 'host-gateway';
+  }
+  # Loopback addresses would designate each container itself: assume the Docker
+  # host was meant.
+  elsif ($ip && ($ip =~ m/^\s*(?:127(?:\.\d{1,3}){3}|::1|0:0:0:0:0:0:0:1)\s*$/)) {
+    warn "WARNING: Loopback address '$ip' would designate each container itself. Using the Docker host instead ('host-gateway').\n";
+    $ip = 'host-gateway';
+  }
+  if ($ip && ('host-gateway' eq $ip)) {
+    print "NOTE: '$service' will be resolved to the Docker host IP on its default bridge network (i.e. 'docker0', usually 172.17.0.1) by the other containers. The host service must listen on that interface and not only on 127.0.0.1.\n";
+  }
   if (!$ip
-    || ($ip !~ m/
+    || (($ip ne 'host-gateway') && ($ip !~ m/
       (
         # IP v4.
         (^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$)
@@ -6698,9 +6716,9 @@ sub ToExternalService {
             (?:%.+)?
           $)
       )
-    /ix)
+    /ix))
   ) {
-    die "ERROR: Turn docker service into local service: no valid replacing IP provided!\n";
+    die "ERROR: Turn docker service into local service: no valid replacing IP or host keyword ('host' or 'host-gateway') provided!\n";
   }
   my $services = GetServices();
   if (!$services->{$service}) {

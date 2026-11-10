@@ -28,7 +28,7 @@ use IPC::Open3 qw(open3);
 use lib "$FindBin::Bin/../../perllib";
 use Genoring;
 use Genoring::GenoringTest;
-use Test::More tests => 83;
+use Test::More tests => 84;
 ++$|; #no buffering
 use Data::Dumper; #+debug
 
@@ -1116,6 +1116,32 @@ my $test_output = '';
     $expected_config->{'modules'},
     'MongoDB 4.2 module enabled'
   );
+};
+
+# ToExternalService() accepts IPs and Docker host keywords.
+subtest 'ToExternalService() host keywords' => sub {
+  plan tests => 12;
+  my (%module_conf, $extra_hosts);
+  local *Genoring::GetServices = sub { return {'genoring-ext' => 'extmodule'}; };
+  local *Genoring::GetModuleConf = sub { return $module_conf{$_[0]} ||= {}; };
+  local *Genoring::SetModuleConf = sub { $module_conf{$_[0]} = $_[1]; };
+  local *Genoring::_ReadExtraHosts = sub { return {}; };
+  local *Genoring::_WriteExtraHosts = sub { $extra_hosts = $_[0]; };
+  local *Genoring::GenerateDockerComposeFile = sub {};
+
+  local $SIG{__WARN__} = sub {};
+  foreach my $keyword ('host', 'host-gateway', 'HOST', 'localhost', 'LocalHost', '127.0.0.1', '127.0.1.1', '::1') {
+    Genoring::ToExternalService('genoring-ext', $keyword);
+    is($extra_hosts->{'genoring-ext'}, 'host-gateway', "'$keyword' is stored as 'host-gateway'");
+  }
+  Genoring::ToExternalService('genoring-ext', '192.168.1.10');
+  is($extra_hosts->{'genoring-ext'}, '192.168.1.10', 'IPs are stored as is');
+  eval { Genoring::ToExternalService('genoring-ext', 'db.example.org'); };
+  like($@, qr/no valid replacing IP/, 'Host names are rejected');
+  eval { Genoring::ToExternalService('genoring-ext', 'hostname'); };
+  like($@, qr/no valid replacing IP/, 'Keyword prefixes are rejected');
+  eval { Genoring::ToExternalService('genoring-ext', 'localhost.localdomain'); };
+  like($@, qr/no valid replacing IP/, 'Other local names are rejected');
 };
 
 # Cleanups test instance.

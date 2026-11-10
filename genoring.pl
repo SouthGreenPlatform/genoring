@@ -18,7 +18,7 @@ genoring.pl - Manages GenoRing platform.
   | reset [-f] [-delete-containers] [-preserve-env]
   | enable <MODULE>... | disable <MODULE> | uninstall <MODULE> [-preserve-env]
   | enablealt <MODULE> <SERVICE> | disablealt <MODULE> <SERVICE>
-  | toexternal <SERVICE> <IP> | togenoring <SERVICE> [ALTERNATIVE]
+  | toexternal <SERVICE> <IP|host> | togenoring <SERVICE> [ALTERNATIVE]
   | attach <DIRECTORY> | detach <PROJECT> | instances
   | update [MODULE] | upgrade [MODULE]
   | backup [BKNAME] | restore [BKNAME] | clearcache | build <MODULE> <SERVICE> [-no-cache]
@@ -360,11 +360,18 @@ service.
 
 =head4 Syntax
 
-  perl genoring.pl toexternal <SERVICE> <IP>
+  perl genoring.pl toexternal <SERVICE> <IP | host | host-gateway>
 
 =head4 Description
 
 Turns a Docker service SERVICE into a local service provided by the given IP.
+The keywords "host", "host-gateway" or "localhost" can be used instead of an
+IP to use a service running on the Docker host itself: Docker will then resolve
+the service name to the host IP (on its "docker0" bridge) in the other
+containers. Loopback IPs (127.x.x.x, ::1) are treated the same way since they
+would otherwise designate each container itself.
+Note: the host service must listen on that interface (and not only on
+127.0.0.1).
 
 
 =head3 togenoring

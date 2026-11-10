@@ -437,7 +437,18 @@ corresponding external service is explained in the module's README file in a
 ```
 
 where "SERVICE" is the name of the service and IP is the IP of the server
-providing that service (both IPv4 and IPv6 are supported).
+providing that service (both IPv4 and IPv6 are supported). If the service runs
+on the Docker host itself, use the keyword "host" (or "host-gateway" or
+"localhost") instead of an IP (loopback IPs like 127.0.0.1 are treated the
+same way since they would otherwise designate each container itself):
+
+```
+  # perl genoring.pl toexternal SERVICE host
+```
+
+Docker will then resolve the service name to the host IP on its default bridge
+network ("docker0", usually 172.17.0.1) in the other containers. The host
+service must listen on that interface and not only on 127.0.0.1.
 
 It is possible to later switch back to container service using:
 
